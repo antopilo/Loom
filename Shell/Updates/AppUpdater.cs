@@ -37,8 +37,8 @@ internal sealed class AppUpdater
 		if ( _manager?.UpdatePendingRestart is not { } pending )
 			return false;
 
-		// The updater waits for this process to exit before it replaces the files.
-		_manager.WaitExitThenApplyUpdates( pending, silent: false, restart: true, [] );
+		// The updater waits for this process to exit before it replaces the files, then starts Loom with the same arguments, such as --data.
+		_manager.WaitExitThenApplyUpdates( pending, silent: false, restart: true, Environment.GetCommandLineArgs()[1..] );
 		window.RequestClose();
 		return true;
 	}

@@ -243,7 +243,7 @@ repository, a web address or a folder (`UpdateFeed`); blank turns updates off.
 
 - **App.** `AppUpdater` downloads a new release with Velopack and posts **Restart now**, which
   closes the window normally, so state is saved, and lets Velopack replace the files and start
-  Loom again. Otherwise Velopack applies it at the next start. While a new Loom waits, module
+  Loom again with the same arguments, such as `--data`. Otherwise Velopack applies it at the next start. While a new Loom waits, module
   updates are not fetched, because it brings its own modules.
 - **Modules.** Each built-in module has its own `<Version>` in its project, and publishing passes
   the app version to the app only (`GlobalPropertiesToRemove` in `Lokn.csproj`). `ModuleUpdater`
@@ -252,7 +252,8 @@ repository, a web address or a folder (`UpdateFeed`); blank turns updates off.
   not fit is skipped for the next older one, so an older Loom still gets the newest module that
   works with it. **Apply now** moves staged files into `module-updates`, which reloads those
   modules (for Omp, Conversations, Projects or Git that stops running agent turns); otherwise
-  `ModuleHost.Start` applies them at the next start.
+  `ModuleHost.Start` applies them at the next start. Each loaded update is logged in `modules.log`
+  as `USING <assembly> <version> (update)`.
 
 Compatibility is checked, not declared. `ModuleHost` loads the newest DLL of each module and runs
 `ModuleCompatibility.FindProblem`, which loads every type of the module and resolves every type and

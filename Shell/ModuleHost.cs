@@ -313,6 +313,8 @@ internal sealed class ModuleHost
 				_assemblies[item.Image.Name] = item;
 
 			UpdateLog( $"{( isInitial ? "LOADED" : "RELOADED" )} {names} (modules: {string.Join( ", ", modules.Select( module => module.Id ) )})" );
+			foreach ( var item in hosted.Where( item => item.Image.IsUpdate ) )
+				UpdateLog( $"USING {item.Image.Name} {item.Image.Version.ToString( 3 )} (update)" );
 		}
 		catch ( Exception error )
 		{
