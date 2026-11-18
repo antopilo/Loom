@@ -478,3 +478,16 @@ directories below `%LOCALAPPDATA%\Lokn\sessions`. Layout, split ratios, focused 
 and conversation panel identities save in `%LOCALAPPDATA%\Lokn\workspace.json`
 before shutdown. Missing module panels are omitted on restore; unreadable history
 and layout files remain untouched and their errors appear in the shell.
+
+## Updates
+
+An installed Loom looks for new versions 30 seconds after it starts and then every 6 hours,
+and downloads them in the background. A new Loom shows **Restart now** in the notification
+feed; module updates show **Apply now**, which reloads those modules. If you do neither, the
+update applies the next time Loom starts. A module update that does not match your version of
+Loom is never loaded: the previous version keeps running.
+
+**Updates: check for updates** in the palette checks at once and says what it found. Under
+Settings › Updates, **Check for updates automatically** turns the background checks off, and
+**Update source** picks where updates come from: a GitHub repository, a web address or a
+folder. A Loom run from a build takes no updates.

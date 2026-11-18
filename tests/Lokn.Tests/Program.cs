@@ -108,6 +108,12 @@ if ( args.Contains( "--hotload-only" ) )
 	return;
 }
 
+if ( args.Contains( "--updates-only" ) )
+{
+	UpdateChecks.Run();
+	return;
+}
+
 var featureChecks = args.Contains( "--features-only" );
 var layoutChecks = args.Contains( "--layout-only" );
 var conversationChecks = args.Contains( "--conversations-only" );
@@ -127,6 +133,7 @@ if ( !focused )
 		SearchChecks.Run();
 		await AgentToolChecks.RunAsync();
 		HotloadChecks.Run();
+		UpdateChecks.Run();
 		ThemeChecks.Run();
 	}
 	SettingsChecks.Run();

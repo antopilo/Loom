@@ -42,7 +42,8 @@ See [Using Loom](docs/features.md) for the full guide.
 Download `Loom-win-Setup.exe` from the [releases](https://github.com/antopilo/Loom/releases)
 and run it. It installs for the current user, needs no administrator rights and no .NET, and
 you can remove it from **Settings › Apps**. Your data in `%LOCALAPPDATA%\Lokn` stays when you
-uninstall.
+uninstall. Loom updates itself and its modules in the background and asks before it applies
+an update.
 
 **Requirements:** Windows 11 x64, a GPU with Vulkan 1.3 and current drivers, and
 [Omp](https://github.com/can1357/oh-my-pi) for chats (Loom's **Get started** panel helps you
@@ -72,6 +73,7 @@ Each script prints a final status line and exits non-zero when it fails. Run
 |`new-module.ps1`, `check-module.ps1`|Creates and compile-checks a source module|
 |`publish.ps1`|Self-contained build in `artifacts\publish\win-x64`|
 |`installer.ps1`|Windows installer in `artifacts\installer`|
+|`release.ps1`|Publishes the app and new module versions to GitHub; `-DryRun` only shows what it would publish|
 
 ## How it is built
 

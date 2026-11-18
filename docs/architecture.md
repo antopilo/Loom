@@ -12,7 +12,7 @@ Dependencies point one way: features and the shell depend on Core, never the rev
 | Layer | Assembly | Holds | May reference |
 |---|---|---|---|
 | `Core/` | `Lokn.Core` | Module contracts, `LoknApplication`, command registry, search registry, panel workspace and docking tree, settings, the notification feed, `Theme` | Goo only |
-| `Shell/` | `Lokn` | Goo views: window chrome with its titlebar, sidebar and status bar slots, the sidebar column and profile switcher, dock rendering, the Search palette, the settings editor (a Shell tab, the Modules tab, then one tab per module), `ShellModule` (id `shell`: window settings and commands, the `shell_*` agent tools, and the Search palette's Panels, Actions and Settings), `ModuleStates` (which modules are on, in `modules.json`), `ThemeModule` in `Theming/` (the theme file, the Tern catalog and the picker; it cannot be disabled), `ModuleHost`, and `AttentionNotifier` (acknowledging requests the user looked at, and opening clicked Windows notifications) | Core, Goo |
+| `Shell/` | `Lokn` | Goo views: window chrome with its titlebar, sidebar and status bar slots, the sidebar column and profile switcher, dock rendering, the Search palette, the settings editor (a Shell tab, the Modules tab, then one tab per module), `ShellModule` (id `shell`: window settings and commands, the `shell_*` agent tools, and the Search palette's Panels, Actions and Settings), `ModuleStates` (which modules are on, in `modules.json`), `ThemeModule` in `Theming/` (the theme file, the Tern catalog and the picker; it cannot be disabled), `ModuleHost` with `ModuleCompatibility` (loading module DLLs and module updates that fit), `UpdatesModule` in `Updates/` (id `updates`: app and module updates; see [Updates](#updates)), and `AttentionNotifier` (acknowledging requests the user looked at, and opening clicked Windows notifications) | Core, Goo |
 | `Modules/<Name>/` | one `Lokn.Modules.<Name>` DLL each | Features: `Omp` (also publishes `IAgentService`), `Git` (the one git runner, `GitProcess`, each watched folder's live repository, branch and changes, the Git panel with its graph and file diff modes and its `git.actions` and `git.messages` points, and the Files side view's Changes and History modes), `Projects` (a named working folder per profile with a session of its own, its icon and the trusted modules it carries, and `IWorkingFolder`, with the `projects.folders` point other sessions such as tasks give their folder through; it lists them in the sidebar or tab strip while Conversations is not loaded), `Conversations` (with the chat panel in `Chat/`, Home: the empty state of a conversation panel, opening each project's session through Projects, and the Git views' review in chat and commit message writer; Git is optional), `Markdown` (`IMarkdownRenderer` and the chat's Markdown view), `Files` (the side view at the left of the workspace: the file tree and the modes other modules add through `files.modes`), `Editor` (a text editor with history, highlighting and gutter marks, `lokn://editor/open`), `Notifications` (the feed page, the bell, its popover and banners, the chime and Windows notifications; it depends on no module, and modules describe their notifications with `NotificationKind`), `GitHub`, `Worktrees`, `Terminal`, `Workspaces` (saved workspaces, one set per session; always on), `Browser`, and the example `Welcome` | Core, Goo, and another module only through a project reference plus a declared dependency |
 | `Modules/Hotload/` | `Lokn` | The runtime compiler for source modules; part of the host because it carries Roslyn | Core, Goo |
 | `Program.cs` | `Lokn` | Configures the Goo app identity and single instance, starts the module host, loads the shell's own modules, restores the workspace, then raises `LoknApplication.Started`, where modules open their own startup view (`ModuleContext.WhenStarted`); with none the shell shows its empty pane | Core and shell only, never a feature module, not even by ID |
@@ -220,6 +220,56 @@ deletes the install folder and every shortcut into it. `%LOCALAPPDATA%\Lokn` is 
 package version is `<Version>` in `Lokn.csproj`, and each version can be packed once into
 `artifacts\installer`, which keeps earlier releases for update deltas. Nothing is signed yet,
 so SmartScreen warns before the first run.
+
+## Updates
+
+An installed Loom updates itself and its modules separately, from one feed. Loom run from a
+build takes no updates.
+
+```text
+feed (Update source setting; default: the GitHub repository)
+├─ releases v0.2.0, v0.3.0 …            app: Velopack packages, read by AppUpdater
+└─ release "modules" (pre-release)      modules: modules.json + Lokn.Modules.<Name>-<version>.dll
+
+%LOCALAPPDATA%\Loom\current\modules\         bundled module DLLs; an app update replaces them
+%LOCALAPPDATA%\Loom\module-updates\          applied module updates
+%LOCALAPPDATA%\Loom\module-updates\staged\   downloaded, waiting for Apply now or the next start
+```
+
+`UpdatesModule` (`Shell/Updates/`) checks 30 seconds after startup and then every 6 hours while
+**Check for updates automatically** (`updates.automatic`) is on; **Updates: check for updates**
+checks now and always says what it found. **Update source** (`updates.source`) takes a GitHub
+repository, a web address or a folder (`UpdateFeed`); blank turns updates off.
+
+- **App.** `AppUpdater` downloads a new release with Velopack and posts **Restart now**, which
+  closes the window normally, so state is saved, and lets Velopack replace the files and start
+  Loom again. Otherwise Velopack applies it at the next start. While a new Loom waits, module
+  updates are not fetched, because it brings its own modules.
+- **Modules.** Each built-in module has its own `<Version>` in its project, and publishing passes
+  the app version to the app only (`GlobalPropertiesToRemove` in `Lokn.csproj`). `ModuleUpdater`
+  reads `modules.json`, downloads per loaded module the newest version above the running one,
+  checks its SHA-256, asks `ModuleHost.Check` whether it fits, and stages it. A version that does
+  not fit is skipped for the next older one, so an older Loom still gets the newest module that
+  works with it. **Apply now** moves staged files into `module-updates`, which reloads those
+  modules (for Omp, Conversations, Projects or Git that stops running agent turns); otherwise
+  `ModuleHost.Start` applies them at the next start.
+
+Compatibility is checked, not declared. `ModuleHost` loads the newest DLL of each module and runs
+`ModuleCompatibility.FindProblem`, which loads every type of the module and resolves every type and
+member it references against the assemblies actually running: Core, Goo, .NET and the other
+modules. A module update built against API this Loom lacks is refused before any of its code runs:
+it is logged as `SKIPPED` in `modules.log` and deleted, a refusal while Loom runs is reported in the
+notification feed, and the next older version loads, down to the bundled one. A bundled module that stops fitting because of
+an update it uses refuses that update instead. For this to work, module references to the
+application's assemblies bind by name, not version (`ModuleLoadContext`), and Core's assembly
+version stays 1.0.0. The check cannot see behavior changes behind an unchanged signature; change
+the signature, or the member's name, when its meaning changes.
+
+`scripts/release.ps1` publishes both: the installer and update packages as release `v<Version>`
+(with a delta from the previous release), then every module whose version the published
+`modules.json` lacks. `-ModulesOnly` skips the app, `-DryRun` uploads nothing. A module whose code
+changed without a new `<Version>` ships only with the next app release; the script warns about it.
+Velopack reads stable releases only, so it ignores the `modules` pre-release.
 
 ## Where a change goes
 

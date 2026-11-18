@@ -4,11 +4,19 @@ using Lokn.Core;
 
 namespace Lokn;
 
-/// <summary>Loads feature modules from DLLs beside the application and reloads them when they are rebuilt.</summary>
+/// <summary>Loads feature modules from DLLs beside the application and reloads them when they are rebuilt or updated.</summary>
+/// <remarks>
+/// A module DLL can come from two folders: the bundled one beside the executable, and, in an installed Loom, the folder downloaded
+/// module updates go to. The newest version of each module loads, but only when <see cref="ModuleCompatibility"/> finds that every type
+/// and member it uses exists in the running application; otherwise the next older version loads, down to the bundled one.
+/// </remarks>
 internal sealed class ModuleHost
 {
 	/// <summary>Defines the file name pattern of module assemblies.</summary>
 	private const string AssemblyPattern = "Lokn.Modules.*.dll";
+
+	/// <summary>Defines the folder inside the updates folder where downloaded updates wait until they are applied.</summary>
+	private const string StagedFolder = "staged";
 
 	/// <summary>Defines the quiet period in milliseconds after a file event before rebuilt assemblies are read.</summary>
 	private const int DebounceMilliseconds = 300;
@@ -16,8 +24,11 @@ internal sealed class ModuleHost
 	/// <summary>Stores the application whose modules are hosted.</summary>
 	private readonly LoknApplication _app;
 
-	/// <summary>Stores the directory holding module assemblies.</summary>
+	/// <summary>Stores the directory holding the bundled module assemblies.</summary>
 	private readonly string _directory;
+
+	/// <summary>Stores the directory holding applied module updates, or null when this application takes no module updates.</summary>
+	private readonly string? _updatesDirectory;
 
 	/// <summary>Stores the file that records each reload's outcome for scripts and agents.</summary>
 	private readonly string _logPath;
@@ -25,8 +36,8 @@ internal sealed class ModuleHost
 	/// <summary>Stores the loaded assemblies by simple name; used on the UI thread.</summary>
 	private readonly Dictionary<string, HostedAssembly> _assemblies = new( StringComparer.OrdinalIgnoreCase );
 
-	/// <summary>Stores each assembly file's last seen write time and size, guarded by the scan lock.</summary>
-	private readonly Dictionary<string, (DateTime Written, long Length)> _stamps = new( StringComparer.OrdinalIgnoreCase );
+	/// <summary>Stores, per assembly name, the files last seen for it with their write times and sizes, guarded by the scan lock.</summary>
+	private readonly Dictionary<string, string> _stamps = new( StringComparer.OrdinalIgnoreCase );
 
 	/// <summary>Serializes the startup scan and overlapping debounce ticks.</summary>
 	private readonly Lock _scanLock = new();
@@ -34,8 +45,11 @@ internal sealed class ModuleHost
 	/// <summary>Coalesces the file events one build raises into a single reload.</summary>
 	private readonly Timer _debounce;
 
-	/// <summary>Stores the module directory watcher while the host runs.</summary>
-	private FileSystemWatcher? _watcher;
+	/// <summary>Stores the watchers of the module folders while the host runs.</summary>
+	private readonly List<FileSystemWatcher> _watchers = [];
+
+	/// <summary>Stores which installed modules start on.</summary>
+	private readonly ModuleStates _states;
 
 	/// <summary>Gets the directory beside the executable where module projects deploy their DLLs.</summary>
 	internal static string DefaultDirectory => Path.Combine( AppContext.BaseDirectory, "modules" );
@@ -43,42 +57,117 @@ internal sealed class ModuleHost
 	/// <summary>Gets the per-user file recording reload outcomes.</summary>
 	internal static string DefaultLogPath => Path.Combine( Path.GetTempPath(), "Lokn", "modules.log" );
 
-	/// <summary>Stores which installed modules start on.</summary>
-	private readonly ModuleStates _states;
+	/// <summary>Gets the folder downloaded updates wait in until they are applied, or null when this application takes no module updates.</summary>
+	internal string? StagedDirectory => _updatesDirectory is null ? null : Path.Combine( _updatesDirectory, StagedFolder );
+
+	/// <summary>Gets the version of every loaded module assembly by simple name; read on the UI thread.</summary>
+	internal IReadOnlyDictionary<string, Version> Versions => _assemblies.ToDictionary( item => item.Key, item => item.Value.Image.Version, StringComparer.OrdinalIgnoreCase );
+
+	/// <summary>Raised on the UI thread when an update does not fit the running application and is removed; gives its assembly name, version and the first problem.</summary>
+	internal event Action<string, Version, string>? Refused;
 
 	/// <summary>Creates a host for the module assemblies in a directory.</summary>
-	internal ModuleHost( LoknApplication app, string directory, string logPath, ModuleStates states )
+	/// <param name="app">The application whose modules are hosted.</param>
+	/// <param name="directory">The directory of the bundled module assemblies.</param>
+	/// <param name="updatesDirectory">The directory applied module updates go to, or null to take no module updates.</param>
+	/// <param name="logPath">The file each load's outcome is appended to.</param>
+	/// <param name="states">Which modules start on.</param>
+	internal ModuleHost( LoknApplication app, string directory, string? updatesDirectory, string logPath, ModuleStates states )
 	{
 		_app = app;
 		_directory = directory;
+		_updatesDirectory = updatesDirectory;
 		_logPath = logPath;
 		_states = states;
 		_debounce = new( _ => PostChanges(), null, Timeout.Infinite, Timeout.Infinite );
 		app.ModuleToggled += states.Set;
 	}
 
-	/// <summary>Loads every module assembly in dependency order, then watches the directory for rebuilt ones.</summary>
+	/// <summary>Applies staged updates, loads every module assembly in dependency order, then watches the folders for new ones.</summary>
 	internal void Start()
 	{
 		Directory.CreateDirectory( _directory );
-		Apply( ReadChanges(), isInitial: true );
-
-		_watcher = new( _directory, AssemblyPattern )
+		if ( _updatesDirectory is not null )
 		{
-			NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
-		};
-		_watcher.Changed += MarkDirty;
-		_watcher.Created += MarkDirty;
-		_watcher.Renamed += MarkDirty;
-		_watcher.EnableRaisingEvents = true;
+			Directory.CreateDirectory( _updatesDirectory );
+			ApplyStaged();
+			RemoveOutdatedUpdates();
+		}
+
+		Apply( ReadChanges(), isInitial: true );
+		Watch( _directory );
+		if ( _updatesDirectory is not null )
+			Watch( _updatesDirectory );
 	}
 
 	/// <summary>Stops watching while leaving the loaded modules running.</summary>
 	internal void Stop()
 	{
-		// The watcher owns a native directory handle that would otherwise keep the directory in use.
-		_watcher?.Dispose();
-		_watcher = null;
+		// Each watcher owns a native directory handle that would otherwise keep the directory in use.
+		foreach ( var watcher in _watchers )
+			watcher.Dispose();
+		_watchers.Clear();
+	}
+
+	/// <summary>Moves downloaded updates from the staged folder into use; the folder watcher then reloads their modules.</summary>
+	/// <returns>How many updates moved.</returns>
+	internal int ApplyStaged()
+	{
+		if ( _updatesDirectory is null || StagedDirectory is not { } staged || !Directory.Exists( staged ) )
+			return 0;
+
+		var count = 0;
+		foreach ( var file in Directory.GetFiles( staged, AssemblyPattern ) )
+		{
+			File.Move( file, Path.Combine( _updatesDirectory, Path.GetFileName( file ) ), overwrite: true );
+			count++;
+		}
+
+		return count;
+	}
+
+	/// <summary>Finds which candidate updates would be refused beside the running modules, without starting them.</summary>
+	/// <param name="candidates">Each candidate's assembly name and bytes.</param>
+	/// <returns>The refused candidates' assembly names, each with the first problem found.</returns>
+	/// <remarks>Use it on the UI thread. The candidates are checked together, so an update that needs another update passes with it.</remarks>
+	internal IReadOnlyDictionary<string, string> Check( IReadOnlyList<(string Name, byte[] Image)> candidates )
+	{
+		var changes = candidates
+			.Select( candidate => new AssemblyImage( candidate.Name, candidate.Image, null, ModuleCompatibility.ReadVersion( candidate.Image ), Path: null, IsUpdate: true,
+				Fallback: _assemblies.GetValueOrDefault( candidate.Name )?.Image ) )
+			.ToList();
+		var refused = new Dictionary<string, string>( StringComparer.OrdinalIgnoreCase );
+		try
+		{
+			LoadCompatible( BuildAffected( changes ), ( image, problem ) =>
+			{
+				if ( changes.Contains( image ) )
+					refused[image.Name] = problem;
+			} );
+		}
+		catch ( Exception error )
+		{
+			// A running module that no longer loads beside them is a fault of this application, not of the updates; refuse them all.
+			foreach ( var change in changes )
+				refused.TryAdd( change.Name, error.Message );
+		}
+
+		return refused;
+	}
+
+	/// <summary>Starts watching one folder for written module assemblies.</summary>
+	private void Watch( string directory )
+	{
+		var watcher = new FileSystemWatcher( directory, AssemblyPattern )
+		{
+			NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+		};
+		watcher.Changed += MarkDirty;
+		watcher.Created += MarkDirty;
+		watcher.Renamed += MarkDirty;
+		watcher.Deleted += MarkDirty;
+		watcher.EnableRaisingEvents = true;
+		_watchers.Add( watcher );
 	}
 
 	/// <summary>Restarts the quiet period after a module assembly is written.</summary>
@@ -92,30 +181,62 @@ internal sealed class ModuleHost
 			_app.Post( () => Apply( changes, isInitial: false ) );
 	}
 
-	/// <summary>Reads every module assembly whose file changed since the last scan.</summary>
+	/// <summary>Deletes updates no newer than the bundled module, which an application update has caught up with.</summary>
+	private void RemoveOutdatedUpdates()
+	{
+		foreach ( var file in Directory.GetFiles( _updatesDirectory!, AssemblyPattern ) )
+		{
+			var bundled = Path.Combine( _directory, Path.GetFileName( file ) );
+			if ( File.Exists( bundled ) && ModuleCompatibility.ReadVersion( File.ReadAllBytes( file ) ) <= ModuleCompatibility.ReadVersion( File.ReadAllBytes( bundled ) ) )
+				File.Delete( file );
+		}
+	}
+
+	/// <summary>Lists each module assembly's files by simple name: the bundled one, then the applied update.</summary>
+	private Dictionary<string, List<string>> ListFiles()
+	{
+		var files = new Dictionary<string, List<string>>( StringComparer.OrdinalIgnoreCase );
+		string[] directories = _updatesDirectory is null ? [_directory] : [_directory, _updatesDirectory];
+		foreach ( var directory in directories )
+		{
+			foreach ( var file in Directory.GetFiles( directory, AssemblyPattern ) )
+			{
+				var name = Path.GetFileNameWithoutExtension( file );
+				if ( !files.TryGetValue( name, out var list ) )
+					files[name] = list = [];
+				list.Add( file );
+			}
+		}
+
+		return files;
+	}
+
+	/// <summary>Describes a module's files by path, write time and size, so any change to one of them shows.</summary>
+	private static string ComputeStamp( IEnumerable<string> files )
+	{
+		return string.Join( "|", files.Select( file => new FileInfo( file ) ).Select( info => $"{info.FullName}*{info.LastWriteTimeUtc.Ticks}*{info.Length}" ) );
+	}
+
+	/// <summary>Reads every module assembly whose files changed since the last scan.</summary>
 	private List<AssemblyImage> ReadChanges()
 	{
 		var changes = new List<AssemblyImage>();
 		lock ( _scanLock )
 		{
-			foreach ( var file in Directory.GetFiles( _directory, AssemblyPattern ) )
+			foreach ( var (name, files) in ListFiles() )
 			{
-				var name = Path.GetFileNameWithoutExtension( file );
 				try
 				{
-					var info = new FileInfo( file );
-					var stamp = (info.LastWriteTimeUtc, info.Length);
+					var stamp = ComputeStamp( files );
 					if ( _stamps.TryGetValue( name, out var previous ) && previous == stamp )
 						continue;
 
-					// Reading the bytes leaves the file unlocked, so the next build can replace it while Lokn runs.
-					var symbols = Path.ChangeExtension( file, ".pdb" );
-					changes.Add( new( name, File.ReadAllBytes( file ), File.Exists( symbols ) ? File.ReadAllBytes( symbols ) : null ) );
+					changes.Add( ReadImage( name, files ) );
 					_stamps[name] = stamp;
 				}
 				catch ( IOException )
 				{
-					// The build is still writing this file; look again once it has finished.
+					// A build or a download is still writing this file; look again once it has finished.
 					_debounce.Change( DebounceMilliseconds, Timeout.Infinite );
 				}
 			}
@@ -123,6 +244,26 @@ internal sealed class ModuleHost
 
 		return changes;
 	}
+
+	/// <summary>Reads a module's files into its newest image, which falls back to the bundled one when it is refused.</summary>
+	private AssemblyImage ReadImage( string name, IReadOnlyList<string> files )
+	{
+		var bundled = files.FirstOrDefault( file => !IsUpdate( file ) ) is { } path ? ReadFile( name, path, fallback: null ) : null;
+		var update = files.FirstOrDefault( IsUpdate ) is { } updatePath ? ReadFile( name, updatePath, bundled ) : null;
+		// An update only counts while it is newer than the bundled module.
+		return update is not null && (bundled is null || update.Version > bundled.Version) ? update : bundled ?? update!;
+	}
+
+	/// <summary>Reads one module file with its symbols; reading the bytes leaves the file unlocked, so a build or download can replace it.</summary>
+	private AssemblyImage ReadFile( string name, string file, AssemblyImage? fallback )
+	{
+		var image = File.ReadAllBytes( file );
+		var symbols = Path.ChangeExtension( file, ".pdb" );
+		return new( name, image, File.Exists( symbols ) ? File.ReadAllBytes( symbols ) : null, ModuleCompatibility.ReadVersion( image ), file, IsUpdate( file ), fallback );
+	}
+
+	/// <summary>Tells whether a file is an applied update rather than a bundled module.</summary>
+	private bool IsUpdate( string file ) => _updatesDirectory is not null && string.Equals( Path.GetDirectoryName( file ), _updatesDirectory, StringComparison.OrdinalIgnoreCase );
 
 	/// <summary>Loads changed assemblies together with the assemblies that reference them, then swaps their modules in.</summary>
 	private void Apply( IReadOnlyList<AssemblyImage> changes, bool isInitial )
@@ -134,20 +275,15 @@ internal sealed class ModuleHost
 		var names = string.Join( ", ", affected.Select( image => image.Name ) );
 		try
 		{
-			// Assemblies in one generation resolve each other through this map; untouched assemblies keep their loaded copy.
-			var generation = _assemblies
-				.Where( item => affected.All( image => !string.Equals( image.Name, item.Key, StringComparison.OrdinalIgnoreCase ) ) )
-				.ToDictionary( item => item.Key, item => item.Value.Assembly, StringComparer.OrdinalIgnoreCase );
-
-			var hosted = new List<HostedAssembly>();
-			foreach ( var image in affected )
+			var isRefused = false;
+			var hosted = LoadCompatible( affected, ( image, problem ) =>
 			{
-				// A collectible context lets the GC reclaim a replaced module once nothing references it.
-				var context = new ModuleLoadContext( image.Name, generation );
-				var assembly = context.LoadFromStream( new MemoryStream( image.Image ), image.Symbols is null ? null : new MemoryStream( image.Symbols ) );
-				generation[image.Name] = assembly;
-				hosted.Add( new( image, assembly ) );
-			}
+				isRefused = true;
+				Refuse( image, problem );
+			} );
+			// A refused update leaves its module on the version already running; reloading it would only stop its work.
+			if ( !isInitial && isRefused && hosted.All( item => _assemblies.TryGetValue( item.Image.Name, out var current ) && current.Image.IsSameFile( item.Image ) ) )
+				return;
 
 			foreach ( var item in hosted )
 				item.Modules = BuildModules( item.Assembly );
@@ -189,6 +325,85 @@ internal sealed class ModuleHost
 			UpdateLog( $"FAILED {names}: {failure.Message}" );
 			_app.ReportError( $"Reload {names}", failure );
 		}
+	}
+
+	/// <summary>Loads a generation of assemblies, replacing each update that does not fit with its older version until all of them fit.</summary>
+	/// <param name="affected">The images to load; refused updates are replaced in it.</param>
+	/// <param name="refuse">Told about each refused update and its first problem.</param>
+	/// <exception cref="InvalidOperationException">A module that is not an update does not fit, so no older version can replace it.</exception>
+	private List<HostedAssembly> LoadCompatible( List<AssemblyImage> affected, Action<AssemblyImage, string> refuse )
+	{
+		while ( true )
+		{
+			var hosted = LoadGeneration( affected );
+			var refused = new List<(AssemblyImage Image, string Problem)>();
+			foreach ( var item in hosted )
+			{
+				if ( ModuleCompatibility.FindProblem( item.Assembly, item.Image.Image ) is not { } problem )
+					continue;
+
+				// An update is blamed for its own problem; a bundled module that no longer fits is blamed on the updates it uses.
+				var blamed = item.Image.IsUpdate
+					? [item.Image]
+					: hosted.Where( other => other.Image.IsUpdate && item.References.Contains( other.Image.Name, StringComparer.OrdinalIgnoreCase ) ).Select( other => other.Image ).ToList();
+				if ( blamed.Count == 0 )
+					throw new InvalidOperationException( $"{item.Image.Name} {item.Image.Version} does not fit this version of Loom: {problem}" );
+
+				foreach ( var image in blamed.Where( image => refused.All( entry => entry.Image != image ) ) )
+					refused.Add( (image, problem) );
+			}
+
+			if ( refused.Count == 0 )
+				return hosted;
+
+			foreach ( var (image, problem) in refused )
+			{
+				refuse( image, problem );
+				var index = affected.IndexOf( image );
+				if ( image.Fallback is { } older )
+					affected[index] = older;
+				else
+					affected.RemoveAt( index );
+			}
+		}
+	}
+
+	/// <summary>Loads images into fresh contexts that resolve each other, and the untouched assemblies, by name.</summary>
+	private List<HostedAssembly> LoadGeneration( IReadOnlyList<AssemblyImage> images )
+	{
+		// Assemblies in one generation resolve each other through this map; untouched assemblies keep their loaded copy.
+		var generation = _assemblies
+			.Where( item => images.All( image => !string.Equals( image.Name, item.Key, StringComparison.OrdinalIgnoreCase ) ) )
+			.ToDictionary( item => item.Key, item => item.Value.Assembly, StringComparer.OrdinalIgnoreCase );
+
+		var hosted = new List<HostedAssembly>();
+		foreach ( var image in images )
+		{
+			// A collectible context lets the GC reclaim a replaced or refused module once nothing references it.
+			var context = new ModuleLoadContext( image.Name, generation );
+			var assembly = context.LoadFromStream( new MemoryStream( image.Image ), image.Symbols is null ? null : new MemoryStream( image.Symbols ) );
+			generation[image.Name] = assembly;
+			hosted.Add( new( image, assembly ) );
+		}
+
+		return hosted;
+	}
+
+	/// <summary>Records a refused update, deletes its file so it is not tried again, and reports it.</summary>
+	private void Refuse( AssemblyImage image, string problem )
+	{
+		UpdateLog( $"SKIPPED {image.Name} {image.Version}: {problem}" );
+		if ( image.Path is { } path && image.IsUpdate )
+		{
+			lock ( _scanLock )
+			{
+				// The stamp moves first, so the watcher sees the deletion as already handled rather than as a change to reload.
+				_stamps[image.Name] = ComputeStamp( ListFiles().GetValueOrDefault( image.Name, [] ).Where( file => !string.Equals( file, path, StringComparison.OrdinalIgnoreCase ) ) );
+				File.Delete( path );
+			}
+		}
+
+		Refused?.Invoke( image.Name, image.Version, problem );
 	}
 
 	/// <summary>Expands changed assemblies with every loaded assembly that references one of them, directly or through another.</summary>
@@ -266,11 +481,19 @@ internal sealed class ModuleHost
 		}
 	}
 
-	/// <summary>Holds one module assembly's bytes as read from disk.</summary>
+	/// <summary>Holds one module assembly's bytes as read from disk or downloaded.</summary>
 	/// <param name="Name">The assembly's simple name.</param>
 	/// <param name="Image">The assembly file's bytes.</param>
 	/// <param name="Symbols">The matching portable symbols, or null when none were deployed.</param>
-	private sealed record AssemblyImage( string Name, byte[] Image, byte[]? Symbols );
+	/// <param name="Version">The assembly version, the module's own release version.</param>
+	/// <param name="Path">The file it was read from, or null for a download being checked.</param>
+	/// <param name="IsUpdate">Whether it is a module update rather than the bundled module.</param>
+	/// <param name="Fallback">The older image that loads instead when this one is refused, or null when there is none.</param>
+	private sealed record AssemblyImage( string Name, byte[] Image, byte[]? Symbols, Version Version, string? Path, bool IsUpdate, AssemblyImage? Fallback )
+	{
+		/// <summary>Tells whether another image came from the same file with the same contents.</summary>
+		internal bool IsSameFile( AssemblyImage other ) => Path is not null && string.Equals( Path, other.Path, StringComparison.OrdinalIgnoreCase ) && Image.AsSpan().SequenceEqual( other.Image );
+	}
 
 	/// <summary>Stores a loaded module assembly with the bytes it came from, kept to load it again when a dependency is rebuilt.</summary>
 	private sealed class HostedAssembly( AssemblyImage image, Assembly assembly )
@@ -294,10 +517,26 @@ internal sealed class ModuleHost
 	/// <summary>Resolves references between module assemblies of one generation; everything else comes from the application.</summary>
 	private sealed class ModuleLoadContext( string name, IReadOnlyDictionary<string, Assembly> modules ) : AssemblyLoadContext( name, isCollectible: true )
 	{
-		/// <summary>Returns the loaded module assembly of that name, or null to use the application's own assemblies.</summary>
+		/// <summary>Returns the module assembly of that name, else the application's loaded assembly of that name, else null for the default rules.</summary>
+		/// <remarks>
+		/// The application's assemblies bind by name, not version: a module built against a newer Core or Goo still loads, and
+		/// <see cref="ModuleCompatibility"/> then checks that everything it uses is there.
+		/// </remarks>
 		protected override Assembly? Load( AssemblyName assemblyName )
 		{
-			return assemblyName.Name is { } simpleName && modules.TryGetValue( simpleName, out var assembly ) ? assembly : null;
+			if ( assemblyName.Name is not { } simpleName )
+				return null;
+
+			if ( modules.TryGetValue( simpleName, out var assembly ) )
+				return assembly;
+
+			foreach ( var loaded in Default.Assemblies )
+			{
+				if ( string.Equals( loaded.GetName().Name, simpleName, StringComparison.OrdinalIgnoreCase ) )
+					return loaded;
+			}
+
+			return null;
 		}
 	}
 }

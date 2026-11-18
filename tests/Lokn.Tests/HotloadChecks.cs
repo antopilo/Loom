@@ -147,7 +147,7 @@ internal static class HotloadChecks
 			return true;
 		} );
 
-		var host = new ModuleHost( app, directory, log, new ModuleStates( Path.Combine( directory, "modules.json" ), isOffByDefault: false ) );
+		var host = new ModuleHost( app, directory, null, log, new ModuleStates( Path.Combine( directory, "modules.json" ), isOffByDefault: false ) );
 		host.Start();
 		var first = app.AvailableModules.Single( module => module.Id == "welcome" );
 		CoreChecks.Check( first.GetType().FullName == typeof( WelcomeModule ).FullName && first.GetType() != typeof( WelcomeModule ), "A module DLL loads into its own context, apart from the application's assemblies." );

@@ -28,7 +28,8 @@
 		<PackageReference Include="Microsoft.Windows.SDK.NET.Ref" Version="10.0.19041.87" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
 		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\Microsoft.Windows.SDK.NET.dll" />
 		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\WinRT.Runtime.dll" />
-		<ProjectReference Include="Core\Lokn.Core.csproj" />
+		<!-- Modules build Core without the app version too, so a publish builds it once; modules bind to Core by name, not version (Shell/ModuleHost.cs). -->
+		<ProjectReference Include="Core\Lokn.Core.csproj" GlobalPropertiesToRemove="Version" />
 		<Compile Remove="Core\**\*.cs;tests\**\*.cs;Modules\**\*.cs" />
 		<!-- The source-module compiler is part of the host; every other module is its own reloadable DLL. -->
 		<Compile Include="Modules\Hotload\**\*.cs" />
@@ -39,21 +40,22 @@
 		<InternalsVisibleTo Include="Lokn.Tests" />
 	</ItemGroup>
 	<ItemGroup>
-		<!-- Built with the application but never referenced by it: a referenced module could not be reloaded. -->
-		<ProjectReference Include="Modules\Editor\Lokn.Modules.Editor.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Files\Lokn.Modules.Files.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Markdown\Lokn.Modules.Markdown.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Omp\Lokn.Modules.Omp.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Conversations\Lokn.Modules.Conversations.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Worktrees\Lokn.Modules.Worktrees.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Terminal\Lokn.Modules.Terminal.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Workspaces\Lokn.Modules.Workspaces.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Projects\Lokn.Modules.Projects.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\GitHub\Lokn.Modules.GitHub.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Git\Lokn.Modules.Git.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Browser\Lokn.Modules.Browser.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Notifications\Lokn.Modules.Notifications.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\NowPlaying\Lokn.Modules.NowPlaying.csproj" ReferenceOutputAssembly="false" />
-		<ProjectReference Include="Modules\Setup\Lokn.Modules.Setup.csproj" ReferenceOutputAssembly="false" />
+		<!-- Built with the application but never referenced by it: a referenced module could not be reloaded.
+		     Each module keeps its own <Version>, so the app version a publish passes in (-p:Version) is removed for them. -->
+		<ProjectReference Include="Modules\Editor\Lokn.Modules.Editor.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Files\Lokn.Modules.Files.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Markdown\Lokn.Modules.Markdown.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Omp\Lokn.Modules.Omp.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Conversations\Lokn.Modules.Conversations.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Worktrees\Lokn.Modules.Worktrees.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Terminal\Lokn.Modules.Terminal.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Workspaces\Lokn.Modules.Workspaces.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Projects\Lokn.Modules.Projects.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\GitHub\Lokn.Modules.GitHub.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Git\Lokn.Modules.Git.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Browser\Lokn.Modules.Browser.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Notifications\Lokn.Modules.Notifications.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\NowPlaying\Lokn.Modules.NowPlaying.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Setup\Lokn.Modules.Setup.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 	</ItemGroup>
 </Project>

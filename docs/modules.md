@@ -49,6 +49,15 @@ instance. `context.App.Panels.Open("notes.note")` opens it in the active pane.
 Use `Open("notes.note", input: document)` to pass feature-defined input into
 `PanelContext.Input`; the factory can match it to a feature-owned record type.
 
+## Versions and updates
+
+A built-in module has its own release version, `<Version>` in its project. Raise it when the
+module should reach installed copies of Loom on its own; `scripts/release.ps1` then publishes it
+as a module update. An installed Loom loads an update only when every type and member it uses
+exists in that Loom (see [architecture](architecture.md#updates)), so a module that needs new
+Core API reaches users with the app release that brings that API. Source modules take no updates:
+Lokn compiles them against the running app, so they always fit it.
+
 ## Source modules and hot reload
 
 The desktop loads `HotloadModule`, which compiles modules from source while Lokn

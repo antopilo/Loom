@@ -33,6 +33,10 @@ Read these before changing anything:
 - **Warnings are errors**, nullable is enabled, and every member has a `<summary>`.
   Formatting follows `.editorconfig`: tabs, CRLF, Allman braces, spaces inside call
   parentheses.
+- **A module ships as an update only with a new `<Version>`** in its own project. An
+  installed Loom refuses a module update that uses Core or Goo API it lacks, so a module
+  that needs new Core API reaches users with the next app release
+  ([architecture](docs/architecture.md#updates)).
 
 ## Source modules
 
@@ -58,6 +62,8 @@ running Lokn has the Release output locked.
 | Build everything | `pwsh scripts/build.ps1` |
 | Publish a self-contained build for other PCs (`artifacts\publish\win-x64`) | `pwsh scripts/publish.ps1` |
 | Build the Windows installer (`artifacts\installer\Loom-win-Setup.exe`; raise `<Version>` in `Lokn.csproj` first) | `pwsh scripts/installer.ps1` |
+| See what a release would publish, without uploading | `pwsh scripts/release.ps1 -DryRun` |
+| Publish the app and new module versions to GitHub (`-ModulesOnly` for modules alone) | `pwsh scripts/release.ps1` |
 | Run the default checks | `pwsh scripts/check.ps1` |
 | Run chosen suites | `pwsh scripts/check.ps1 -Suite worktrees,hotload` |
 | Start Lokn when it is not running | `pwsh scripts/run.ps1` |
@@ -68,10 +74,10 @@ running Lokn has the Release output locked.
 | Compile-check a project's `.lokn\modules` (all, or one with `-Name`) | `pwsh scripts/check-module.ps1 -Project F:\path\to\repo` |
 
 Headless suites: `default`, `features`, `all`, `layout`, `conversations`, `omp`,
-`chat`, `worktrees`, `terminal`, `git`, `hotload`, `settings`. Report which suites you actually ran.
+`chat`, `worktrees`, `terminal`, `git`, `hotload`, `updates`, `settings`. Report which suites you actually ran.
 
-Two things need the user's go-ahead first, because they take over their desktop or
-their running app:
+Three things need the user's go-ahead first, because they take over their desktop,
+their running app, or their users' copies of Loom:
 
 - **Window checks.** `-Ui` and the `chat-view`, `terminal-view`, `omp-setup` and `startup` suites open
   a real window for a few seconds. Run them only when a change affects rendering or
@@ -80,6 +86,8 @@ their running app:
   window to close normally so state is saved, and never kills it. The restart runs in
   a detached process, because an agent inside a Lokn chat is stopped when Lokn
   closes; the outcome is written to `%TEMP%\Lokn\restart.log`.
+- **Releasing.** `release.ps1` without `-DryRun` publishes to GitHub, and installed
+  copies of Loom download what it publishes.
 
 What a change needs before it is live:
 

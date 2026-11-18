@@ -69,15 +69,18 @@ internal static class Program
 		app.Commands.BindDispatcher( operation => window.InvokeAsync( operation ) );
 		// The theme is part of the shell; it loads first so every module's views draw with it.
 		app.Load( new ThemeModule( bare is null ? ThemeModule.DefaultPath : Path.Combine( bare, "theme.json" ) ) );
-		// Feature modules are separate DLLs, loaded here and reloaded whenever one is rebuilt.
+		// Feature modules are separate DLLs, loaded here and reloaded whenever one is rebuilt or updated; an installed Loom also loads downloaded module updates.
 		// A bare instance sees every installed module but starts with all of them off; Settings › Modules turns them on, and its choice is kept in its folder.
-		var modules = new ModuleHost( app, ModuleHost.DefaultDirectory, ModuleHost.DefaultLogPath,
+		var modules = new ModuleHost( app, ModuleHost.DefaultDirectory, bare is null ? Installation.ModuleUpdatesDirectory : null, ModuleHost.DefaultLogPath,
 			bare is null ? new ModuleStates( ModuleStates.DefaultPath, isOffByDefault: false ) : new ModuleStates( Path.Combine( bare, "modules.json" ), isOffByDefault: true ) );
 		modules.Start();
 		app.Load( new ShellModule() );
 		ShellBackdrop.Apply( window, app.Settings.Get( ShellSettings.Backdrop ) );
 		if ( bare is null )
+		{
 			app.Load( new HotloadModule( HotloadModule.DefaultPath, HotloadModule.DefaultCachePath ) );
+			app.Load( new UpdatesModule( modules ) );
+		}
 
 		app.RestoreWorkspace();
 		// Modules pick their own startup view, such as Home, through ModuleContext.WhenStarted; without one the shell shows its empty pane.
