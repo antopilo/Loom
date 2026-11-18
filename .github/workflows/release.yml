@@ -1,0 +1,47 @@
+# Publishes a release with scripts/release.ps1: the app as release v<Version>, and every module whose
+# <Version> is new to the "modules" release. Installed copies of Loom pick both up.
+#
+#   Push a tag:      git tag v0.2.0 && git push origin v0.2.0   (must match <Version> in Lokn.csproj)
+#   Or run it:       Actions › Release › Run workflow           (tick "modules only" for module updates alone)
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      modules-only:
+        description: Publish module updates only, not the app
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Every tag, so the script can find the last app release and what changed since.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODULES_ONLY: ${{ inputs.modules-only }}
+        run: |
+          $arguments = @{ Repository = "${{ github.server_url }}/${{ github.repository }}" }
+          if ( $env:MODULES_ONLY -eq 'true' ) { $arguments.ModulesOnly = $true }
+          ./scripts/release.ps1 @arguments

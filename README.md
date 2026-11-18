@@ -75,6 +75,10 @@ Each script prints a final status line and exits non-zero when it fails. Run
 |`installer.ps1`|Windows installer in `artifacts\installer`|
 |`release.ps1`|Publishes the app and new module versions to GitHub; `-DryRun` only shows what it would publish|
 
+GitHub Actions runs the build and the headless checks on every push and pull request
+(`.github/workflows/ci.yml`). Pushing a `v<Version>` tag, or running the **Release** workflow,
+publishes a release with `release.ps1` (`.github/workflows/release.yml`).
+
 ## How it is built
 
 ```text

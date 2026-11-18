@@ -24,6 +24,10 @@ one Git's credential manager keeps for github.com. Refuses to run with uncommitt
 changes, because the release is tagged at the pushed commit. -DryRun builds everything and lists
 what would be published, without uploading.
 
+.github/workflows/release.yml runs this script on GitHub Actions when a v<Version> tag is pushed,
+or from "Run workflow". There the checkout is the commit to release, and a pushed tag must match
+<Version> in Lokn.csproj.
+
 Exits non-zero when the build, a download or an upload fails.
 
 .EXAMPLE
@@ -86,6 +90,8 @@ function Invoke-GitHub( [string] $Method, [string] $Uri, [object] $Body )
 }
 
 # A release is tagged at the pushed commit, so it must hold exactly what is committed and pushed.
+# On GitHub Actions the checkout is that commit, often a detached tag with no upstream to compare.
+$isCi = $env:GITHUB_ACTIONS -eq 'true'
 if ( -not $DryRun )
 {
 	if ( git -C $RepoRoot status --porcelain )
@@ -93,11 +99,20 @@ if ( -not $DryRun )
 		Stop-Release 'commit or stash your changes first; the release is tagged at the pushed commit'
 	}
 
-	git -C $RepoRoot fetch --quiet
-	if ( [int]( git -C $RepoRoot rev-list --count '@{u}..HEAD' ) -gt 0 )
+	if ( -not $isCi )
 	{
-		Stop-Release 'push your commits first; the release is tagged at the pushed commit'
+		git -C $RepoRoot fetch --quiet
+		if ( [int]( git -C $RepoRoot rev-list --count '@{u}..HEAD' ) -gt 0 )
+		{
+			Stop-Release 'push your commits first; the release is tagged at the pushed commit'
+		}
 	}
+}
+
+# A pushed tag names the version it releases, so it must be the version Lokn.csproj builds.
+if ( $isCi -and $env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$Version" )
+{
+	Stop-Release "tag $env:GITHUB_REF_NAME does not match <Version> $Version in Lokn.csproj"
 }
 
 if ( -not $Token )
@@ -138,6 +153,13 @@ try
 	{
 		if ( $Token -and ( Invoke-GitHub Get "$api/releases/tags/v$Version" ) )
 		{
+			# A release made on a PC pushes its tag, which starts the workflow again; that run has nothing to do.
+			if ( $isCi -and $env:GITHUB_REF_TYPE -eq 'tag' )
+			{
+				Write-Host "RELEASE SKIPPED: Loom $Version is already released"
+				exit 0
+			}
+
 			Stop-Release "Loom $Version is already released; raise <Version> in Lokn.csproj"
 		}
 
@@ -164,7 +186,7 @@ try
 
 		if ( -not $DryRun )
 		{
-			dotnet vpk upload github --repoUrl $Repository --token $Token --outputDir $output --publish --releaseName "Loom $Version" --tag "v$Version"
+			dotnet vpk upload github --repoUrl $Repository --token $Token --outputDir $output --publish --releaseName "Loom $Version" --tag "v$Version" --targetCommitish ( git -C $RepoRoot rev-parse HEAD )
 			if ( $LASTEXITCODE -ne 0 )
 			{
 				Stop-Release 'vpk upload failed'

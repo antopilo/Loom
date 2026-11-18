@@ -86,8 +86,10 @@ their running app, or their users' copies of Loom:
   window to close normally so state is saved, and never kills it. The restart runs in
   a detached process, because an agent inside a Lokn chat is stopped when Lokn
   closes; the outcome is written to `%TEMP%\Lokn\restart.log`.
-- **Releasing.** `release.ps1` without `-DryRun` publishes to GitHub, and installed
-  copies of Loom download what it publishes.
+- **Releasing.** `release.ps1` without `-DryRun`, a pushed `v*` tag, or running the
+  Release workflow publishes to GitHub, and installed copies of Loom download what it
+  publishes. CI (`.github/workflows/ci.yml`) runs the `default` and `features` suites on
+  every push to `main` and every pull request.
 
 What a change needs before it is live:
 
