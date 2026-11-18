@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<!-- The example module is used by the checks and is not part of the application. -->
+		<DeployModule>false</DeployModule>
+	</PropertyGroup>
+</Project>

@@ -1,0 +1,71 @@
+using System.Text.Json;
+using Goo;
+
+namespace Lokn.Modules.Chat;
+
+/// <summary>Shows what the agent is doing while a turn runs: thinking, writing, or a running tool's intent.</summary>
+public sealed partial class ChatContent
+{
+	/// <summary>Stores the intent Omp gave each tool call when it started, by tool-call identifier.</summary>
+	private readonly Dictionary<string, string> _intents = new( StringComparer.Ordinal );
+
+	/// <summary>Stores when the running turn started, or null while idle.</summary>
+	private DateTime? _workingSince;
+
+	/// <summary>Builds the working indicator while a turn runs and no question waits for the user.</summary>
+	private Blob? BuildWorking()
+	{
+		if ( !_isBusy )
+		{
+			_workingSince = null;
+			return null;
+		}
+
+		_workingSince ??= DateTime.UtcNow;
+		if ( _dialogs.Count > 0 )
+			return null;
+
+		return Cell.Mount<WorkingInput, WorkingIndicator>( "conversation-working", new( ComputeWorkingLabel(), _workingSince.Value ) );
+	}
+
+	/// <summary>Names the current phase from the newest assistant message: a running tool's intent, thinking, writing, or working.</summary>
+	internal string ComputeWorkingLabel()
+	{
+		var messages = store.GetMessages( conversationId );
+		var last = messages.Count > 0 ? messages[^1] : null;
+		if ( last?.Role != "assistant" || last.RichContent is not { ValueKind: JsonValueKind.Object } rich
+			|| !rich.TryGetProperty( "content", out var content ) || content.ValueKind != JsonValueKind.Array )
+			return "Working";
+
+		var blocks = content.EnumerateArray().ToArray();
+		foreach ( var block in blocks.Reverse() )
+		{
+			if ( ReadText( block, "type" ) != "toolCall" )
+				continue;
+
+			var id = ReadText( block, "id" );
+			if ( ComputeToolStatus( id, out _ ) != "Running" )
+				continue;
+
+			if ( _intents.TryGetValue( id, out var intent ) && intent.Length > 0 )
+				return intent;
+
+			var arguments = block.TryGetProperty( "arguments", out var args ) ? args : default;
+			return ReadText( arguments, "i" ) is { Length: > 0 } stated ? stated : $"Running {ReadText( block, "name", "a tool" )}";
+		}
+
+		return blocks.Length == 0 ? "Working" : ReadText( blocks[^1], "type" ) switch
+		{
+			"thinking" => "Thinking",
+			"text" when !string.IsNullOrWhiteSpace( ReadText( blocks[^1], "text" ) ) => "Writing",
+			_ => "Working",
+		};
+	}
+
+	/// <summary>Remembers a starting tool's intent, which later progress frames no longer carry.</summary>
+	private void UpdateIntent( JsonElement frame )
+	{
+		if ( ReadText( frame, "type" ) == "tool_execution_start" && ReadText( frame, "intent" ) is { Length: > 0 } intent )
+			_intents[ReadText( frame, "toolCallId" )] = intent;
+	}
+}

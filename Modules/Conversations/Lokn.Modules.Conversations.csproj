@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<ItemGroup>
+		<!-- The chat streams and parses Markdown with the Markdown module's renderer, so Conversations declares it as a dependency. -->
+		<ProjectReference Include="..\Markdown\Lokn.Modules.Markdown.csproj" Private="false" />
+		<ProjectReference Include="..\Git\Lokn.Modules.Git.csproj" Private="false" />
+		<ProjectReference Include="..\Omp\Lokn.Modules.Omp.csproj" Private="false" />
+		<ProjectReference Include="..\Projects\Lokn.Modules.Projects.csproj" Private="false" />
+		<ProjectReference Include="..\Workspaces\Lokn.Modules.Workspaces.csproj" Private="false" />
+	</ItemGroup>
+</Project>

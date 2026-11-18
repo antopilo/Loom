@@ -1,0 +1,7 @@
+<Project>
+	<!-- Copies a built module where the running application watches for it. Symbols go first so they are in place when the DLL changes. -->
+	<Target Name="DeployLoknModule" AfterTargets="Build" Condition="'$(DeployModule)' != 'false'">
+		<Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(LoknModulesDirectory)" SkipUnchangedFiles="true" />
+		<Copy SourceFiles="$(TargetPath)" DestinationFolder="$(LoknModulesDirectory)" SkipUnchangedFiles="true" />
+	</Target>
+</Project>

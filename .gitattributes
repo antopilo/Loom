@@ -1,0 +1,10 @@
+# Text is stored with LF and checked out with CRLF, as .editorconfig asks.
+* text=auto eol=crlf
+
+# Binary files are never converted.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.dll binary
+*.exe binary

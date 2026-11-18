@@ -1,0 +1,23 @@
+# Build output
+bin/
+obj/
+artifacts/
+TestResults/
+*.binlog
+
+# IDEs and editors
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+
+# OS files
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Logs and scratch files
+*.log
+*.tmp

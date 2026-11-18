@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<LangVersion>14</LangVersion>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+	</PropertyGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\..\Lokn.csproj" />
+		<ProjectReference Include="..\..\Modules\Omp\Lokn.Modules.Omp.csproj" />
+		<ProjectReference Include="..\..\Modules\Conversations\Lokn.Modules.Conversations.csproj" />
+		<ProjectReference Include="..\..\Modules\Files\Lokn.Modules.Files.csproj" />
+		<ProjectReference Include="..\..\Modules\Worktrees\Lokn.Modules.Worktrees.csproj" />
+		<ProjectReference Include="..\..\Modules\Terminal\Lokn.Modules.Terminal.csproj" />
+		<ProjectReference Include="..\..\Modules\Welcome\Lokn.Modules.Welcome.csproj" />
+		<ProjectReference Include="..\..\Modules\Workspaces\Lokn.Modules.Workspaces.csproj" />
+		<ProjectReference Include="..\..\Modules\Projects\Lokn.Modules.Projects.csproj" />
+		<ProjectReference Include="..\..\Modules\Browser\Lokn.Modules.Browser.csproj" />
+		<ProjectReference Include="..\..\Modules\Git\Lokn.Modules.Git.csproj" />
+		<ProjectReference Include="..\..\Modules\Notifications\Lokn.Modules.Notifications.csproj" />
+		<ProjectReference Include="..\..\Modules\Markdown\Lokn.Modules.Markdown.csproj" />
+		<ProjectReference Include="..\..\Modules\Setup\Lokn.Modules.Setup.csproj" />
+		<!-- The application ships WebView2's core API; this executable runs the Browser module, so it ships it too. -->
+		<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
+		<Reference Include="$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll" />
+	</ItemGroup>
+</Project>

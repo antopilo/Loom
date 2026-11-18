@@ -1,0 +1,218 @@
+using System.Globalization;
+using Goo;
+using Lokn.Core;
+
+namespace Lokn.Modules.Chat;
+
+/// <summary>Describes context use, model cost metadata, and token-saving activity shown by the meter and its detail panel.</summary>
+/// <param name="Tokens">The tokens the session's context holds, or null when Omp does not know yet.</param>
+/// <param name="Window">The model's context window in tokens.</param>
+/// <param name="CompactAt">The context size at which Omp compacts automatically, or null when it does not.</param>
+/// <param name="IsCompacting">Whether a compaction runs now.</param>
+/// <param name="Model">The connected model's display name.</param>
+/// <param name="Effort">The connected session's reasoning effort.</param>
+/// <param name="InputCost">The model's list price for one million input tokens, or null when unavailable.</param>
+/// <param name="OutputCost">The model's list price for one million output tokens, or null when unavailable.</param>
+/// <param name="Compactions">The compactions observed while the panel is open.</param>
+/// <param name="AuxiliaryCalls">The isolated auxiliary model calls started while the panel is open.</param>
+/// <param name="Economy">Whether economy mode is active for this chat.</param>
+internal sealed record ContextMeterInput(
+	long? Tokens,
+	long Window,
+	long? CompactAt,
+	bool IsCompacting,
+	string Model = "",
+	string Effort = "",
+	double? InputCost = null,
+	double? OutputCost = null,
+	int Compactions = 0,
+	int AuxiliaryCalls = 0,
+	bool Economy = false );
+
+/// <summary>Draws the session's context use as the prompt's top border, like Tern's composer.</summary>
+/// <remarks>
+/// The meter lies over the prompt frame's top edge, between its rounded corners, and takes no room of its own: the filled
+/// part of the border is the context used, a tick crosses the border where Omp compacts automatically, and a small legend
+/// sits on the border at the right with the share used and the window's size. Pointing at it lists the numbers.
+/// </remarks>
+internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
+{
+	/// <summary>Defines the meter's height, centered on the border, in logical pixels; tall enough to point at and to hold the legend.</summary>
+	private const int MeterHeight = 14;
+
+	/// <summary>Defines the filled line's thickness in logical pixels; it covers the frame's thinner border.</summary>
+	private const int LineThickness = 2;
+
+	/// <summary>Defines the compaction tick's height in logical pixels.</summary>
+	private const int TickHeight = 8;
+
+	/// <summary>Defines the legend's text size in logical pixels.</summary>
+	private const int LabelSize = 10;
+
+	/// <summary>Anchors the details shown while pointing at the meter.</summary>
+	private readonly ElementHandle _handle = new();
+
+	/// <summary>Tracks whether the pointer is on the meter.</summary>
+	private readonly State<bool> _isHovered = new( false );
+
+	/// <summary>Tracks whether the keyboard opened the token and cost panel; pointing away or Escape closes it.</summary>
+	private readonly State<bool> _isOpen = new( false );
+
+	/// <summary>Builds the fill over the border, the compaction tick, the legend, and the details while hovered.</summary>
+	protected override Blob BuildView( ContextMeterInput input )
+	{
+		var theme = Theme.Current;
+		var used = input.Tokens is { } tokens ? Math.Clamp( (double)tokens / input.Window, 0, 1 ) : 0;
+		var compactAt = input.CompactAt is { } at ? Math.Clamp( (double)at / input.Window, 0, 1 ) : (double?)null;
+		var isDue = compactAt is { } due && used >= due;
+		var fill = input.IsCompacting || isDue ? theme.Attention : theme.Muted;
+		const double lineTop = (MeterHeight - LineThickness) / 2.0;
+		// The unfilled part is the frame's own border showing through, so it keeps the frame's color, such as on a file drag.
+		var children = new List<Blob>
+		{
+			new Container
+			{
+				Key = "fill",
+				Position = PositionType.Absolute,
+				Left = 0,
+				Top = lineTop,
+				Width = Length.Percent( used * 100 ),
+				Height = LineThickness,
+				BorderRadius = LineThickness / 2.0,
+				BackgroundColor = fill,
+				TransitionMs = ChatMotion.SlowMs,
+				TransitionEasing = ChatMotion.Ease,
+				TransitionProperties = [TransitionProperty.Width, TransitionProperty.BackgroundColor],
+			},
+		};
+
+		if ( compactAt is { } mark )
+		{
+			children.Add( new Row
+			{
+				Key = "compact",
+				Position = PositionType.Absolute,
+				Left = 0,
+				Top = (MeterHeight - TickHeight) / 2.0,
+				Width = Length.Percent( mark * 100 ),
+				JustifyContent = JustifyContent.FlexEnd,
+				Children = [new Container { Width = 1, Height = TickHeight, BackgroundColor = input.IsCompacting ? theme.Attention : theme.Muted }],
+			} );
+		}
+
+		// The legend sits on the border like a fieldset's, its background breaking the line under it.
+		var legend = new List<Blob>();
+		if ( input.Tokens is not null )
+			legend.Add( Cell.Mount<RollingTextInput, RollingText>( "used-share", new( $"{Math.Round( used * 100 )}%", LabelSize, isDue ? theme.Attention : theme.Text ) { FontWeight = 600, FontFamily = ViewStyle.FontFamily, Shrink = false } ) );
+		legend.Add( Cell.Mount<RollingTextInput, RollingText>( "window-size", new( FormatTokens( input.Window ), LabelSize, theme.Muted ) { FontFamily = ViewStyle.FontFamily, Shrink = false } ) );
+		// Only the legend reacts to the pointer: the line spans the prompt's whole top edge, where pointing at the prompt would open the details.
+		children.Add( new Button
+		{
+			Key = "legend",
+			Handle = _handle,
+			Position = PositionType.Absolute,
+			Right = 0,
+			Top = 0,
+			Height = MeterHeight,
+			FlexDirection = FlexDirection.Row,
+			AlignItems = AlignItems.Center,
+			Gap = 4,
+			Padding = new Edges( 0, 5 ),
+			BorderRadius = MeterHeight / 2.0,
+			BackgroundColor = theme.Raised,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			AccessibilityName = _isOpen.Value ? "Close token and cost details" : "Open token and cost details",
+			Focusable = true,
+			// Enter opens the details for the keyboard; pointing away or Escape closes them, so a click never leaves them stuck open.
+			OnClick = () => _isOpen.Value = !_isOpen.Value,
+			KeyBindings = [new( Key.Escape, KeyModifiers.None, () => _isOpen.Value = false )],
+			OnPointerEnter = _ => _isHovered.Value = true,
+			OnPointerLeave = _ => _isHovered.Value = _isOpen.Value = false,
+			Children = legend,
+		} );
+
+		if ( _isHovered.Value || _isOpen.Value )
+		{
+			var lines = new List<Blob> { new Text { Content = "Token and cost", FontWeight = 600 } };
+			foreach ( var line in Describe( input ) )
+				lines.Add( new Text { Content = line } );
+
+			// A native popup draws over native child surfaces, such as browser pages, which a portal cannot; it takes no input, so the meter keeps the keyboard.
+			var details = new Container
+			{
+				Padding = theme.Spacing,
+				Gap = 2,
+				BackgroundColor = theme.Raised,
+				Color = theme.Text,
+				FontFamily = theme.FontFamily,
+				FontSize = ViewStyle.SmallSize,
+				BorderColor = theme.Border,
+				BorderWidth = theme.BorderWidth,
+				BorderRadius = theme.Radius,
+				Children = lines,
+			};
+			children.Add( Cell.Mount<NativePopupInput, NativePopup>( "details", new( _handle, details, null )
+			{
+				Placement = PortalPlacement.TopEnd,
+				Kind = PopupKind.Tooltip,
+				Role = _isOpen.Value ? AccessibilityRole.Dialog : AccessibilityRole.Tooltip,
+				Name = "Token and cost details",
+			} ) );
+		}
+
+		return new Container
+		{
+			Key = "context-meter",
+			// Laid over the prompt frame's top border, centered on it, between the frame's rounded corners; its parent box is the frame's own size with no padding.
+			// The strip itself takes no pointer, so clicks on the rest of the border reach the prompt.
+			Position = PositionType.Absolute,
+			Left = ChatStyle.BubbleRadius,
+			Right = ChatStyle.BubbleRadius,
+			Top = (Theme.Current.BorderWidth - MeterHeight) / 2.0,
+			Height = MeterHeight,
+			HitTestSelf = false,
+			Children = children,
+		};
+	}
+
+	/// <summary>Lists context use, compaction, model list prices, observed auxiliary work, and economy guidance.</summary>
+	internal static IReadOnlyList<string> Describe( ContextMeterInput input )
+	{
+		var lines = new List<string>
+		{
+			input.Tokens is { } tokens ? $"Context {Math.Round( (double)tokens / input.Window * 100 )}% used" : "Context usage unknown until the next reply",
+		};
+		if ( input.Tokens is { } known )
+			lines.Add( $"{FormatTokens( known )} of {FormatTokens( input.Window )} tokens" );
+		lines.Add( input.IsCompacting ? "Compacting now"
+			: input.CompactAt is { } at ? $"Auto-compact at {Math.Round( (double)at / input.Window * 100 )}% ({FormatTokens( at )})"
+			: "Auto-compact is off" );
+		if ( input.Model.Length > 0 )
+			lines.Add( "Model " + input.Model );
+		if ( input.Effort.Length > 0 )
+			lines.Add( "Reasoning effort " + input.Effort );
+		if ( input.InputCost is not null || input.OutputCost is not null )
+			lines.Add( $"List price {FormatRate( input.InputCost )}/M input · {FormatRate( input.OutputCost )}/M output" );
+		else
+			lines.Add( "Model price unavailable" );
+		if ( input.Tokens is { } pricedTokens && input.InputCost is { } rate )
+			lines.Add( $"Approximate next input at list price ${(pricedTokens / 1_000_000.0 * rate).ToString( "0.####", CultureInfo.InvariantCulture )}" );
+		lines.Add( $"Compactions {input.Compactions} · Auxiliary calls {input.AuxiliaryCalls} (titles, task checks)" );
+		lines.Add( input.Economy ? "Economy mode on · extra Lokn tools load on demand" : "Economy mode off" );
+		if ( input.Economy && input.Tokens is { } used && used >= input.Window * 0.7 )
+			lines.Add( "Different task? Start a new chat. Same task? Use /compact." );
+		return lines;
+	}
+
+	/// <summary>Formats one per-million token rate, or a question mark when the model catalog omits it.</summary>
+	private static string FormatRate( double? rate ) => rate is { } known ? "$" + known.ToString( "0.##", CultureInfo.InvariantCulture ) : "?";
+
+	/// <summary>Formats a token count the way Omp does: 500K, 1.2M.</summary>
+	internal static string FormatTokens( long tokens ) => tokens switch
+	{
+		>= 1_000_000 => (tokens / 1_000_000.0).ToString( "0.#", CultureInfo.InvariantCulture ) + "M",
+		>= 1_000 => (tokens / 1_000.0).ToString( tokens >= 100_000 ? "0" : "0.#", CultureInfo.InvariantCulture ) + "K",
+		_ => tokens.ToString( CultureInfo.InvariantCulture ),
+	};
+}

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<!-- The junction and hard link interop uses source-generated LibraryImport stubs. -->
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Conversations\Lokn.Modules.Conversations.csproj" Private="false" />
+		<ProjectReference Include="..\Git\Lokn.Modules.Git.csproj" Private="false" />
+	</ItemGroup>
+</Project>

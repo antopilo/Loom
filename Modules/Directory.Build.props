@@ -1,0 +1,17 @@
+<Project>
+	<!-- Shared by every module project below this directory. Each one builds a DLL the running app can reload. -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<LangVersion>14</LangVersion>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<!-- The application loads module DLLs from this directory beside its executable; see Shell/ModuleHost.cs. -->
+		<LoknModulesDirectory>$(MSBuildThisFileDirectory)..\bin\$(Configuration)\net10.0\modules\</LoknModulesDirectory>
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- Core is loaded once by the application, so modules never carry their own copy. -->
+		<ProjectReference Include="$(MSBuildThisFileDirectory)..\Core\Lokn.Core.csproj" Private="false" />
+		<InternalsVisibleTo Include="Lokn.Tests" />
+	</ItemGroup>
+</Project>

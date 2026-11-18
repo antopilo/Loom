@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- Uses only the public API of Lokn.Core and Goo: no InternalsVisibleTo, no other module. -->
+</Project>

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<ItemGroup>
+		<!-- The chat draws its tool diffs with the diff views and opens the Git and diff panels; those internals stay shared until a UI library holds them. -->
+		<InternalsVisibleTo Include="Lokn.Modules.Conversations" />
+	</ItemGroup>
+</Project>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<ItemGroup>
+		<!-- Windows media sessions exist from Windows 10 1809; Lokn runs only on Windows. -->
+		<AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+			<_Parameter1>windows10.0.17763.0</_Parameter1>
+		</AssemblyAttribute>
+		<!-- Compile against the Windows SDK projection for Windows' media sessions; the application ships it, since a module cannot bring its own packages. -->
+		<PackageReference Include="Microsoft.Windows.SDK.NET.Ref" Version="10.0.19041.87" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
+		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\Microsoft.Windows.SDK.NET.dll" Private="false" />
+		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\WinRT.Runtime.dll" Private="false" />
+	</ItemGroup>
+</Project>

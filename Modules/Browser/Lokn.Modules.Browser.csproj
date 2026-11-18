@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<!-- The window and keyboard interop uses source-generated LibraryImport stubs. -->
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- Compile against WebView2's core API only; the application ships it and its native loader. The package's own build targets would also pull in its WPF and WinForms controls. -->
+		<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
+		<Reference Include="$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll" Private="false" />
+	</ItemGroup>
+</Project>

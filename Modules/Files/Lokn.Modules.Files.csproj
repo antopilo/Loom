@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- Uses only the public API of Lokn.Core and Goo: the project folder comes from the IWorkingFolder service, and files open through lokn://editor/open. -->
+</Project>

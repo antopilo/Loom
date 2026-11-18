@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<LangVersion>14</LangVersion>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<!-- WindowIcon uses LibraryImport, whose generated marshalling needs unsafe code. -->
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<!-- Product name is Loom; namespaces and project names keep the code name Lokn. -->
+		<AssemblyName>Loom</AssemblyName>
+		<RootNamespace>Lokn</RootNamespace>
+		<ApplicationIcon>assets\brand\loom.ico</ApplicationIcon>
+		<!-- The release version: the installer's package version, and the version Program reports to Goo. Raise it for every release. -->
+		<Version>0.1.0</Version>
+	</PropertyGroup>
+	<ItemGroup>
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
+		<!-- Installs, updates and uninstalls Loom; see scripts/installer.ps1. Keep it at the version of the vpk tool in dotnet-tools.json. -->
+		<PackageReference Include="Velopack" Version="1.2.161" />
+		<!-- Ships WebView2's core API and native loader with the application, since a module cannot bring its own packages; the Browser module uses them.
+		     The package's own build targets are skipped because they also reference its WPF and WinForms controls. -->
+		<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
+		<Reference Include="$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll" />
+		<None Include="$(PkgMicrosoft_Web_WebView2)\runtimes\win-x64\native\WebView2Loader.dll" Link="WebView2Loader.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+		<!-- Ships the Windows SDK projection, whose media sessions the Now Playing module reads, for the same reason. -->
+		<PackageReference Include="Microsoft.Windows.SDK.NET.Ref" Version="10.0.19041.87" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
+		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\Microsoft.Windows.SDK.NET.dll" />
+		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\WinRT.Runtime.dll" />
+		<ProjectReference Include="Core\Lokn.Core.csproj" />
+		<Compile Remove="Core\**\*.cs;tests\**\*.cs;Modules\**\*.cs" />
+		<!-- The source-module compiler is part of the host; every other module is its own reloadable DLL. -->
+		<Compile Include="Modules\Hotload\**\*.cs" />
+		<EmbeddedResource Include="Modules\Hotload\ModuleGuide.md" LogicalName="ModuleGuide.md" />
+		<EmbeddedResource Include="assets\brand\loom-256.png" LogicalName="Loom.png" />
+		<!-- Tern's theme catalog, extracted from tern.exe; see ThemeCatalog. -->
+		<EmbeddedResource Include="Shell\Theming\TernThemes.json" LogicalName="TernThemes.json" />
+		<InternalsVisibleTo Include="Lokn.Tests" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- Built with the application but never referenced by it: a referenced module could not be reloaded. -->
+		<ProjectReference Include="Modules\Editor\Lokn.Modules.Editor.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Files\Lokn.Modules.Files.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Markdown\Lokn.Modules.Markdown.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Omp\Lokn.Modules.Omp.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Conversations\Lokn.Modules.Conversations.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Worktrees\Lokn.Modules.Worktrees.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Terminal\Lokn.Modules.Terminal.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Workspaces\Lokn.Modules.Workspaces.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Projects\Lokn.Modules.Projects.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\GitHub\Lokn.Modules.GitHub.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Git\Lokn.Modules.Git.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Browser\Lokn.Modules.Browser.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Notifications\Lokn.Modules.Notifications.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\NowPlaying\Lokn.Modules.NowPlaying.csproj" ReferenceOutputAssembly="false" />
+		<ProjectReference Include="Modules\Setup\Lokn.Modules.Setup.csproj" ReferenceOutputAssembly="false" />
+	</ItemGroup>
+</Project>

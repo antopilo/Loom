@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<LangVersion>14</LangVersion>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+	</PropertyGroup>
+	<ItemGroup>
+		<PackageReference Include="Goo" Version="0.31.0" />
+		<InternalsVisibleTo Include="Loom" />
+		<InternalsVisibleTo Include="Lokn.Tests" />
+		<InternalsVisibleTo Include="Lokn.Modules.Conversations" />
+		<InternalsVisibleTo Include="Lokn.Modules.Git" />
+		<InternalsVisibleTo Include="Lokn.Modules.Notifications" />
+		<InternalsVisibleTo Include="Lokn.Modules.Worktrees" />
+	</ItemGroup>
+</Project>

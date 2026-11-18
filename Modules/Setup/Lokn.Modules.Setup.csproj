@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- References no other module: Git, Omp, Browser and others contribute their setup items through Core's setup.items point. -->
+</Project>
