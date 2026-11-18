@@ -55,8 +55,28 @@ A built-in module has its own release version, `<Version>` in its project. Raise
 module should reach installed copies of Loom on its own; `scripts/release.ps1` then publishes it
 as a module update. An installed Loom loads an update only when every type and member it uses
 exists in that Loom (see [architecture](architecture.md#updates)), so a module that needs new
-Core API reaches users with the app release that brings that API. Source modules take no updates:
-Lokn compiles them against the running app, so they always fit it.
+Core API reaches users with the app release that brings that API. Source modules take no updates
+from that feed: Lokn compiles them against the running app, so they always fit it.
+
+## Community modules
+
+Anyone can publish a source module through the community hub,
+[antopilo/loom-modules](https://github.com/antopilo/loom-modules): one folder per module,
+`modules/<id>/`, with `module.json` (`id`, `name`, `author`, `description`, `version`) and its `.cs`
+files, added or changed by pull request. The hub's CI checks the files, compiles the module against
+Loom's Core, checks that it defines exactly one module whose `Id` is the folder name, and requires a
+higher `version` for every change; maintainers review the code before they merge. On each merge the
+hub publishes `index.json`, which lists every module with the SHA-256 of each file at that commit.
+
+**Settings › Modules › Community** lists the hub's modules. **Install** downloads a module's files
+at the index's commit, checks each hash, and writes them to `community\<id>` in the data folder;
+`CommunityModule` (`Shell/Community/`) contributes that folder to `app.ModuleFolders`, so Hotload
+compiles and loads it like any source module, and a module that does not compile against this Loom
+does not load. **Remove** deletes the folder. With **Update community modules automatically**
+(`community.automatic`), installed modules update to a higher hub version 20 seconds after startup
+and every 6 hours; **Community modules: check for updates** does it now. **Community module source**
+(`community.source`) takes another GitHub repository with the same layout, or a folder holding
+`index.json` and `modules/`.
 
 ## Source modules and hot reload
 

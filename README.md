@@ -33,7 +33,9 @@ from inside the app.
 - **Work and Personal profiles.** Separate settings, history and Omp accounts.
 - **Themes.** Loom's own theme and the whole Tern theme catalog, with a live preview.
 - **Extensible.** Write a module as a folder of `.cs` files. Loom compiles it and reloads it
-  every time you save.
+  every time you save. Install modules other people wrote from the
+  [community hub](https://github.com/antopilo/loom-modules) in Settings › Modules, or submit
+  your own with a pull request.
 
 See [Using Loom](docs/features.md) for the full guide.
 

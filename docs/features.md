@@ -58,6 +58,11 @@ switches to Work and **Alt+2** to Personal; the sidebar swipes in from that prof
   Left/Right at either end of the query (or Ctrl+Left/Right) change tab, `/tasks ` filters to a type,
   and Escape closes.
 - Run **Open Modules** to disable or re-enable optional features at runtime.
+- **Settings › Modules › Community** lists modules other people wrote, from the
+  [community hub](https://github.com/antopilo/loom-modules). Search them, then **Install**,
+  **Update** or **Remove** one; it loads at once. Each one is reviewed before it joins the hub, but
+  it runs with your rights, so install only what you trust. Installed ones update automatically
+  unless you turn off **Update community modules automatically** below the list.
 
 Panel models and their nested Goo Cells remain mounted across moves and swaps.
 There are no tab stacks. Closing a panel or unloading its module cancels its

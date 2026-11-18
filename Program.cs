@@ -79,6 +79,8 @@ internal static class Program
 		if ( bare is null )
 		{
 			app.Load( new HotloadModule( HotloadModule.DefaultPath, HotloadModule.DefaultCachePath ) );
+			// Community modules are source folders from the hub, so they load through Hotload and need it first.
+			app.Load( new CommunityModule() );
 			app.Load( new UpdatesModule( modules ) );
 		}
 

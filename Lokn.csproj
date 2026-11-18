@@ -24,7 +24,7 @@
 		<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
 		<Reference Include="$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll" />
 		<None Include="$(PkgMicrosoft_Web_WebView2)\runtimes\win-x64\native\WebView2Loader.dll" Link="WebView2Loader.dll" CopyToOutputDirectory="PreserveNewest" Visible="false" />
-		<!-- Ships the Windows SDK projection, whose media sessions the Now Playing module reads, for the same reason. -->
+		<!-- Ships the Windows SDK projection, which source modules such as the community Now Playing module use for Windows APIs, for the same reason. -->
 		<PackageReference Include="Microsoft.Windows.SDK.NET.Ref" Version="10.0.19041.87" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
 		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\Microsoft.Windows.SDK.NET.dll" />
 		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\WinRT.Runtime.dll" />
@@ -55,7 +55,6 @@
 		<ProjectReference Include="Modules\Git\Lokn.Modules.Git.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Browser\Lokn.Modules.Browser.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Notifications\Lokn.Modules.Notifications.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
-		<ProjectReference Include="Modules\NowPlaying\Lokn.Modules.NowPlaying.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Setup\Lokn.Modules.Setup.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 	</ItemGroup>
 </Project>

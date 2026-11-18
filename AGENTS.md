@@ -51,6 +51,10 @@ Source modules can use only the public API of `Lokn.Core` and Goo. If a feature 
 shell internals such as `ShellView`, it has to be a built-in module. Colors, fonts and
 spacing come from the public `Theme.Current`; never hard-code them in a view.
 
+Modules for other people go to the community hub, [antopilo/loom-modules](https://github.com/antopilo/loom-modules),
+as source in `modules/<id>/` by pull request (see [docs/modules.md](docs/modules.md#community-modules));
+users install them from Settings › Modules › Community. Now Playing lives there, not in this repository.
+
 ## Scripts
 
 Use the scripts in `scripts/` instead of raw `dotnet` commands. Each prints a final

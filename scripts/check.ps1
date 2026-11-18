@@ -7,9 +7,9 @@ Runs one or more suites of the Lokn.Tests executable and prints PASS or FAIL per
 suite. Exits non-zero when the build or any suite fails.
 
 Headless suites (no window):
-  default        core, hotload, updates, and settings checks
+  default        core, hotload, updates, community, and settings checks
   features       layout, conversations, omp, chat, worktrees, terminal, browser, and git
-  layout, conversations, omp, chat, worktrees, terminal, browser, git, hotload, updates, settings
+  layout, conversations, omp, chat, worktrees, terminal, browser, git, hotload, updates, community, settings
   all            default and features
 
 Suites that open a real window on the desktop for a few seconds:
@@ -64,6 +64,7 @@ $flags = @{
 	'git' = @( '--git-only' )
 	'hotload' = @( '--hotload-only' )
 	'updates' = @( '--updates-only' )
+	'community' = @( '--community-only' )
 	'settings' = @( '--settings-only' )
 	'chat-view' = @( '--chat-view-only' )
 	'terminal-view' = @( '--terminal-view-only' )

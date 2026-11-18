@@ -62,6 +62,12 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	/// <summary>Tracks whether the highlighted setting still has to scroll into view.</summary>
 	private bool _isScrollPending;
 
+	/// <summary>Tracks the text typed into the community module search.</summary>
+	private readonly State<string> _communityQuery = new( "" );
+
+	/// <summary>Tracks whether the community list was asked for once, so a failed read is not repeated on every build.</summary>
+	private bool _isCommunityRequested;
+
 	/// <summary>Shows the tab holding a setting, highlights it, and scrolls it into view.</summary>
 	internal void ShowSetting( SettingDefinition definition )
 	{
@@ -79,8 +85,9 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	/// <summary>Defines the Modules tab's key, which no module identifier can take.</summary>
 	private const string ModulesTab = " modules";
 
-	/// <summary>Gets the tab a module's settings show on: the Shell tab for the shell's own modules, else the module's own.</summary>
-	private static string ComputeTab( string moduleId ) => ShellModules.Contains( moduleId ) ? ShellTab : moduleId;
+	/// <summary>Gets the tab a module's settings show on: the Shell tab for the shell's own modules, the Modules tab for the community
+	/// module's, else the module's own.</summary>
+	private static string ComputeTab( string moduleId ) => moduleId == "community" ? ModulesTab : ShellModules.Contains( moduleId ) ? ShellTab : moduleId;
 
 	/// <summary>Builds the scope selector, the module tabs, and the shown module's settings in one card per category.</summary>
 	public override Blob Build()
@@ -126,7 +133,10 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		};
 
 		if ( shown?.Id == ModulesTab )
+		{
 			children.AddRange( BuildModules() );
+			children.AddRange( BuildCommunity() );
+		}
 
 		var categories = (shown is null || !owned.TryGetValue( shown.Id, out var definitions ) ? [] : definitions)
 			.GroupBy( item => item.Category )
@@ -502,6 +512,168 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 				Children = rows,
 			};
 		}
+	}
+
+	/// <summary>Builds the Community section of the Modules tab: a search field, then every hub module and every installed one, each with
+	/// Install, Update or Remove.</summary>
+	/// <remarks>The hub is read the first time the tab shows; Refresh reads it again.</remarks>
+	private IEnumerable<Blob> BuildCommunity()
+	{
+		var theme = Theme.Current;
+		var app = context.App;
+		if ( app.AvailableModules.OfType<CommunityModule>().FirstOrDefault() is not { } community )
+			yield break;
+
+		if ( community.Index is null && !community.IsLoading && !_isCommunityRequested )
+		{
+			_isCommunityRequested = true;
+			context.Post( () => community.Refresh() );
+		}
+
+		yield return new Row
+		{
+			AlignItems = AlignItems.Center,
+			Gap = theme.Spacing,
+			Margin = new Edges( theme.Spacing * 2, 0, 0, theme.Spacing ),
+			Children =
+			[
+				new Text { Content = "Community", Color = theme.Muted, FlexGrow = 1 },
+				new TextEntry
+				{
+					Value = _communityQuery.Value,
+					Controlled = true,
+					Placeholder = "Search community modules",
+					Width = FieldWidth,
+					Height = EditorHeight,
+					Padding = new Edges( 0, theme.Spacing ),
+					BackgroundColor = theme.Canvas,
+					BorderColor = theme.Border,
+					BorderWidth = theme.BorderWidth,
+					BorderRadius = theme.Radius + 2,
+					AccessibilityName = "Search community modules",
+					OnChange = text => _communityQuery.Value = text,
+				},
+				BuildQuiet( community.IsLoading ? "Loading…" : "Refresh", () => community.Refresh(), isEnabled: !community.IsLoading, name: "Refresh community modules" ),
+			],
+		};
+		yield return new Text
+		{
+			Content = $"From {community.SourceLabel}. Each module is reviewed before it joins the hub, but it runs with your rights: install only what you trust.",
+			Color = theme.Muted,
+			FontSize = theme.FontSize - 1,
+			Margin = new Edges( 0, 0, theme.Spacing, 0 ),
+		};
+
+		var installed = community.Installed.ToDictionary( module => module.Id );
+		var offered = community.Index?.Modules ?? [];
+		var query = _communityQuery.Value.Trim();
+		bool Matches( string text ) => text.Contains( query, StringComparison.CurrentCultureIgnoreCase );
+		var entries = offered
+			.Select( module => (module.Id, Hub: (HubModule?)module, Name: module.Name) )
+			.Concat( installed.Values.Where( module => offered.All( item => item.Id != module.Id ) ).Select( module => (module.Id, Hub: (HubModule?)null, module.Name) ) )
+			.Where( entry => query.Length == 0 || Matches( entry.Name ) || Matches( entry.Id ) || entry.Hub is { } hub && (Matches( hub.Author ) || Matches( hub.Description )) )
+			.OrderBy( entry => installed.ContainsKey( entry.Id ) ? 0 : 1 )
+			.ThenBy( entry => entry.Name, StringComparer.CurrentCulture )
+			.ToArray();
+
+		var rows = new List<Blob>();
+		Blob BuildMessage( string text, Color color ) => new Container
+		{
+			Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2 ),
+			Children = [new Text { Content = text, Color = color }],
+		};
+		if ( community.Error is { } error )
+			rows.Add( BuildMessage( $"Could not read the module list: {error}", theme.Accent ) );
+		else if ( community.Index is null )
+			rows.Add( BuildMessage( "Loading the module list…", theme.Muted ) );
+
+		foreach ( var (id, hub, name) in entries )
+			rows.Add( BuildCommunityRow( community, id, hub, name, installed.GetValueOrDefault( id ), isFirst: rows.Count == 0 ) );
+
+		if ( rows.Count == 0 )
+			rows.Add( BuildMessage( query.Length > 0 ? "No community module matches." : "The hub has no modules yet.", theme.Muted ) );
+
+		yield return new Container
+		{
+			Key = "community",
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = "Community modules",
+			BackgroundColor = theme.Raised,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = theme.Radius * 2,
+			Overflow = Overflow.Hidden,
+			Children = rows,
+		};
+	}
+
+	/// <summary>Builds one community module's row: its name, version and author, what it does, its state, and its buttons.</summary>
+	private Container BuildCommunityRow( CommunityModule community, string id, HubModule? hub, string name, InstalledModule? installed, bool isFirst )
+	{
+		var theme = Theme.Current;
+		var app = context.App;
+		var isBusy = community.IsBusy( id );
+		var isUpdate = hub is not null && installed is not null && CommunityHub.ParseVersion( hub.Version ) > CommunityHub.ParseVersion( installed.Version );
+		var isLoaded = app.Modules.Any( module => module.Id == id );
+		var isKnown = app.AvailableModules.Any( module => module.Id == id );
+		var (note, isWarning) = (isBusy, installed, hub) switch
+		{
+			(true, _, _) => ("Working…", false),
+			(_, null, _) => ((string?)null, false),
+			(_, _, null) => ("Installed. This module is no longer in the hub.", true),
+			_ when isUpdate => ($"Version {installed.Version} installed.", false),
+			_ when isLoaded => ("Installed.", false),
+			_ when isKnown => ("Installed, and turned off above.", false),
+			_ => ("Installed, but it did not load with this version of Loom. The error notice says why.", true),
+		};
+
+		var buttons = new List<Blob>();
+		if ( hub is not null && installed is null )
+			buttons.Add( theme.BuildButton( "Install", () => community.Install( hub ), !isBusy ) );
+		if ( hub is not null && isUpdate )
+			buttons.Add( theme.BuildButton( $"Update to {hub.Version}", () => community.Install( hub ), !isBusy ) );
+		if ( installed is not null )
+			buttons.Add( BuildQuiet( "Remove", () => community.Remove( id ), !isBusy, $"Remove {name}" ) );
+
+		var heading = new List<Blob> { new Text { Content = name, FontWeight = TitleWeight } };
+		if ( (hub?.Version ?? installed?.Version) is { Length: > 0 } version )
+			heading.Add( new Text { Content = version, Color = theme.Muted, FontSize = theme.FontSize - 1 } );
+		if ( hub is not null )
+			heading.Add( new Text { Content = $"by {hub.Author}", Color = theme.Muted, FontSize = theme.FontSize - 1 } );
+
+		var text = new Container
+		{
+			FlexBasis = TextMinWidth,
+			FlexGrow = 1000,
+			FlexShrink = 1,
+			MinWidth = 0,
+			Gap = theme.Spacing / 2,
+			Children =
+			[
+				new Row { Gap = theme.Spacing, AlignItems = AlignItems.Center, Children = heading },
+				.. hub is not null ? [new Text { Content = hub.Description, Color = theme.Muted }] : Array.Empty<Blob>(),
+				.. note is not null ? [new Text { Content = note, Color = isWarning ? theme.Accent : theme.Muted, FontSize = theme.FontSize - 1 }] : Array.Empty<Blob>(),
+			],
+		};
+		return new Container
+		{
+			Key = "community:" + id,
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = name,
+			Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2 ),
+			BorderColor = theme.Border,
+			BorderWidth = new Edges( isFirst ? 0 : theme.BorderWidth, 0, 0, 0 ),
+			Children =
+			[
+				new Row
+				{
+					AlignItems = AlignItems.Center,
+					FlexWrap = FlexWrap.Wrap,
+					Gap = theme.Spacing * 2,
+					Children = [text, new Row { FlexGrow = 1, FlexShrink = 0, Gap = theme.Spacing, JustifyContent = JustifyContent.FlexEnd, Children = buttons }],
+				},
+			],
+		};
 	}
 
 	/// <summary>Lists the modules that are off and that a module needs, directly or through another, those needed first.</summary>
