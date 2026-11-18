@@ -225,7 +225,10 @@ $published = @()
 if ( $indexAsset )
 {
 	$file = New-TemporaryFile
-	Invoke-WebRequest -Uri $indexAsset.url -Headers ( $script:headers + @{ Accept = 'application/octet-stream' } ) -OutFile $file
+	# The asset's bytes, not its description; the same headers with Accept replaced.
+	$download = $script:headers.Clone()
+	$download.Accept = 'application/octet-stream'
+	Invoke-WebRequest -Uri $indexAsset.url -Headers $download -OutFile $file
 	$published = @( ( Get-Content $file -Raw | ConvertFrom-Json ).modules | Where-Object { $_ } )
 	Remove-Item $file
 }
@@ -243,9 +246,17 @@ $new = @( Get-ChildItem $modules -Filter 'Lokn.Modules.*.dll' | ForEach-Object {
 	{
 		[pscustomobject]@{ name = $name; version = $moduleVersion; file = "$name-$moduleVersion.dll"; sha256 = $hash; app = $Version; path = $_.FullName }
 	}
-	elseif ( $same.sha256 -ne $hash )
+	else
 	{
-		Write-Warning "$name changed since $moduleVersion was published. Raise <Version> in its project to ship the change as a module update; otherwise it ships with the next app release."
+		# Builds on two machines differ in bytes (the build path is embedded), so compare the module's source since the
+		# app release that published this version instead.
+		$folder = "Modules/$( $name -replace '^Lokn\.Modules\.', '' )"
+		git -C $RepoRoot fetch --tags --quiet
+		git -C $RepoRoot diff --quiet "v$( @( $same )[0].app )" -- $folder 2>$null
+		if ( $LASTEXITCODE -eq 1 )
+		{
+			Write-Warning "$name changed since $moduleVersion was published. Raise <Version> in its project to ship the change as a module update; otherwise it ships with the next app release."
+		}
 	}
 } )
 
