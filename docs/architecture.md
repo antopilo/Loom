@@ -218,8 +218,9 @@ Velopack starts `Loom.exe` with a hook argument when it installs, updates or uni
 `Installation.RemoveRegistration` deletes the protocol when it opens this install, and Velopack
 deletes the install folder and every shortcut into it. `%LOCALAPPDATA%\Lokn` is kept. The
 package version is `<Version>` in `Lokn.csproj`, and each version can be packed once into
-`artifacts\installer`, which keeps earlier releases for update deltas. Nothing is signed yet,
-so SmartScreen warns before the first run.
+`artifacts\installer`, which keeps earlier releases for update deltas. The version's
+`## <Version>` section of `CHANGELOG.md` is packed as its release notes; without one, packing
+stops. Nothing is signed yet, so SmartScreen warns before the first run.
 
 ## Updates
 

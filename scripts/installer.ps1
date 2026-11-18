@@ -57,6 +57,18 @@ try
 		exit $LASTEXITCODE
 	}
 
+	# The version's section of CHANGELOG.md becomes the release notes; a release must have one.
+	$changelog = Get-Content "$RepoRoot\CHANGELOG.md" -Raw
+	$section = [regex]::Match( $changelog, '(?ms)^## ' + [regex]::Escape( $Version ) + '\s*$(.+?)(?=^## |\z)' )
+	if ( -not $section.Success )
+	{
+		Write-Host "INSTALLER FAILED: CHANGELOG.md has no '## $Version' section"
+		exit 1
+	}
+
+	$notes = Join-Path ( [IO.Path]::GetTempPath() ) "Loom-$Version-notes.md"
+	Set-Content $notes $section.Groups[1].Value.Trim()
+
 	Write-Host "Packing Loom $Version..."
 	# The desktop shortcut carries Loom's app ID, so the taskbar groups it with Loom's window.
 	# Loom writes the Start menu shortcut itself, with the toast activator Windows needs for notifications.
@@ -72,6 +84,7 @@ try
 		--splashProgressColor '#d5a583' `
 		--shortcuts Desktop `
 		--aumid dev.lokn.desktop `
+		--releaseNotes $notes `
 		--outputDir $Output
 	if ( $LASTEXITCODE -ne 0 )
 	{

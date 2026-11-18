@@ -65,7 +65,7 @@ running Lokn has the Release output locked.
 |---|---|
 | Build everything | `pwsh scripts/build.ps1` |
 | Publish a self-contained build for other PCs (`artifacts\publish\win-x64`) | `pwsh scripts/publish.ps1` |
-| Build the Windows installer (`artifacts\installer\Loom-win-Setup.exe`; raise `<Version>` in `Lokn.csproj` first) | `pwsh scripts/installer.ps1` |
+| Build the Windows installer (`artifacts\installer\Loom-win-Setup.exe`; raise `<Version>` in `Lokn.csproj` and add its `CHANGELOG.md` section first) | `pwsh scripts/installer.ps1` |
 | See what a release would publish, without uploading | `pwsh scripts/release.ps1 -DryRun` |
 | Publish the app and new module versions to GitHub (`-ModulesOnly` for modules alone) | `pwsh scripts/release.ps1` |
 | Run the default checks | `pwsh scripts/check.ps1` |
