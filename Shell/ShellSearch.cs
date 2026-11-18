@@ -75,10 +75,17 @@ internal static class ShellSearch
 
 	/// <summary>Lists every setting with its category; running one opens Settings at it.</summary>
 	private static IEnumerable<SearchItem> ListSettings( LoknApplication app, ShellModule module ) => app.Settings.Definitions
-	.Select( setting => new SearchItem( setting.Id, setting.Title, () => _ = app.Commands.ExecuteAsync( "shell.open.settings" ) )
+	.Select( setting => new SearchItem( setting.Id, setting.Title, () => ShowSetting( app, setting ) )
 		{
 			Detail = setting.Category,
 			Glyph = SettingGlyph,
 			Keywords = [setting.Id, setting.Description],
 		} );
+
+	/// <summary>Opens Settings, or returns to it, on the tab that holds a setting, with the setting highlighted and scrolled into view.</summary>
+	private static void ShowSetting( LoknApplication app, SettingDefinition setting )
+	{
+		ShellModule.OpenSettings( app );
+		app.Panels.FindContent<SettingsContent>()?.Content.ShowSetting( setting );
+	}
 }

@@ -55,7 +55,7 @@ internal sealed class ShellModule : ILoknModule
 	}
 
 	/// <summary>Opens the Settings panel once, or returns to its existing panel.</summary>
-	private static void OpenSettings( LoknApplication app )
+	internal static void OpenSettings( LoknApplication app )
 	{
 		if ( app.Panels.Panels.FirstOrDefault( panel => panel.TypeId == "shell.settings" ) is { } settings )
 			app.Panels.Activate( settings.Id );
