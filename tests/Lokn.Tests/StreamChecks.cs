@@ -96,7 +96,8 @@ internal static class StreamChecks
 		CoreChecks.Check( image.Width == width && image.Height == height, "Goo decodes the JPEG the panel shows at the frame's size." );
 	}
 
-	/// <summary>Verifies one frame goes out until it is acknowledged, a stray acknowledgement does not open the gate, unchanged captures are skipped, and a capture failure ends the session.</summary>
+	/// <summary>Verifies up to <see cref="CaptureSession.MaxInFlight"/> frames go out before an acknowledgement, a stray acknowledgement does not widen the
+	/// window, unchanged captures are skipped, and a capture failure ends the session.</summary>
 	private static void CheckAckGating()
 	{
 		var capturer = new FakeCapturer();
@@ -114,17 +115,20 @@ internal static class StreamChecks
 				return frames.Count;
 		}
 
-		// No frame is outstanding yet, so this acknowledgement must not let a second frame through later.
+		// No frame is outstanding yet, so this acknowledgement must not let an extra frame through later.
 		session.Ack();
 		session.Start();
-		CoreChecks.Check( WaitFor( () => Count() == 1 ), "The first frame goes out without an acknowledgement." );
+		var window = CaptureSession.MaxInFlight;
+		CoreChecks.Check( WaitFor( () => Count() == window ), "Up to MaxInFlight frames go out without an acknowledgement." );
 		var captures = capturer.Captures;
 		Thread.Sleep( QuietMilliseconds );
-		CoreChecks.Check( Count() == 1 && capturer.Captures == captures, "Without an acknowledgement no further frame is captured or sent." );
+		CoreChecks.Check( Count() == window && capturer.Captures == captures, "With every slot waiting for an acknowledgement no further frame is captured or sent." );
 		CoreChecks.Check( session.FrameSize == (FakeCapturer.Width, FakeCapturer.Height), "The session reports the size of the frame sent, for input mapping." );
 
 		session.Ack();
-		CoreChecks.Check( WaitFor( () => Count() == 2 ), "An acknowledgement lets the next frame out." );
+		CoreChecks.Check( WaitFor( () => Count() == window + 1 ), "An acknowledgement lets the next frame out." );
+		Thread.Sleep( QuietMilliseconds );
+		CoreChecks.Check( Count() == window + 1, "One acknowledgement lets one frame out." );
 		lock ( frames )
 			CoreChecks.Check( frames[1].Jpeg[0] != frames[0].Jpeg[0], "Each frame carries its own capture." );
 
@@ -132,7 +136,7 @@ internal static class StreamChecks
 		session.Ack();
 		captures = capturer.Captures;
 		CoreChecks.Check( WaitFor( () => capturer.Captures >= captures + 3 ), "Capturing continues after an acknowledgement." );
-		CoreChecks.Check( Count() == 2, "Unchanged captures are not sent." );
+		CoreChecks.Check( Count() == window + 1, "Unchanged captures are not sent." );
 		var settled = Count();
 		Thread.Sleep( QuietMilliseconds );
 		CoreChecks.Check( Count() == settled, "An unchanged window sends nothing." );

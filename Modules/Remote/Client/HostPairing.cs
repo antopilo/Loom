@@ -8,6 +8,10 @@ internal static class HostPairing
 	/// <summary>Defines how long one address may take to connect and complete the handshake.</summary>
 	private static readonly TimeSpan DialTimeout = TimeSpan.FromSeconds( 10 );
 
+	/// <summary>Defines how long a private address, such as the host's LAN address, may take to answer: on another network it never answers, and the
+	/// public address or relay after it should not wait long.</summary>
+	private static readonly TimeSpan PrivateDialTimeout = TimeSpan.FromSeconds( 2 );
+
 	/// <summary>Gets the device key file in a data folder, which this PC pairs and connects with.</summary>
 	internal static string ComputeDeviceKeyPath( string dataFolder ) => Path.Combine( dataFolder, "device-key.pem" );
 
@@ -47,7 +51,7 @@ internal static class HostPairing
 		foreach ( var addr in addrs )
 		{
 			using var timeout = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken );
-			timeout.CancelAfter( DialTimeout );
+			timeout.CancelAfter( IsPrivate( addr ) ? PrivateDialTimeout : DialTimeout );
 			try
 			{
 				var carrier = await WebSocketDialer.ConnectAsync( WebSocketDialer.BuildHostUri( addr, RemoteModule.Port.DefaultValue ), timeout.Token ).ConfigureAwait( false );
@@ -75,5 +79,12 @@ internal static class HostPairing
 		}
 
 		throw new IOException( failures.Count == 0 ? "The pairing names no address of the host." : "The host did not answer. " + string.Join( "; ", failures ) );
+	}
+
+	/// <summary>Reports whether an address is a bare private IP with its port, such as a host's LAN address, rather than a name or a ws(s) address.</summary>
+	private static bool IsPrivate( string address )
+	{
+		var host = address.StartsWith( '[' ) ? address[1..Math.Max( 1, address.IndexOf( ']' ) )] : address.Split( ':' )[0];
+		return System.Net.IPAddress.TryParse( host, out var ip ) && NetworkAddresses.IsPrivate( ip );
 	}
 }

@@ -13,7 +13,7 @@
 		<RootNamespace>Lokn</RootNamespace>
 		<ApplicationIcon>assets\brand\loom.ico</ApplicationIcon>
 		<!-- The release version: the installer's package version, and the version Program reports to Goo. Raise it for every release. -->
-		<Version>0.4.1</Version>
+		<Version>0.4.2</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />

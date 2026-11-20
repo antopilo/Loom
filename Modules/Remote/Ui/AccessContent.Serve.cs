@@ -13,9 +13,6 @@ internal sealed partial class AccessContent
 	/// <summary>Defines Tailscale's download page.</summary>
 	private const string TailscaleDownload = "https://tailscale.com/download";
 
-	/// <summary>Defines the tailnet's DNS settings, where HTTPS certificates are turned on.</summary>
-	private const string TailscaleDnsSettings = "https://login.tailscale.com/admin/dns";
-
 	/// <summary>Defines the way devices reach this PC when Anywhere is picked and none was set before: a link through Tailscale Funnel, which needs nothing on the phone.</summary>
 	private const string DefaultAnywhereMode = "funnel";
 
@@ -261,17 +258,17 @@ internal sealed partial class AccessContent
 		var isRunning = tailscale.Status is { IsRunning: true };
 		var named = error is null ? null : System.Text.RegularExpressions.Regex.Match( error, @"https://login\.tailscale\.com/f/funnel\S*" ) is { Success: true } match
 			? match.Value.TrimEnd( '.', ',', ')' ) : null;
-		var funnelLink = chosen == "funnel" ? (_funnelLink = named ?? _funnelLink) : null;
+		var funnelLink = chosen == "funnel" ? (_funnelLink = named ?? _funnelLink ?? TailscaleCli.BuildFunnelUrl( tailscale.Status?.NodeId )) : null;
 		var signIn = tailscale.Status?.AuthUrl;
 		var steps = new List<(string Title, string Text, bool IsDone, string? Button, string? Url)>
 		{
 			("Install Tailscale on this PC", "A free app that gives this PC a private HTTPS address.", tailscale.IsInstalled, "Download", TailscaleDownload),
 			("Sign in to Tailscale", isRunning || tailscale.Status is null ? "Open Tailscale and sign in with any account."
 				: TailscaleCli.DescribeProblem( tailscale.Status ) ?? "Open Tailscale and sign in.", isRunning, signIn is null ? null : "Sign in", signIn),
-			("Turn on HTTPS certificates", "In Tailscale's DNS settings, under HTTPS Certificates, choose Enable.", tailscale.Status is { HasCertificates: true }, "Open DNS settings", TailscaleDnsSettings),
+			("Turn on HTTPS certificates", "In Tailscale's DNS settings, under HTTPS Certificates, choose Enable.", tailscale.Status is { HasHttps: true }, "Open DNS settings", TailscaleCli.DnsSettingsUrl),
 		};
 		if ( chosen == "funnel" )
-			steps.Add( ("Allow Funnel for this PC", "Lets a link reach this PC from any network. Tailscale asks once.", false, funnelLink is null ? null : "Allow Funnel", funnelLink) );
+			steps.Add( ("Allow Funnel for this PC", "Lets a link reach this PC from any network. Tailscale asks once.", tailscale.Status is { HasFunnel: true }, "Allow Funnel", funnelLink) );
 		else
 			steps.Add( ("Install Tailscale on your phone", "Sign in with the same account; the phone then reaches this PC.", false, "Get the app", TailscaleDownload) );
 

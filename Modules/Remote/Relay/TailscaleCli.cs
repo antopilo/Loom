@@ -97,7 +97,8 @@ public static partial class TailscaleCli
 	internal static IReadOnlyList<string> ParseAddresses( string output ) =>
 		[.. output.Split( '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ).Where( line => System.Net.IPAddress.TryParse( line, out _ ) )];
 
-	/// <summary>Parses <c>tailscale status --json</c>: <c>BackendState</c>, <c>Self.DNSName</c>, <c>TailscaleIPs</c>, <c>AuthURL</c> and <c>CertDomains</c>.</summary>
+	/// <summary>Parses <c>tailscale status --json</c>: <c>BackendState</c>, <c>Self.DNSName</c>, <c>Self.ID</c>, the keys of <c>Self.CapMap</c>,
+	/// <c>TailscaleIPs</c>, <c>AuthURL</c> and <c>CertDomains</c>.</summary>
 	/// <exception cref="JsonException">The text is not a status object.</exception>
 	internal static TailscaleStatus ParseStatus( string json )
 	{
@@ -106,15 +107,31 @@ public static partial class TailscaleCli
 		if ( root.ValueKind != JsonValueKind.Object )
 			throw new JsonException( "The status is not an object." );
 		var state = ReadString( root, "BackendState" ) ?? "";
-		var dnsName = root.TryGetProperty( "Self", out var self ) && self.ValueKind == JsonValueKind.Object ? ReadString( self, "DNSName" )?.TrimEnd( '.' ) : null;
+		var hasSelf = root.TryGetProperty( "Self", out var self ) && self.ValueKind == JsonValueKind.Object;
+		var dnsName = hasSelf ? ReadString( self, "DNSName" )?.TrimEnd( '.' ) : null;
+		var nodeId = hasSelf ? ReadString( self, "ID" ) : null;
+		string[] capabilities = hasSelf && self.TryGetProperty( "CapMap", out var caps ) && caps.ValueKind == JsonValueKind.Object
+			? [.. caps.EnumerateObject().Select( cap => cap.Name )]
+			: [];
 		var addresses = root.TryGetProperty( "TailscaleIPs", out var ips ) && ips.ValueKind == JsonValueKind.Array
 			? ips.EnumerateArray().Where( ip => ip.ValueKind == JsonValueKind.String ).Select( ip => ip.GetString()! ).ToArray()
 			: [];
 		var authUrl = ReadString( root, "AuthURL" );
 		// Tailscale lists the names it can get certificates for only once HTTPS certificates are on for the tailnet.
 		var hasCertificates = root.TryGetProperty( "CertDomains", out var domains ) && domains.ValueKind == JsonValueKind.Array && domains.GetArrayLength() > 0;
-		return new( state, string.IsNullOrEmpty( dnsName ) ? null : dnsName, addresses, string.IsNullOrEmpty( authUrl ) ? null : authUrl, hasCertificates );
+		return new( state, string.IsNullOrEmpty( dnsName ) ? null : dnsName, addresses, string.IsNullOrEmpty( authUrl ) ? null : authUrl, hasCertificates )
+		{
+			NodeId = string.IsNullOrEmpty( nodeId ) ? null : nodeId,
+			Capabilities = capabilities,
+		};
 	}
+
+	/// <summary>Defines the tailnet's DNS settings, where HTTPS certificates are turned on.</summary>
+	public const string DnsSettingsUrl = "https://login.tailscale.com/admin/dns";
+
+	/// <summary>Builds the page that allows Funnel for one node, which Tailscale itself prints when Funnel is refused.</summary>
+	public static string BuildFunnelUrl( string? nodeId ) =>
+		nodeId is null ? "https://login.tailscale.com/admin/acls" : "https://login.tailscale.com/f/funnel?node=" + Uri.EscapeDataString( nodeId );
 
 	/// <summary>Determines from <c>tailscale serve --help</c> whether the CLI is 1.52 or later, whose Serve and Funnel take <c>--bg</c>.</summary>
 	internal static bool SupportsBackground( string help ) => BackgroundFlag().IsMatch( help );
@@ -148,7 +165,12 @@ public static partial class TailscaleCli
 	/// <summary>Turns the HTTPS proxy of <paramref name="port"/> on, with or without Funnel.</summary>
 	private static async Task ApplyAsync( int port, bool funnel, CancellationToken cancellationToken )
 	{
-		await ReadRunningStatusAsync( cancellationToken ).ConfigureAwait( false );
+		var status = await ReadRunningStatusAsync( cancellationToken ).ConfigureAwait( false );
+		// Without these node capabilities Serve and Funnel wait for the user without end instead of failing, so they are checked first.
+		if ( !status.HasHttps )
+			throw new TailscaleException( "HTTPS certificates are off for the tailnet. Turn them on at " + DnsSettingsUrl + " then try again." );
+		if ( funnel && !status.HasFunnel )
+			throw new TailscaleException( "Funnel is not allowed for this PC. Allow it at " + BuildFunnelUrl( status.NodeId ) + " then try again." );
 		var help = await RunAsync( ["serve", "--help"], cancellationToken ).ConfigureAwait( false );
 		foreach ( var arguments in BuildCommands( port, funnel, SupportsBackground( help.Output + "\n" + help.Error ) ) )
 		{
@@ -288,6 +310,18 @@ public sealed record TailscaleStatus( string BackendState, string? DnsName, IRea
 {
 	/// <summary>Gets whether Tailscale is connected and signed in.</summary>
 	public bool IsRunning => BackendState == "Running";
+
+	/// <summary>Gets the PC's stable node id, which the page that allows Funnel names, or null.</summary>
+	public string? NodeId { get; init; }
+
+	/// <summary>Gets the node capabilities the tailnet grants this PC, such as <c>https</c> and <c>funnel</c>.</summary>
+	public IReadOnlyList<string> Capabilities { get; init; } = [];
+
+	/// <summary>Gets whether the tailnet has HTTPS certificates on, which Serve and Funnel need.</summary>
+	public bool HasHttps => HasCertificates || Capabilities.Contains( "https" );
+
+	/// <summary>Gets whether Funnel is allowed for this PC.</summary>
+	public bool HasFunnel => Capabilities.Contains( "funnel" ) || Capabilities.Contains( "https://tailscale.com/cap/funnel" );
 }
 
 /// <summary>Tailscale is not installed, not running or not signed in, or refused a command; the message is written for the user.</summary>

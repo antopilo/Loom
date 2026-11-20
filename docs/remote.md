@@ -603,7 +603,7 @@ data folder.
 | Frame | Answer |
 |---|---|
 | `cap.list {}` | `{ windows: [{ hwnd, title, process, w, h }] }` |
-| `cap.start { hwnd, fps, quality, maxWidth }` | `{ cap }`; host pushes `cap.frame { cap, w, h, jpeg }` (base64) at most `fps` per second, only after the client acks the previous frame with `cap.ack { cap }` |
+| `cap.start { hwnd, fps, quality, maxWidth }` | `{ cap }`; host pushes `cap.frame { cap, w, h, jpeg }` (base64) at most `fps` per second, with at most 3 frames waiting for the client's `cap.ack { cap }`; each ack frees one |
 | ● `cap.input { cap, kind: "move"|"down"|"up"|"wheel"|"key", x, y, button?, delta?, vk?, down? }` | `{}` (x, y in frame pixels) |
 | `cap.stop { cap }` | `{}` |
 

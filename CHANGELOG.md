@@ -3,6 +3,15 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.2
+
+- **Settings opens in its own window.** Close it like any dialog; your layout no longer changes.
+- **Remote access is simpler.** Pick Off, Local only or Anywhere. Anywhere guides you through Tailscale step by step,
+  with each step marked done, and allowing Funnel is one of the steps.
+- **Same network, fast path.** A Loom PC on the same network as its host now connects directly, whatever mode the
+  host uses, and falls back to Tailscale or the relay when away.
+- **Smoother window streams.** Frames no longer wait for each other over slow links.
+
 ## 0.4.1
 
 - **Run shell snippets.** Bash, PowerShell and cmd code blocks in a chat have a Run button next to Copy. It opens a
