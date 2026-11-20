@@ -81,6 +81,8 @@ public sealed partial class ConversationsModule(
 	{
 		builder
 			.Setting( ChatContent.NewTaskCheck )
+			.Setting( ArchiveAfterDays )
+			.Setting( KeepChats )
 			// The shell holds an app update back while This PC's agents work, here or in the daemon this store mirrors.
 			.Service<IAgentActivity>( new LocalAgentActivity( store ) )
 			.Setting( ChatContent.CaretAnimation )
@@ -167,6 +169,8 @@ public sealed partial class ConversationsModule(
 		LoadWhatsNew( app );
 		// Lokn opens on Home, an empty conversation panel; the restored layout goes back into the session it belongs to.
 		context.WhenStarted( () => OpenHome( app ) );
+		// Archiving waits until the restored layout is open, so the chats it shows count as in use.
+		context.WhenStarted( () => _ = RunArchiveAsync( context ) );
 	}
 
 	/// <summary>Writes history changes still pending, then detaches every host's sessions, history, project, session and profile notifications when the module unloads.</summary>

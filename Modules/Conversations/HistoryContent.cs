@@ -27,6 +27,9 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 	/// <summary>Tracks whether every chat outside projects shows, after View all, rather than the latest few.</summary>
 	private readonly State<bool> _isScratchExpanded = new( false );
 
+	/// <summary>Tracks the list whose archived chats show under it: a project's id, <see cref="Guid.Empty"/> for the chats outside projects, or null.</summary>
+	private readonly State<Guid?> _openArchive = new( null );
+
 	/// <summary>Builds the host switcher and its banner.</summary>
 	private HostSwitcher Switcher => field ??= new( context, module );
 
@@ -75,15 +78,18 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var shown = 0;
 		foreach ( var project in host.Projects.Projects( profile ) )
 		{
-			// Pinned chats lead, each group still most recent first.
-			ConversationInfo[] conversations = [.. host.Store.Conversations( profile, project.Id ).OrderByDescending( conversation => conversation.IsPinned )];
-			rows.Add( BuildProject( project, conversations ) );
+			// Pinned chats lead, each group still most recent first; archived chats wait in the project's archive.
+			var all = host.Store.Conversations( profile, project.Id );
+			ConversationInfo[] conversations = [.. all.Where( conversation => !conversation.IsArchived ).OrderByDescending( conversation => conversation.IsPinned )];
+			rows.Add( BuildProject( project, conversations, [.. all.Where( conversation => conversation.IsArchived ).OrderByDescending( conversation => conversation.UpdatedAt )] ) );
 			shown++;
 		}
 
-		ConversationInfo[] ungrouped = [.. host.Store.Conversations( profile ).OrderByDescending( conversation => conversation.IsPinned )];
-		if ( ungrouped.Length > 0 )
-			AddScratch( ungrouped, rows );
+		var loose = host.Store.Conversations( profile );
+		ConversationInfo[] ungrouped = [.. loose.Where( conversation => !conversation.IsArchived ).OrderByDescending( conversation => conversation.IsPinned )];
+		ConversationInfo[] looseArchived = [.. loose.Where( conversation => conversation.IsArchived ).OrderByDescending( conversation => conversation.UpdatedAt )];
+		if ( ungrouped.Length > 0 || looseArchived.Length > 0 )
+			AddScratch( ungrouped, looseArchived, rows );
 
 		if ( shown == 0 && ungrouped.Length == 0 )
 			rows.Add( SidebarRows.BuildEmpty( host.IsSynced ? "Start a chat or add a project to organize your work." : $"Waiting for {host.Name}'s chats…" ) );
@@ -107,7 +113,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 
 	/// <summary>Builds a bold project heading with its disclosure chevron, then its chats at the same indent, or under a label per worktree once its repository
 	/// has a linked worktree or its chats work in several; its menu creates and manages worktrees while Worktrees is loaded, for This PC's projects only.</summary>
-	private Container BuildProject( ProjectInfo project, IReadOnlyList<ConversationInfo> conversations )
+	private Container BuildProject( ProjectInfo project, IReadOnlyList<ConversationInfo> conversations, IReadOnlyList<ConversationInfo> archived )
 	{
 		var host = Host;
 		var isCollapsed = _sidebar.IsCollapsed( project.Id );
@@ -119,16 +125,17 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var isRevealed = _sidebar.IsRevealed( project.Id );
 		var worktreeActions = host.IsLocal ? FindWorktreeActions() : null;
 		var worktrees = ReadWorktrees( project, worktreeActions );
-		var children = new List<Blob>
-		{
-			_sidebar.BuildHoverRow( project.Id, isSelected: false,
-			[
-				heading,
-				_sidebar.BuildAddButton( project.Id, $"New chat in {project.Name}", () => module.NewConversation( context.App, host, project.Id ), isRevealed ),
-				_sidebar.BuildIconButton( TidyGlyph, $"Tidy chats in {project.Name}", () => BeginTidy( project ), isRevealed ),
-				_sidebar.BuildMoreButton( project.Id, $"{project.Name} options", isRevealed ),
-			] ),
-		};
+		List<Blob> actions =
+		[
+			heading,
+			_sidebar.BuildAddButton( project.Id, $"New chat in {project.Name}", () => module.NewConversation( context.App, host, project.Id ), isRevealed ),
+			_sidebar.BuildIconButton( TidyGlyph, $"Tidy chats in {project.Name}", () => BeginTidy( project ), isRevealed ),
+		];
+		// The archive shows whenever the project has archived chats, so they can always be found.
+		if ( archived.Count > 0 )
+			actions.Add( BuildArchiveButton( project.Id, project.Name, archived.Count ) );
+		actions.Add( _sidebar.BuildMoreButton( project.Id, $"{project.Name} options", isRevealed ) );
+		var children = new List<Blob> { _sidebar.BuildHoverRow( project.Id, isSelected: false, actions ) };
 		if ( _sidebar.BuildStarters( project.Id, project.Name, name => module.NewTask( context.App, host, project.Id, name ) ) is { } starters )
 			children.Add( starters );
 		if ( _sidebar.IsMenuOpen( project.Id ) )
@@ -150,6 +157,8 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			children.Add( BuildNewWorktree( project, worktreeActions ) );
 		if ( _tidyPlan.Value.ProjectId == project.Id )
 			children.Add( BuildTidy( project, _tidyPlan.Value ) );
+		if ( _openArchive.Value == project.Id )
+			AddArchived( archived, children );
 
 		if ( !isCollapsed )
 			AddProjectChats( project, conversations, worktrees, worktreeActions, children );
@@ -160,10 +169,17 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 	/// <summary>Adds the Scratch heading and the chats outside projects: the latest few, pinned ones and the open one, then View all when more are
 	/// hidden; once expanded, every chat, then Show less.</summary>
 	/// <param name="ungrouped">The chats outside projects, pinned first, each group most recent first.</param>
+	/// <param name="archived">The archived chats outside projects, most recent first, which show under the heading while their archive is open.</param>
 	/// <param name="children">The sidebar rows to add to.</param>
-	private void AddScratch( ConversationInfo[] ungrouped, List<Blob> children )
+	private void AddScratch( ConversationInfo[] ungrouped, ConversationInfo[] archived, List<Blob> children )
 	{
-		children.Add( SidebarRows.BuildSectionHeading( ConversationsModule.ChatsTitle ) );
+		children.Add( archived.Length == 0 ? SidebarRows.BuildSectionHeading( ConversationsModule.ChatsTitle ) : new Row
+		{
+			AlignItems = AlignItems.Center,
+			Children = [SidebarRows.BuildSectionHeading( ConversationsModule.ChatsTitle ), new Container { FlexGrow = 1 }, BuildArchiveButton( Guid.Empty, ConversationsModule.ChatsTitle, archived.Length )],
+		} );
+		if ( _openArchive.Value == Guid.Empty )
+			AddArchived( archived, children );
 		var isExpanded = _isScratchExpanded.Value;
 		var selected = module.GetSelected( context.App );
 		var host = Host;
@@ -186,6 +202,41 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		toggle.Key = "scratch-toggle";
 		toggle.Color = Theme.Current.Muted;
 		children.Add( toggle );
+	}
+
+	/// <summary>Builds a list's archive button: the archive glyph with how many chats it holds, which shows or hides them under the list's heading.</summary>
+	/// <param name="list">The project's id, or <see cref="Guid.Empty"/> for the chats outside projects.</param>
+	/// <param name="name">The list's name, for the accessible name.</param>
+	/// <param name="count">How many chats are archived.</param>
+	private Button BuildArchiveButton( Guid list, string name, int count )
+	{
+		var isOpen = _openArchive.Value == list;
+		var button = _sidebar.BuildIconButton( ArchiveGlyph, $"{(isOpen ? "Hide" : "Show")} {count} archived {(count == 1 ? "chat" : "chats")} in {name}",
+			() => _openArchive.Value = isOpen ? null : list );
+		button.Color = isOpen ? Theme.Current.Accent : Theme.Current.Muted;
+		return button;
+	}
+
+	/// <summary>Adds a list's archived chats, most recent first, each with how long ago it was used; choosing one brings it back and opens it.</summary>
+	private void AddArchived( IReadOnlyList<ConversationInfo> archived, List<Blob> children )
+	{
+		var host = Host;
+		foreach ( var conversation in archived )
+		{
+			var chat = host.Ref( conversation.Id );
+			var restore = _sidebar.BuildAction( $"{conversation.Title} · {ComputeAge( conversation.UpdatedAt )}", () => module.RestoreConversation( context.App, chat ),
+				$"Restore {conversation.Title}" );
+			restore.Key = "archived:" + conversation.Id;
+			restore.Color = Theme.Current.Muted;
+			children.Add( restore );
+		}
+	}
+
+	/// <summary>Formats how long ago a chat was used, such as 3d or 2w.</summary>
+	private static string ComputeAge( DateTimeOffset updated )
+	{
+		var age = DateTimeOffset.UtcNow - updated;
+		return age.TotalDays < 1 ? "today" : age.TotalDays < 14 ? $"{(int)age.TotalDays}d" : age.TotalDays < 60 ? $"{(int)(age.TotalDays / 7)}w" : $"{(int)(age.TotalDays / 30)}mo";
 	}
 
 	/// <summary>Builds one selectable task row, the same whether or not the task has a chat, its context menu while open, and its title editor while renaming.</summary>
@@ -263,6 +314,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			{
 				new MenuAction( conversation.IsPinned ? "Unpin" : "Pin", () => context.Run( () => history.SetPinned( conversation.Id, !conversation.IsPinned ) ) ) { AccessKey = Key.P },
 				new MenuAction( "Rename", () => context.Run( () => _sidebar.BeginRename( conversation.Id, conversation.Title ) ) ) { AccessKey = Key.R },
+				new MenuAction( "Archive", () => context.Run( () => module.ArchiveConversation( context.App, chat ) ) ) { AccessKey = Key.A },
 			};
 			if ( !conversation.HasChat )
 				entries.Add( new MenuAction( "Start a chat here", () => context.Run( () => module.StartChat( context.App, chat ) ) ) { AccessKey = Key.C } );

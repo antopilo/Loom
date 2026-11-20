@@ -309,6 +309,36 @@ public sealed partial class ConversationStore
 		MarkMutated( nameof( SetPinned ), new { id, isPinned } );
 	}
 
+	/// <summary>Archives a chat, which leaves the sidebar's list and unloads its messages once they are handed to the writer; or brings it back.</summary>
+	/// <remarks>A mirror only sends the change; its host's store, which owns the messages, unloads them.</remarks>
+	public void SetArchived( Guid id, bool isArchived )
+	{
+		var conversation = Get( id );
+		if ( conversation.IsArchived == isArchived )
+			return;
+
+		_conversations[id] = conversation with
+		{
+			IsArchived = isArchived,
+		};
+		MarkChanged();
+		MarkMutated( nameof( SetArchived ), new { id, isArchived } );
+		if ( isArchived )
+			UnloadMessages( id );
+	}
+
+	/// <summary>Unloads a chat's messages from memory once what is not written yet is handed to the writer; they are read from its file when next needed.</summary>
+	/// <remarks>A mirror keeps its messages, which only its host can read again; so does a chat whose file could not be read.</remarks>
+	private void UnloadMessages( Guid id )
+	{
+		if ( _isMirror || _path is null || _unreadable.Contains( id ) || !_messages.ContainsKey( id ) )
+			return;
+
+		if ( _dirtyMessages.Contains( id ) )
+			Save();
+		_messages.Remove( id );
+	}
+
 	/// <summary>Moves a task to another's place among its project's tasks, or the chats outside projects; the tasks between shift toward where
 	/// it was, and every one of them keeps its place from then on.</summary>
 	/// <remarks>Moving again is not a no-op, so a mirror only sends the move and shows it once the host's operation comes back.</remarks>

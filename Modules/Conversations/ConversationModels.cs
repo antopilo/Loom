@@ -18,6 +18,8 @@ namespace Lokn.Modules.Conversations;
 /// <param name="IsTaskCheckOff">Whether the user asked this chat never to suggest a new chat for a prompt that looks like a new task.</param>
 /// <param name="Position">The task's place among its project's tasks, or the chats outside projects, once the user dragged one of them to another
 /// place; null for a task started since, which lists above the placed ones, newest first. Changing the task's project clears it.</param>
+/// <param name="IsArchived">Whether the chat is archived: it leaves the sidebar's list, its messages leave memory, and it comes back from its project's
+/// archive, or when it is opened any other way.</param>
 public sealed record ConversationInfo(
 	Guid Id,
 	SettingsProfile Profile,
@@ -34,7 +36,8 @@ public sealed record ConversationInfo(
 	string? Directory = null,
 	string? Worktree = null,
 	bool IsTaskCheckOff = false,
-	int? Position = null );
+	int? Position = null,
+	bool IsArchived = false );
 
 /// <summary>Stores a conversation message and optional backend-defined rich JSON content.</summary>
 public sealed record ConversationMessage(

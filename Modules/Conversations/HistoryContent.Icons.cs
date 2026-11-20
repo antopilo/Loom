@@ -10,6 +10,9 @@ internal sealed partial class HistoryContent
 	/// <summary>Defines the broom glyph from Segoe Fluent Icons, on the action that tidies a project's chats.</summary>
 	private const string TidyGlyph = "\uEA99";
 
+	/// <summary>Defines the archive box glyph from Segoe Fluent Icons, beside a list that has archived chats.</summary>
+	private const string ArchiveGlyph = "\uE7B8";
+
 	/// <summary>Builds a steady dot in the attention color beside a chat whose agent finished or asked something and waits for the user.</summary>
 	/// <remarks>It does not pulse: nothing runs, the chat only waits to be looked at.</remarks>
 	internal static Container BuildWaitingDot() => new()

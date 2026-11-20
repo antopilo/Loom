@@ -131,6 +131,9 @@ public sealed partial class ConversationStore
 				case nameof( SetPinned ):
 					SetPinned( op.Require<Guid>( "id" ), op.Require<bool>( "isPinned" ) );
 					break;
+				case nameof( SetArchived ):
+					SetArchived( op.Require<Guid>( "id" ), op.Require<bool>( "isArchived" ) );
+					break;
 				case nameof( MoveConversation ):
 					MoveConversation( op.Require<Guid>( "id" ), op.Require<Guid>( "target" ) );
 					break;

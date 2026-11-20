@@ -3,6 +3,13 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## Unreleased
+
+- **Old chats archive themselves.** Chats nobody wrote in for 14 days, and older chats beyond the 12 most recent in a
+  project, leave the sidebar and memory. Pinned, open, working and drafted chats stay. The archive icon beside a project
+  lists its archived chats; choose one to bring it back. Each chat's menu has **Archive**. Change the limits in
+  Settings › Conversations (0 turns a limit off).
+
 ## 0.4.4
 
 - **Lighter on memory.** Long chats no longer keep each shell command's internal trace in memory, inline images keep

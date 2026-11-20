@@ -114,7 +114,8 @@ internal static class ConversationChecks
 		CheckBackgroundChats();
 		CheckMirrorStarts();
 		CheckTidy( directory );
-		Console.WriteLine( "PASS conversation profile isolation, project management, message replacement, rich history restart, chat folders, invalid-file preservation, conversation workspaces per profile, the notification feed workspace, chats no panel shows, deletes by store operation, chats started over a mirror, and tidying a project's chats." );
+		CheckArchive( directory );
+		Console.WriteLine( "PASS conversation profile isolation, project management, message replacement, rich history restart, chat folders, invalid-file preservation, conversation workspaces per profile, the notification feed workspace, chats no panel shows, deletes by store operation, chats started over a mirror, tidying a project's chats, and archiving idle chats." );
 	}
 
 	/// <summary>Checks which folder each chat works in, that a chosen folder survives restart, and that history from before chats chose folders loads.</summary>
@@ -496,6 +497,54 @@ internal static class ConversationChecks
 		Check( store.Find( otherEmpty.Id ) is null && store.Find( later.Id ) is not null && !module.IsTidying( otherId ),
 			"Tidying removes only the stale chats the user was shown." );
 		Check( store.Find( open ) is not null && store.Find( old ) is not null, "Tidying one project leaves the others alone." );
+		app.Shutdown();
+	}
+
+	/// <summary>Checks which chats are archived: those untouched past the age, and the oldest beyond the kept count, never pinned, open, drafted or
+	/// chat-less ones; that an archived chat's messages leave memory and read back from its file; that the flag survives a restart; and that opening
+	/// an archived chat brings it back.</summary>
+	private static void CheckArchive( string directory )
+	{
+		var path = Path.Combine( directory, "archive.json" );
+		var projectId = Guid.NewGuid();
+		var now = DateTimeOffset.UtcNow;
+		var (old, pinned, drafted) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+		var fresh = Enumerable.Range( 1, 4 ).Select( _ => Guid.NewGuid() ).ToArray();
+		string Entry( Guid id, int daysAgo, string extra = "" ) =>
+			$$"""{"Id":"{{id}}","Profile":"Personal","ProjectId":"{{projectId}}","Title":"Chat {{daysAgo}}","UpdatedAt":"{{now.AddDays( -daysAgo ):O}}","CreatedAt":"{{now.AddDays( -daysAgo ):O}}"{{extra}}}""";
+		File.WriteAllText( path, $$$"""
+			{"Version":2,"Projects":[{"Id":"{{{projectId}}}","Profile":"Personal","Name":"Repo","Directory":"{{{directory.Replace( "\\", "\\\\" )}}}"}],
+			"Conversations":[{{{string.Join( ",", [Entry( old, 30 ), Entry( pinned, 40, ",\"IsPinned\":true" ), Entry( drafted, 40, ",\"Draft\":\"half a thought\"" ),
+				.. fresh.Select( ( id, index ) => Entry( id, index + 1 ) )] )}}}]}
+			""" );
+		var messages = Path.Combine( directory, "archive", old.ToString( "N" ) + ".json" );
+		Directory.CreateDirectory( Path.GetDirectoryName( messages )! );
+		File.WriteAllText( messages, $$$"""
+			{"Version":2,"ConversationId":"{{{old}}}","Messages":[{"Id":"{{{Guid.NewGuid()}}}","Role":"user","Text":"prompt 30","CreatedAt":"{{{now.AddDays( -30 ):O}}}"}]}
+			""" );
+		var store = new ConversationStore( new ProjectStore( Path.Combine( directory, "archive-projects.json" ), path ), path );
+		var app = new LoknApplication();
+		var module = new ConversationsModule( store, ( context, host, id ) => new FixtureContent( host.Store.Get( id ) ) );
+		Check( ProjectChecks.LoadProjects( app, store ) && app.Load( module ) && store.LastError is null && store.GetMessages( old ) is [_], "The archive fixture loads." );
+		app.Settings.Set( ConversationsModule.ArchiveAfterDays, SettingsScope.Global, 14 );
+		app.Settings.Set( ConversationsModule.KeepChats, SettingsScope.Global, 3 );
+		var archive = module.ComputeArchive( app, now ).Select( item => item.Id ).ToHashSet();
+		Check( archive.SetEquals( [old, fresh[3]] ),
+			"A chat untouched past the age is archived, and so is the oldest beyond the kept count; pinned and drafted chats stay and do not count." );
+
+		module.ArchiveIdle( app );
+		store.Flush();
+		Check( store.Get( old ).IsArchived && !store.Get( pinned ).IsArchived && !store.Get( drafted ).IsArchived && !store.Get( fresh[0] ).IsArchived,
+			"Archiving marks only the chats it listed." );
+		Check( store.GetMessages( old ) is [{ Text: "prompt 30" }], "An archived chat's messages read back from its file once needed." );
+		Check( new ConversationStore( path ).Find( old ) is { IsArchived: true }, "The archived flag survives a restart." );
+		Check( module.ComputeArchive( app, now ).Count == 0, "Archived chats are not archived again, and the rest stay within the limits." );
+		app.Settings.Set( ConversationsModule.ArchiveAfterDays, SettingsScope.Global, 0 );
+		app.Settings.Set( ConversationsModule.KeepChats, SettingsScope.Global, 0 );
+		Check( module.ComputeArchive( app, now.AddDays( 400 ) ).Count == 0, "With both limits at 0 nothing is archived." );
+
+		module.SelectConversation( app, module.Hosts.Local.Ref( old ) );
+		Check( !store.Get( old ).IsArchived, "Opening an archived chat brings it back to its list." );
 		app.Shutdown();
 	}
 

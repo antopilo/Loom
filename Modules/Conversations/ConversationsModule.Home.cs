@@ -111,7 +111,10 @@ public sealed partial class ConversationsModule
 	public Guid SelectConversation( LoknApplication app, ChatRef chat )
 	{
 		var shown = GetChat( chat );
-		var conversation = shown.Conversation;
+		// An archived chat opened any way, such as from Search or a link, is back in its list.
+		if ( shown.Conversation.IsArchived )
+			shown.Host.Store.SetArchived( chat.ConversationId, false );
+		var conversation = shown.Host.Store.Get( chat.ConversationId );
 		if ( conversation.Profile != app.Settings.ActiveProfile )
 			throw new InvalidOperationException( "Switch to this conversation's profile before opening it." );
 		UpdateSeen( app, chat );
