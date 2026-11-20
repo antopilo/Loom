@@ -3,6 +3,13 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.3.2
+
+- **Phones need nothing installed.** When Tailscale runs on this PC, Connect a device opens it to phones with
+  Tailscale Funnel: scan the code and Safari or Chrome opens Loom. Until phones can connect, Remote access shows the
+  next step with a button: install Tailscale, sign in, allow Funnel or turn on HTTPS certificates, then **Check again**.
+- A code that only a Loom PC can open no longer shows as a QR code.
+
 ## 0.3.1
 
 - **Connect a device in one click.** Remote access now has one button, **Connect a device**. Loom moves your chats to
