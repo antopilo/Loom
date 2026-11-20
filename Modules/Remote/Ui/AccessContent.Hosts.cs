@@ -3,8 +3,8 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>The Hosts section of the Remote access panel: every paired host with its state, name, scope and build, Reconnect and Remove, the switch
-/// that lends this PC's browser to their agents, and the form that adds a host from its pairing link.</summary>
+/// <summary>The hosts part of the Remote access panel: every paired host with its state, Reconnect and Remove, and the field that adds one from its
+/// pairing link; in Advanced, their names and the switch that lends this PC's browser to their agents.</summary>
 public sealed partial class AccessContent
 {
 	/// <summary>Stores whether the pairing link field takes focus when it first shows, as the <see cref="AddHostInput"/> input asks.</summary>
@@ -19,19 +19,11 @@ public sealed partial class AccessContent
 	/// <summary>Holds the names being edited, by host id.</summary>
 	private readonly Dictionary<string, string> _nameDrafts = new( StringComparer.Ordinal );
 
-	/// <summary>Builds the Hosts section: the lend-browser switch, a card per paired host, the Add host form, and the Remove dialog while open.</summary>
+	/// <summary>Builds the hosts part: a row per paired host, the Add field, and the Remove dialog while open.</summary>
 	private IEnumerable<Blob> BuildHosts( Theme theme )
 	{
-		yield return BuildSection( "Hosts", theme, isPreview: true );
-		yield return BuildParagraph( "Other PCs this one paired with. Their chats show in the sidebar's host switcher next to This PC's.", theme.Muted );
-		var isLending = _context.App.Settings.Get( RemoteModule.LendBrowser, SettingsScope.Global );
-		yield return BuildSwitch( RemoteModule.LendBrowser.Title, isLending, true,
-			() => _context.App.Settings.Set( RemoteModule.LendBrowser, SettingsScope.Global, !isLending ) );
-
-		var links = _module.Links;
-		if ( links.Count == 0 )
-			yield return BuildParagraph( "No host is paired yet.", theme.Muted );
-		foreach ( var link in links )
+		yield return BuildSection( "PCs you connect to", theme );
+		foreach ( var link in _module.Links )
 			yield return BuildHost( link, theme );
 
 		yield return BuildAddHost( theme );
@@ -39,67 +31,75 @@ public sealed partial class AccessContent
 			yield return BuildRemoveDialog( removed );
 	}
 
-	/// <summary>Builds one paired host's card: its dot and editable name, status line, scope and build, Reconnect and Remove.</summary>
-	private Container BuildHost( RemoteClient link, Theme theme )
+	/// <summary>Builds one paired host's row: its dot, name and status, Reconnect while it is not connected, and Remove.</summary>
+	private Row BuildHost( RemoteClient link, Theme theme )
 	{
 		var hostId = link.Host.Id;
-		var name = link.Host.Name;
-		var draft = _nameDrafts.GetValueOrDefault( hostId ) ?? name;
-		var isConnected = link.Status == ClientState.Connected;
-		var scope = !isConnected ? "" : link.Scopes.Contains( DeviceScopes.Control ) ? "View and control" : "View only until its user allows control";
-		var details = string.Join( " · ", new[] { scope, link.HostVersion is { } version ? "build " + version : "", "host id " + hostId }.Where( part => part.Length > 0 ) );
 		var children = new List<Blob>
 		{
-			new Row
+			BuildDot( RemoteStatusContent.ComputeColor( link.Status, theme ) ),
+			new Container
 			{
-				AlignItems = AlignItems.Center,
-				Gap = theme.Spacing,
+				FlexGrow = 1,
+				FlexShrink = 1,
 				Children =
 				[
-					BuildDot( RemoteStatusContent.ComputeColor( link.Status, theme ) ),
-					BuildEntry( "host-name:" + hostId, "Name", draft, link.HostName.Length > 0 ? link.HostName : name, text => _nameDrafts[hostId] = text,
-						text => UpdateName( hostId, text ) ),
+					new Text { Content = link.Host.Name, },
+					BuildParagraph( link.StatusText, theme.Muted, selectable: true ),
 				],
 			},
-			new Text { Content = link.StatusText, Selectable = true, TextWrap = TextWrap.Wrap, },
-			BuildParagraph( details, theme.Muted, selectable: true ),
 		};
-		var buttons = new List<Blob>();
-		if ( _nameDrafts.TryGetValue( hostId, out var edited ) && edited != name )
-			buttons.Add( theme.BuildButton( "Save name", () => _context.Run( () => UpdateName( hostId, edited ) ) ) );
-		buttons.Add( theme.BuildButton( "Reconnect", () => _context.Run( () => _module.ReconnectHost( hostId ) ) ) );
-		buttons.Add( theme.BuildButton( "Remove\u2026", () => _context.Run( () =>
+		if ( link.Status != ClientState.Connected )
+			children.Add( theme.BuildButton( "Reconnect", () => _context.Run( () => _module.ReconnectHost( hostId ) ) ) );
+		children.Add( theme.BuildButton( "Remove\u2026", () => _context.Run( () =>
 		{
 			_removing = hostId;
 			_version.Value++;
 		} ) ) );
-		children.Add( new Row { Gap = theme.Spacing, Children = buttons } );
-		return new Container
+		return new Row
 		{
 			Key = "host:" + hostId,
-			Padding = theme.Spacing,
-			Gap = theme.Spacing / 2,
-			BorderRadius = theme.Radius,
-			BorderWidth = theme.BorderWidth,
-			BorderColor = theme.Border,
+			AlignItems = AlignItems.Center,
+			Gap = theme.Spacing,
 			Children = children,
 		};
 	}
 
-	/// <summary>Builds the Add host form: paste a host's pairing link and add it; the field takes focus once when the panel opened to add a host.</summary>
-	private Container BuildAddHost( Theme theme )
+	/// <summary>Builds the hosts part of Advanced: the lend-browser switch and each paired host's name, what it allows, build and id.</summary>
+	private IEnumerable<Blob> BuildHostSettings( Theme theme )
+	{
+		yield return BuildSection( "PCs you connect to", theme );
+		var isLending = _context.App.Settings.Get( RemoteModule.LendBrowser, SettingsScope.Global );
+		yield return BuildSwitch( RemoteModule.LendBrowser.Title, isLending, true,
+			() => _context.App.Settings.Set( RemoteModule.LendBrowser, SettingsScope.Global, !isLending ) );
+		foreach ( var link in _module.Links )
+		{
+			var hostId = link.Host.Id;
+			var name = link.Host.Name;
+			var draft = _nameDrafts.GetValueOrDefault( hostId ) ?? name;
+			var scope = link.Status != ClientState.Connected ? "" : link.Scopes.Contains( DeviceScopes.Control ) ? "View and control" : "View only until its user allows control";
+			var details = string.Join( " · ", new[] { scope, link.HostVersion is { } version ? "build " + version : "", "host id " + hostId }.Where( part => part.Length > 0 ) );
+			yield return BuildEntry( "host-name:" + hostId, "Name", draft, link.HostName.Length > 0 ? link.HostName : name, text => _nameDrafts[hostId] = text,
+				text => UpdateName( hostId, text ) );
+			if ( _nameDrafts.TryGetValue( hostId, out var edited ) && edited != name )
+				yield return theme.BuildButton( "Save name", () => _context.Run( () => UpdateName( hostId, edited ) ) );
+			yield return BuildParagraph( details, theme.Muted, selectable: true );
+		}
+	}
+
+	/// <summary>Builds the Add field: paste another PC's pairing link and add it; the field takes focus once when the panel opened to add a host.</summary>
+	private Row BuildAddHost( Theme theme )
 	{
 		var isFocused = _isAddFocused;
 		_isAddFocused = false;
-		var entry = BuildEntry( "add-host", "Link", _hostLink, "loom://pair#…", text => _hostLink = text, _ => UpdateAddHost(), autoFocus: isFocused );
-		return new Container
+		var entry = BuildEntry( "add-host", "Add a PC", _hostLink, "Paste the link from Connect a device on the other PC", text => _hostLink = text,
+			_ => UpdateAddHost(), autoFocus: isFocused );
+		return new Row
 		{
+			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing,
 			Children =
 			[
-				BuildSection( "Add host", theme, isPreview: true ),
-				BuildParagraph( "On the other PC, open Remote access, choose Pair device, and paste the link it shows here. It shows here at once, with view only "
-					+ "until its user allows control.", theme.Muted ),
 				entry,
 				theme.BuildButton( _isBusy ? "Adding\u2026" : "Add", UpdateAddHost, isEnabled: !_isBusy && _hostLink.Trim().Length > 0 ),
 			],

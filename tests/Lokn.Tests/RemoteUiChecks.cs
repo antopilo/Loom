@@ -56,7 +56,7 @@ internal static class RemoteUiChecks
 		}
 
 		TryDelete( folder );
-		Console.WriteLine( "PASS native Remote access: This PC's role choice and the empty Hosts section; the daemon role's status bar entry, status, stop confirmation, relay network mode, pairing QR code withdrawn by Done, by closing Remote access and by closing Loom, a link that pairs with control behind its warning, and devices with Allow control and Revoke; the pairing confirm dialog's Allow control and View only; Add host's refused links, pairing through a relay with the link the daemon's window shows, as view only, control granted, and Remove; the Window stream panel's window list and frames of a real window, in process and over the relay; clicks that land after the window lost the system focus; no faulted views." );
+		Console.WriteLine( "PASS native Remote access: Connect a device and the empty hosts part in the local role, with This PC's role choice behind Advanced; the daemon role's status bar entry, status, stop confirmation, relay network mode, Connect a device's code that grants control, view-only pairing QR code withdrawn by Done, by closing Remote access and by closing Loom, and devices with Remove; the pairing confirm dialog's Allow control and View only; Add a PC's refused links, pairing through a relay with the link the daemon's window shows, as view only, control granted, and Remove; the Window stream panel's window list and frames of a real window, in process and over the relay; clicks that land after the window lost the system focus; no faulted views." );
 	}
 
 	/// <summary>Checks Remote access in the <c>local</c> role, then the Window stream panel over <see cref="LocalStreamSource"/>: its list and a frame of this window.</summary>
@@ -68,17 +68,18 @@ internal static class RemoteUiChecks
 			"The Remote module loads in the local role without a link." ) );
 
 		app.Panels.Open( AccessContent.TypeId, input: AccessContent.AddHostInput );
-		screen.PumpUntil( () => screen.HasText( "Chats on this PC run in" ), "Remote access opens in the local role." );
-		CoreChecks.Check( screen.HasButton( "This Loom, chosen" ) && screen.HasButton( "Daemon on this PC" ) && !screen.HasButton( "Paired host" )
-			&& !screen.HasText( "Network access" ) && screen.HasText( "No host is paired yet." ) && screen.Has( AccessibilityRole.TextInput, "Link" )
-			&& screen.Find( node => node.Role == AccessibilityRole.Button && node.Name == "Add" ) is { Disabled: true },
-			"In the local role Remote access offers This Loom (chosen) and the daemon for This PC, no daemon section, and an empty Hosts section whose Add waits for a link." );
+		screen.PumpUntil( () => screen.HasButton( "Connect a device" ), "Remote access opens in the local role with Connect a device." );
+		CoreChecks.Check( !screen.HasText( "Network access" ) && !screen.HasButton( "Daemon on this PC" ) && screen.HasText( "PCs you connect to" )
+			&& screen.Has( AccessibilityRole.TextInput, "Add a PC" ) && screen.Find( node => node.Role == AccessibilityRole.Button && node.Name == "Add" ) is { Disabled: true },
+			"In the local role Remote access shows Connect a device, hides the role and daemon behind Advanced, and an empty hosts part whose Add waits for a link." );
 		CoreChecks.Check( screen.Find( node => node.Role == AccessibilityRole.Button && node.Name?.StartsWith( "Daemon: ", StringComparison.Ordinal ) == true ) is null,
 			"The local role shows no connection in the status bar." );
+		screen.ClickButton( "Show advanced settings", () => screen.HasButton( "This Loom, chosen" ) && screen.HasButton( "Daemon on this PC" ),
+			"Advanced shows where This PC's chats run, This Loom chosen." );
 		// Another program taking the system focus makes Goo drop raw presses; the click focuses its target first, so it still lands.
 		screen.Window.PlatformInput.FocusLost();
-		screen.ClickButton( "Daemon on this PC", () => screen.HasButton( "Daemon on this PC, chosen" ) && !screen.HasText( "until it restarts" ) && screen.HasText( "Preview" ),
-			"Choosing the daemon marks it without asking for a restart, also after the window lost the system focus, and the Hosts section is marked as a preview." );
+		screen.ClickButton( "Daemon on this PC", () => screen.HasButton( "Daemon on this PC, chosen" ) && !screen.HasText( "until it restarts" ),
+			"Choosing the daemon marks it without asking for a restart, also after the window lost the system focus." );
 		CoreChecks.Check( app.Settings.Get( RemoteModule.Role, SettingsScope.Global ) == RemoteModule.DaemonRole && module.RunningRole == RemoteModule.LocalRole && module.Switching is null,
 			"The chosen role is saved; this check fixes the module's role, so it moves no chats (HandoverChecks moves them)." );
 
@@ -153,14 +154,14 @@ internal static class RemoteUiChecks
 		bool IsAccessOpen() => app.Panels.Panels.Any( panel => panel.TypeId == AccessContent.TypeId );
 		screen.ClickUntil( node => node.Role == AccessibilityRole.Button && node.Name?.StartsWith( $"Daemon: {Environment.MachineName}. ", StringComparison.Ordinal ) == true,
 			"the status bar's daemon connection", IsAccessOpen, "The status bar's daemon connection opens Remote access." );
-		screen.PumpUntil( () => screen.HasText( "Network access" ), "Remote access reads the daemon's status." );
+		screen.PumpUntil( () => screen.HasButton( "Connect a device" ), "Remote access opens with Connect a device." );
+		screen.ClickButton( "Show advanced settings", () => screen.HasText( "Network access" ), "Advanced shows the daemon's status." );
 		CoreChecks.Check( screen.HasButton( "Daemon on this PC, chosen" ) && screen.HasText( "Connected to " + Environment.MachineName ) && screen.HasButton( "Stop daemon\u2026" )
 			&& screen.HasButton( "Start the daemon at sign-in: off" ) && screen.HasText( "host id " + gateway.Keys.HostId ) && screen.HasText( RemoteClient.DaemonLogPath )
 			&& screen.HasButton( "Off, chosen" ) && screen.HasText( "Only Loom on this PC reaches the daemon" ),
-			"In the daemon role Remote access shows the daemon's connection, its log, the sign-in switch, the host id and the network mode." );
-		CoreChecks.Check( screen.HasText( "A new device gets view only until you allow control. " + AccessContent.ViewText ) && screen.HasText( "No device is paired." )
-			&& screen.HasButton( "Allow control right away: off" ) && !screen.HasText( "Anyone who opens this link" ),
-			"Before pairing, Remote access says what a new device may do, offers control right away switched off, and lists no devices." );
+			"In the daemon role Advanced shows the daemon's connection, its log, the sign-in switch, the host id and the network mode." );
+		CoreChecks.Check( screen.HasText( AccessContent.ViewText ) && screen.HasButton( "Show a view-only code" ) && !screen.HasText( "Your devices" ),
+			"Before pairing, Advanced offers a view-only code and Remote access lists no devices." );
 
 		screen.ClickButton( "Stop daemon\u2026", () => screen.HasText( "Stopping the daemon stops its running agent turns" ) && screen.HasButton( "Stop daemon" ) && screen.HasButton( "Cancel" ),
 			"Stop daemon asks to confirm first." );
@@ -177,31 +178,31 @@ internal static class RemoteUiChecks
 		CoreChecks.Check( gateway.Network is { Mode: "relay" } network && network.Port == port && network.RelayUrl == relayUrl, "The gateway runs the relay mode with the port and relay entered." );
 		screen.PumpUntil( () => screen.HasText( "Relay: Connected to the relay at 127.0.0.1:" ), "The refreshed status shows the gateway connected to the relay." );
 
-		screen.ClickButton( "Allow control right away: off",
-			() => screen.HasButton( "Allow control right away: on" ) && screen.HasText( "Anyone who opens this link in the next 5 minutes can run programs on this PC as you." ),
-			"Allow control right away warns what such a link allows." );
-		screen.ClickButton( "Pair device", () => ReadLink( screen ) is not null && screen.HasText( "Pairs with control." ), "A link that grants control says so beside its code." );
-		CoreChecks.Check( gateway.LiveOffer is { Control: true }, "The daemon's live offer grants control." );
-		screen.ClickButton( "Done", () => screen.HasButton( "Pair device" ) && gateway.LiveOffer is null && screen.HasButton( "Allow control right away: off" ),
-			"Done withdraws the control offer, and the switch is off again for the next link." );
+		// Connect a device keeps the network the user chose and shows a code that grants control.
+		screen.ClickButton( "Connect a device", () => ReadLink( screen ) is not null && screen.HasText( "The device gets control of this PC" ),
+			"Connect a device shows a code and says the device gets control." );
+		CoreChecks.Check( gateway.LiveOffer is { Control: true } && gateway.Network is { Mode: "relay" } && app.Settings.Get( RemoteModule.LoginItem, SettingsScope.Global ),
+			"The daemon's live offer grants control, the relay mode stays, and the daemon now starts at sign-in." );
+		screen.ClickButton( "Done", () => screen.HasButton( "Connect a device" ) && gateway.LiveOffer is null, "Done withdraws the control offer." );
 
-		screen.ClickButton( "Pair device", () => ReadLink( screen ) is not null && screen.Find( IsQrCode ) is not null, "Pair device shows a QR code and a link." );
+		screen.ClickButton( "Show a view-only code", () => ReadLink( screen ) is not null && screen.Find( IsQrCode ) is not null, "A view-only code shows a QR code and a link." );
 		var withdrawn = ReadLink( screen )!;
 		CoreChecks.Check( screen.Find( IsQrCode ) is { Bounds: { Width: >= 100 } bounds } && Math.Abs( bounds.Width - bounds.Height ) < 1, "The QR code is square and large enough to scan." );
 		CoreChecks.Check( PairingLink.TryParse( withdrawn ) is { Addrs.Count: 0 } link && link.HostId == gateway.Keys.HostId && link.Relay == relayUrl,
 			"The pairing link names the host and the relay." );
-		CoreChecks.Check( screen.HasText( "Expires in " ) && screen.HasText( "Web client: " + RelayDialer.BuildPageUrl( relayUrl, gateway.Keys.HostId ) + PairingLink.WebMarker )
-			&& gateway.LiveOffer is not null, "The offer shows its countdown and the relay's web client address, and is live on the daemon." );
-		screen.ClickButton( "Done", () => screen.Find( IsQrCode ) is null && screen.HasButton( "Pair device" ) && gateway.LiveOffer is null,
+		CoreChecks.Check( screen.HasText( "expires in " ) && screen.HasText( "Web client: " + RelayDialer.BuildPageUrl( relayUrl, gateway.Keys.HostId ) + PairingLink.WebMarker )
+			&& gateway.LiveOffer is { Control: false }, "The offer shows its countdown and the relay's web client address, and is live on the daemon with view only." );
+		screen.ClickButton( "Done", () => screen.Find( IsQrCode ) is null && screen.HasButton( "Connect a device" ) && gateway.LiveOffer is null,
 			"Done hides the code and withdraws the offer on the daemon." );
 
 		// A link works only while it is shown: closing Remote access withdraws the one it shows.
-		screen.ClickButton( "Pair device", () => ReadLink( screen ) is { } shown && shown != withdrawn && gateway.LiveOffer is not null, "Pair device shows a new link, live on the daemon." );
+		screen.ClickButton( "Show a view-only code", () => ReadLink( screen ) is { } shown && shown != withdrawn && gateway.LiveOffer is not null, "A new code shows a new link, live on the daemon." );
 		app.Panels.Close( app.Panels.Panels.Single( panel => panel.TypeId == AccessContent.TypeId ).Id );
 		screen.PumpUntil( () => gateway.LiveOffer is null && !IsAccessOpen(), "Closing Remote access withdraws the link it showed on the daemon." );
 		app.Panels.Open( AccessContent.TypeId );
-		screen.PumpUntil( () => screen.HasButton( "Pair device" ), "Remote access opens again in the daemon role." );
-		screen.ClickButton( "Pair device", () => ReadLink( screen ) is { } next && next != withdrawn && gateway.LiveOffer is not null, "Pair device shows another new link." );
+		screen.PumpUntil( () => screen.HasButton( "Connect a device" ), "Remote access opens again in the daemon role." );
+		screen.ClickButton( "Show advanced settings", () => screen.HasButton( "Show a view-only code" ), "Advanced shows the view-only code again." );
+		screen.ClickButton( "Show a view-only code", () => ReadLink( screen ) is { } next && next != withdrawn && gateway.LiveOffer is not null, "A new code shows another new link." );
 		var live = ReadLink( screen )!;
 		CoreChecks.Check( app.LastError is null, $"The daemon role reports no failure ({app.LastError})." );
 		return (withdrawn, live, screen);
@@ -211,12 +212,12 @@ internal static class RemoteUiChecks
 	private static void CloseShowingLink( Screen daemon, HostGateway gateway )
 	{
 		// The daemon's window lost the system focus to the paired PC's while it waited; its clicks still land.
-		daemon.PumpUntil( () => daemon.HasButton( "Pair device" ), "The daemon's window shows Pair device again once a device used its link." );
-		daemon.ClickButton( "Pair device", () => ReadLink( daemon ) is not null && gateway.LiveOffer is not null, "The daemon's window, back after the paired PC's, shows a new link." );
+		daemon.PumpUntil( () => daemon.Find( IsQrCode ) is null, "The daemon's window hides its code once a device used its link." );
+		daemon.ClickButton( "Show a view-only code", () => ReadLink( daemon ) is not null && gateway.LiveOffer is not null, "The daemon's window, back after the paired PC's, shows a new link." );
 		daemon.Close();
 	}
 
-	/// <summary>Checks the Hosts section in the <c>local</c> role: Add host refuses a pasted text that is no link and a withdrawn link, pairs through the
+	/// <summary>Checks the hosts part in the <c>local</c> role: Add a PC refuses a pasted text that is no link and a withdrawn link, pairs through the
 	/// relay as view only and shows the host at once; the Window stream on that host is refused to a view-only device and works over the relay once
 	/// control is granted; and Remove forgets the host.</summary>
 	/// <returns>The paired device's id.</returns>
@@ -226,17 +227,17 @@ internal static class RemoteUiChecks
 		var module = new RemoteModule( new RemoteHooks { DataFolder = dataFolder, Role = RemoteModule.LocalRole } );
 		var screen = new Screen( app, hostQueue, () => CoreChecks.Check( app.Load( module ) && module.Links.Count == 0, "The Remote module starts in the local role with no paired host." ) );
 		var access = app.Panels.Open( AccessContent.TypeId, input: AccessContent.AddHostInput );
-		screen.PumpUntil( () => screen.HasText( "Add host" ), "Remote access opens with its Hosts section." );
-		CoreChecks.Check( screen.HasText( "No host is paired yet." ) && screen.Has( AccessibilityRole.TextInput, "Link" )
+		screen.PumpUntil( () => screen.HasText( "PCs you connect to" ), "Remote access opens with its hosts part." );
+		CoreChecks.Check( !screen.HasButton( "Remove\u2026" ) && screen.Has( AccessibilityRole.TextInput, "Add a PC" )
 			&& screen.Find( node => node.Role == AccessibilityRole.Button && node.Name == "Add" ) is { Disabled: true },
-			"Before pairing, Remote access shows no paired host and the Add host form with Add disabled until a link is pasted." );
+			"Before pairing, Remote access shows no paired host and the Add a PC field with Add disabled until a link is pasted." );
 
-		screen.Type( "Link", "not a pairing link" );
+		screen.Type( "Add a PC", "not a pairing link" );
 		screen.ClickButton( "Add", () => screen.HasText( "That is not a Loom pairing link." ), "Text that holds no pairing link is refused with the reason." );
-		screen.Type( "Link", withdrawn );
+		screen.Type( "Add a PC", withdrawn );
 		screen.ClickButton( "Add", () => screen.HasText( "The pairing link is wrong, used or expired." ), "The host refuses, through the relay, a link withdrawn with Done." );
 		CoreChecks.Check( gateway.Devices.Devices.Count == 0 && PairedHosts.Read( dataFolder ).Count == 0 && module.Links.Count == 0, "A refused link pairs no device and adds no host." );
-		screen.Type( "Link", live );
+		screen.Type( "Add a PC", live );
 		screen.ClickButton( "Add", () => module.Links is [{ Status: ClientState.Connected }] && screen.HasText( "Paired with " ),
 			"The live link, still shown by the daemon's window, pairs through the relay and the host connects at once." );
 		var client = module.Links.Single();
@@ -244,8 +245,8 @@ internal static class RemoteUiChecks
 		CoreChecks.Check( device.Name == Environment.MachineName && device.Scopes.SequenceEqual( DeviceScopes.Paired ) && !client.Scopes.Contains( DeviceScopes.Control )
 			&& PairedHosts.Read( dataFolder ).Single().HostId == gateway.Keys.HostId && app.Hosts.Find( gateway.Keys.HostId ) is not null,
 			"The paired PC is stored under its name with view only, and the host is saved and registered." );
-		screen.PumpUntil( () => screen.HasText( "via relay" ) && screen.HasText( "View only until its user allows control" ) && screen.HasButton( "Remove\u2026" ),
-			"Remote access shows the host's connection through the relay, that this PC may only view, and Remove." );
+		screen.PumpUntil( () => screen.HasText( "via relay" ) && screen.HasButton( "Remove\u2026" ), "Remote access shows the host's connection through the relay and Remove." );
+		screen.ClickButton( "Show advanced settings", () => screen.HasText( "View only until its user allows control" ), "Advanced says this PC may only view the host." );
 		CoreChecks.Check( screen.Find( node => node.Role == AccessibilityRole.Button && node.Name?.StartsWith( "Daemon: ", StringComparison.Ordinal ) == true ) is null,
 			"The status bar shows no daemon entry for a paired host; the sidebar's host switcher lists it." );
 
@@ -279,29 +280,26 @@ internal static class RemoteUiChecks
 		app.Panels.Activate( access );
 		screen.ClickButton( "Remove\u2026", () => screen.HasText( "keeps this device until you revoke it there." ) && screen.HasButton( "Remove" ),
 			"Remove asks first and says the host keeps this device." );
-		screen.ClickButton( "Remove", () => screen.HasText( "No host is paired yet." ) && module.Links.Count == 0, "Remove forgets the host in this Loom." );
+		screen.ClickButton( "Remove", () => !screen.HasButton( "Remove\u2026" ) && module.Links.Count == 0, "Remove forgets the host in this Loom." );
 		CoreChecks.Check( PairedHosts.Read( dataFolder ).Count == 0 && app.Hosts.Find( gateway.Keys.HostId ) is null && app.Panels.Sessions.All( session => session.Info.Id != stream )
 			&& gateway.Devices.Find( device.DeviceId ) is not null, "Removing the host drops its entry and its panels, and the host keeps the device." );
 		screen.Close();
 		return device.DeviceId;
 	}
 
-	/// <summary>Checks the devices list in the <c>daemon</c> role: the paired PC with control, the Allow control switch withdrawing it, and Revoke; then
-	/// the pairing confirm dialog for devices that pair with view only, answered Allow control and View only.</summary>
+	/// <summary>Checks the devices list in the <c>daemon</c> role: the paired PC, which has control, and Remove; then the pairing confirm dialog for devices
+	/// that pair with view only, answered Allow control and View only.</summary>
 	private static void CheckDevices( string dataFolder, List<Action> hostQueue, HostGateway gateway, string deviceId )
 	{
 		var (app, module, screen) = OpenDaemonClient( dataFolder, hostQueue, gateway );
 		screen.PumpUntil( () => gateway.LiveOffer is null, "Closing Loom while it showed a link withdrew it on the daemon." );
 		screen.PumpUntil( () => module.Daemon!.Status == ClientState.Connected, "The daemon-role client connects again." );
 		app.Panels.Open( AccessContent.TypeId );
-		screen.PumpUntil( () => screen.HasText( " · view and control" ), "The devices list shows the paired PC with view and control." );
-		CoreChecks.Check( screen.HasText( AccessContent.ControlText ) && screen.HasButton( "Allow control: on" ) && screen.HasButton( "Revoke" ) && screen.HasText( Environment.MachineName ),
-			"Each device shows its name, what control allows, its Allow control switch and Revoke." );
-		screen.ClickButton( "Allow control: on", () => screen.HasButton( "Allow control: off" ) && screen.HasText( " · view only" ),
-			"Allow control's switch withdraws control and the device shows view only." );
-		CoreChecks.Check( gateway.Devices.Find( deviceId ) is { } device && device.Scopes.SequenceEqual( DeviceScopes.Paired ), "The switch withdraws control on the daemon." );
-		screen.ClickButton( "Revoke", () => screen.HasText( "The device is revoked." ) && screen.HasText( "No device is paired." ), "Revoke forgets the device and the list empties." );
-		CoreChecks.Check( gateway.Devices.Find( deviceId ) is null && app.LastError is null, $"The daemon forgets the revoked device and the daemon role reports no failure ({app.LastError})." );
+		var name = Environment.MachineName;
+		screen.PumpUntil( () => screen.HasText( "Your devices" ) && screen.HasButton( "Remove " + name ), "The devices list shows the paired PC with Remove." );
+		CoreChecks.Check( !screen.HasButton( $"Allow {name} to control this PC" ), "A device with control offers no Allow control." );
+		screen.ClickButton( "Remove " + name, () => screen.HasText( $"{name} is removed." ) && !screen.HasText( "Your devices" ), "Remove forgets the device and the list goes away." );
+		CoreChecks.Check( gateway.Devices.Find( deviceId ) is null && app.LastError is null, $"The daemon forgets the removed device and the daemon role reports no failure ({app.LastError})." );
 
 		string PairDevice( string name )
 		{

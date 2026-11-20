@@ -3,13 +3,12 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>The Remote access panel: <b>This PC</b>, where its chats run and, with the daemon, its status, network, pairing, devices and the pairings
-/// waiting for an answer; and <b>Hosts</b>, the hosts this PC paired with, each renamed, reconnected or removed here, and the form that adds one.</summary>
+/// <summary>The Remote access panel: one Connect a device button that does the setup and shows a pairing code, the devices paired with this PC, the
+/// hosts this PC paired with, and an Advanced part with where its chats run, the daemon, network and view-only pairing, and the hosts' settings.</summary>
 /// <remarks>
-/// Choosing where This PC's chats run moves them while Loom runs: the panel shows the agents the move waits for, with Cancel, and the note Loom leaves
-/// when it moved them by itself. In the <c>daemon</c> role it manages the daemon through <c>admin.*</c> requests over the pipe, refreshing every few
-/// seconds while open. Opened with the input <c>add-host</c> it focuses the pairing link field; <c>hosts</c> opens it as it is. The network modes and
-/// paired hosts are marked as previews.
+/// Connect a device moves This PC's chats to the daemon while Loom runs, showing the agents the move waits for, with Cancel; the panel shows the note
+/// Loom leaves when it moved them by itself. In the <c>daemon</c> role it reads the daemon through <c>admin.*</c> requests over the pipe, refreshing every
+/// few seconds while open. Opened with the input <c>add-host</c> it focuses the pairing link field; <c>hosts</c> opens it as it is.
 /// </remarks>
 public sealed partial class AccessContent : PanelContent
 {
@@ -74,18 +73,24 @@ public sealed partial class AccessContent : PanelContent
 	/// <summary>Stores whether a request runs, which disables the buttons that send one.</summary>
 	private bool _isBusy;
 
-	/// <summary>Creates the panel and, in the daemon role, starts refreshing the daemon's status.</summary>
-	/// <param name="context">The panel's context; its input <see cref="AddHostInput"/> focuses the pairing link field.</param>
+	/// <summary>Creates the panel and, in the daemon role, starts refreshing the daemon's status; opened with a pairing link, it pairs with that host.</summary>
+	/// <param name="context">The panel's context; its input <see cref="AddHostInput"/> focuses the pairing link field, and a <c>loom://pair#…</c> link
+	/// pairs at once, as when a browser hands one to Loom.</param>
 	/// <param name="module">The module.</param>
 	public AccessContent( PanelContext context, RemoteModule module )
 	{
 		_context = context;
 		_module = module;
 		_isAddFocused = context.Input as string == AddHostInput;
+		if ( context.Input is string link && link.StartsWith( PairingLink.UriPrefix, StringComparison.OrdinalIgnoreCase ) )
+		{
+			_hostLink = link;
+			context.Post( UpdateAddHost );
+		}
 		_ = RunTicksAsync();
 	}
 
-	/// <summary>Builds the This PC section, with the daemon's section in the daemon role, and the Hosts section.</summary>
+	/// <summary>Builds the notice and result line, Connect a device, the pairings waiting for an answer, the devices, the hosts and Advanced.</summary>
 	public override Blob Build()
 	{
 		_ = _version.Value;
@@ -102,10 +107,11 @@ public sealed partial class AccessContent : PanelContent
 		if ( _message.Length > 0 )
 			children.Add( BuildParagraph( _message, _isError ? theme.Error : theme.Success, selectable: true ) );
 
-		children.AddRange( BuildRoles( theme ) );
-		if ( _module.RunningRole == RemoteModule.DaemonRole )
-			children.AddRange( BuildDaemon( theme ) );
+		children.AddRange( BuildConnect( theme ) );
+		children.AddRange( BuildPending( theme ) );
+		children.AddRange( BuildDevices( theme ) );
 		children.AddRange( BuildHosts( theme ) );
+		children.AddRange( BuildAdvanced( theme ) );
 
 		return new Container
 		{
@@ -131,8 +137,7 @@ public sealed partial class AccessContent : PanelContent
 		_ = WithdrawPairingAsync( client );
 	}
 
-	/// <summary>Builds the This PC section's role choice: one button per role, the chosen one marked, and while the chats move, what the move waits for
-	/// with Cancel.</summary>
+	/// <summary>Builds the role choice in Advanced: one button per role, the chosen one marked; Connect a device shows a move under way.</summary>
 	private IEnumerable<Blob> BuildRoles( Theme theme )
 	{
 		var chosen = _context.App.Settings.Get( RemoteModule.Role, SettingsScope.Global );
@@ -163,23 +168,6 @@ public sealed partial class AccessContent : PanelContent
 				],
 			};
 		}
-
-		if ( _module.Switching is not { } pending )
-			yield break;
-
-		var target = RoleChoices.Where( choice => choice.Role == pending.Role ).Select( choice => choice.Label ).FirstOrDefault() ?? pending.Role;
-		var waiting = _module.CountWaiting();
-		if ( !pending.IsWaiting || waiting == 0 )
-		{
-			yield return BuildParagraph( $"Moving this PC's chats to \u201c{target}\u201d\u2026", theme.Attention );
-			yield break;
-		}
-
-		yield return BuildParagraph( $"Waiting for {waiting} {(waiting == 1 ? "agent" : "agents")} to finish. Chats then move to \u201c{target}\u201d; the chat panels stay open.",
-			theme.Attention );
-		var cancel = theme.BuildButton( "Cancel", () => _context.Run( _module.CancelSwitch ) );
-		cancel.AccessibilityName = "Cancel moving the chats";
-		yield return cancel;
 	}
 
 	/// <summary>Builds a dot in the connection's color and its status line.</summary>

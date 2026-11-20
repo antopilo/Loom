@@ -1368,7 +1368,8 @@ function render() {
 	if (!state.paired) {
 		return renderNotice('unpaired', state.revoked ? 'This browser is not paired' : 'Pair this browser with Loom',
 			(state.revoked ? 'The host says this device is not paired. Pair again to replace it. ' : '')
-			+ 'On the PC running Loom, open Remote access, show a pairing code and scan it with this device, or open the pairing link here.');
+			+ 'On the PC running Loom, open Remote access and choose Connect a device. Scan the code with this device, or paste its link here.',
+			renderLinkForm());
 	}
 	if (state.chat) {
 		return renderChat();
@@ -1395,6 +1396,28 @@ function renderHeader() {
 	$('notify').classList.toggle('on', state.pushOn);
 	$('notify').setAttribute('aria-label', state.pushOn ? 'Notifications are on' : 'Turn on notifications');
 	$('new-chat').hidden = !(listing && state.connected && canControl());
+}
+
+// The form that takes a pairing link pasted from Remote access: loom://pair#…, a web address with #pair=…, or the payload alone.
+function renderLinkForm() {
+	const input = element('input', { type: 'text', placeholder: 'loom://pair#…', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'Pairing link' });
+	const button = element('button', { class: 'primary', type: 'submit' }, 'Continue');
+	return element('form', {
+		class: 'form',
+		onsubmit: async event => {
+			event.preventDefault();
+			const text = input.value.trim();
+			const marker = ['loom://pair#', '#pair='].map(prefix => [prefix, text.indexOf(prefix)]).find(([, index]) => index >= 0);
+			const payload = marker ? text.slice(marker[1] + marker[0].length) : text;
+			state.pairing = payload ? await readPairingLink(payload) : null;
+			state.pairError = '';
+			if (!state.pairing) {
+				showBanner('That is not a Loom pairing link. Copy the link Remote access shows under the code.', true);
+				return;
+			}
+			render();
+		},
+	}, element('label', {}, 'Pairing link', input), button);
 }
 
 function renderPairing(screen) {
@@ -1427,7 +1450,7 @@ function renderPairing(screen) {
 	}, element('label', {}, 'Name this device', name), button);
 	screen.replaceChildren(element('div', { class: 'notice' },
 		element('h2', {}, 'Pair with Loom'),
-		element('p', {}, 'This browser gets its own key and can then open the host\'s chats. It can only view (read chats; no files, terminals, processes or window streaming) until you allow control in Remote access.'),
+		element('p', {}, 'This browser gets its own key and can then open the host\'s chats, with what the code allows: full control, or view only until you allow control in Remote access.'),
 		form,
 		state.pairError ? error : null));
 }

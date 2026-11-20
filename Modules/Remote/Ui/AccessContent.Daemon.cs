@@ -6,7 +6,8 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>The This PC section's daemon part of the Remote access panel: status, network, pairing, the pairings waiting for an answer, and devices.</summary>
+/// <summary>The daemon part of the Remote access panel: its controls, network and view-only pairing in Advanced, the pairings waiting for an answer, and
+/// the requests behind them.</summary>
 public sealed partial class AccessContent
 {
 	/// <summary>Defines the drawn size of one QR module in logical pixels.</summary>
@@ -56,9 +57,6 @@ public sealed partial class AccessContent
 	/// <summary>Stores the pairing offer shown, or null.</summary>
 	private Pairing? _pairing;
 
-	/// <summary>Stores whether the next pairing link grants control right away.</summary>
-	private bool _isPairControl;
-
 	/// <summary>Stores whether a status refresh runs.</summary>
 	private bool _isRefreshing;
 
@@ -68,8 +66,8 @@ public sealed partial class AccessContent
 	/// <summary>Counts ticks, so the status refreshes every few.</summary>
 	private int _ticks;
 
-	/// <summary>Builds the daemon section: its status, start and stop, a restart when it runs another build, sign-in, network, pairing, the pairings
-	/// waiting for an answer, and devices; only its status and log while This PC's chats move.</summary>
+	/// <summary>Builds the daemon part of Advanced: its status, start and stop, a restart when it runs another build, sign-in, network and view-only
+	/// pairing; only its status and log while This PC's chats move.</summary>
 	private IEnumerable<Blob> BuildDaemon( Theme theme )
 	{
 		if ( _module.Daemon is not { } client )
@@ -137,10 +135,6 @@ public sealed partial class AccessContent
 			yield return blob;
 		foreach ( var blob in BuildPairing( client, theme ) )
 			yield return blob;
-		foreach ( var blob in BuildPending( theme ) )
-			yield return blob;
-		foreach ( var blob in BuildDevices( client, theme ) )
-			yield return blob;
 	}
 
 	/// <summary>Builds the network editor: mode buttons with the chosen mode's explanation, the port, the relay address, Apply, and what the mode reaches.</summary>
@@ -177,42 +171,12 @@ public sealed partial class AccessContent
 			yield return BuildParagraph( error, theme.Error, selectable: true );
 	}
 
-	/// <summary>Builds the pairing section: Pair device with what a new device may do and the Allow control right away switch with its warning, or the
-	/// shown offer's QR code, link, web address and countdown.</summary>
+	/// <summary>Builds the view-only pairing in Advanced: a code whose device can only look until the user allows control. The offer shows at the top.</summary>
 	private IEnumerable<Blob> BuildPairing( RemoteClient client, Theme theme )
 	{
-		yield return BuildSection( "Pair a device", theme );
-		if ( _pairing is not { } pairing )
-		{
-			yield return BuildParagraph( "Show a link to scan or paste on the device. It works once, for five minutes, and only while it is shown here.", theme.Muted );
-			yield return BuildParagraph( "A new device gets view only until you allow control. " + ViewText, theme.Muted );
-			var isControl = _isPairControl;
-			yield return BuildSwitch( "Allow control right away", isControl, !_isBusy, () =>
-			{
-				_isPairControl = !isControl;
-				_version.Value++;
-			} );
-			if ( isControl )
-				yield return BuildParagraph( "Anyone who opens this link in the next 5 minutes can run programs on this PC as you.", theme.Error );
-			yield return theme.BuildButton( "Pair device", () => RunRequest( () => UpdatePairAsync( client, isControl ) ), isEnabled: !_isBusy );
-			yield break;
-		}
-
-		var left = pairing.Expires - DateTimeOffset.UtcNow;
-		yield return BuildQr( pairing.Modules );
-		yield return BuildParagraph( $"Expires in {(int)left.TotalMinutes}:{left.Seconds:00}. Scan the code with the phone's camera, or paste the link in Loom on the other PC. "
-			+ "Anyone who sees this code can pair, so show it to the device only.", theme.Muted );
-		if ( pairing.Control )
-			yield return BuildParagraph( "Pairs with control.", theme.Error );
-		yield return BuildParagraph( pairing.Link, theme.Text, selectable: true );
-		if ( pairing.WebUrl is { } webUrl )
-			yield return BuildParagraph( "Web client: " + webUrl, theme.Muted, selectable: true );
-		yield return theme.BuildButton( "Done", () => _context.Run( () =>
-		{
-			_pairing = null;
-			_version.Value++;
-			_ = WithdrawPairingAsync( client );
-		} ) );
+		yield return BuildSection( "Pair with view only", theme );
+		yield return BuildParagraph( ViewText, theme.Muted );
+		yield return theme.BuildButton( "Show a view-only code", () => RunRequest( () => UpdatePairAsync( client, control: false ) ), isEnabled: !_isBusy && _pairing is null );
 	}
 
 	/// <summary>Builds the devices that paired with view only and wait for the user's answer, each with Allow control and View only.</summary>
@@ -245,50 +209,6 @@ public sealed partial class AccessContent
 					{
 						Gap = theme.Spacing,
 						Children = [allow, keep],
-					},
-				],
-			};
-		}
-	}
-
-	/// <summary>Builds the paired devices, each with its state, what it may do, an Allow control switch and Revoke.</summary>
-	private IEnumerable<Blob> BuildDevices( RemoteClient client, Theme theme )
-	{
-		yield return BuildSection( "Devices", theme );
-		if ( _devices is not { Count: > 0 } devices )
-		{
-			yield return BuildParagraph( "No device is paired.", theme.Muted );
-			yield break;
-		}
-
-		yield return BuildParagraph( ControlText, theme.Muted );
-		foreach ( var device in devices.OfType<JsonObject>() )
-		{
-			var deviceId = Frame.ReadString( device, "deviceId" ) ?? "";
-			var canControl = Frame.ReadStrings( device, "scopes" )?.Contains( DeviceScopes.Control ) == true;
-			var paired = DateTimeOffset.FromUnixTimeSeconds( Frame.ReadLong( device, "paired" ) ?? 0 ).ToLocalTime();
-			var state = Frame.ReadBool( device, "connected" ) == true ? "connected" : "not connected";
-			yield return new Container
-			{
-				Key = "device:" + deviceId,
-				Padding = theme.Spacing,
-				Gap = theme.Spacing / 2,
-				BorderRadius = theme.Radius,
-				BorderWidth = theme.BorderWidth,
-				BorderColor = theme.Border,
-				Children =
-				[
-					new Text { Content = Frame.ReadString( device, "name" ) ?? deviceId, },
-					BuildParagraph( $"Paired {paired:g} · {state} · {(canControl ? "view and control" : "view only")}", theme.Muted ),
-					new Row
-					{
-						AlignItems = AlignItems.Center,
-						Gap = theme.Spacing * 2,
-						Children =
-						[
-							BuildSwitch( "Allow control", canControl, !_isBusy, () => RunRequest( () => UpdateDevicesAsync( client, "admin.scopes", deviceId, !canControl ) ) ),
-							theme.BuildButton( "Revoke", () => RunRequest( () => UpdateDevicesAsync( client, "admin.revoke", deviceId, null ), "The device is revoked." ), isEnabled: !_isBusy ),
-						],
 					},
 				],
 			};
@@ -379,12 +299,17 @@ public sealed partial class AccessContent
 			if ( pairing.Expires <= DateTimeOffset.UtcNow )
 			{
 				_pairing = null;
-				ShowMessage( "The pairing link expired. Show a new one to pair.", true );
+				ShowMessage( "The pairing code expired. Choose Connect a device for a new one.", true );
 			}
 			else
 				_version.Value++;
 		}
 
+		if ( _isConnecting )
+		{
+			UpdateConnect();
+			_version.Value++;
+		}
 		if ( ++_ticks % StatusTicks == 0 )
 			UpdateDaemonStatus();
 	}
@@ -474,7 +399,6 @@ public sealed partial class AccessContent
 		_context.Post( () =>
 		{
 			_pairing = pairing;
-			_isPairControl = false;
 			_version.Value++;
 		} );
 	}

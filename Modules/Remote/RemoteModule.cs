@@ -229,7 +229,7 @@ public sealed class RemoteModule : ILoknModule
 	private bool UsesDaemonControl => OperatingSystem.IsWindows() && (_hooks is null || _hooks.DaemonExecutable is not null);
 
 	/// <summary>Registers the remote settings, the Remote access panel, the window stream panel, the status bar's connection dot, the pairing answers',
-	/// reconnect and role routes, and the daemon's sign-in switch for its notification-area menu.</summary>
+	/// reconnect and role routes, the handler of <c>loom://pair#…</c> links, and the daemon's sign-in switch for its notification-area menu.</summary>
 	public void Register( ModuleBuilder builder )
 	{
 		builder
@@ -245,14 +245,15 @@ public sealed class RemoteModule : ILoknModule
 			.Slot( ShellSlots.StatusRight, 0, context => new RemoteStatusContent( context, this ) )
 			.Route( PairingRoute, request => Prompts?.AnswerLink( request.Path ) )
 			.Route( ReconnectRoute, request => ReconnectHost( Uri.UnescapeDataString( request.Path ) ) )
-			.Route( RoleRoute, OpenRoleLink );
+			.Route( RoleRoute, OpenRoleLink )
+			.LinkHandler( PairingProtocol.Open );
 		StreamPanel.Register( builder, BuildStreamSource );
 	}
 
 	/// <summary>Starts the gateway and the status of its notification-area icon in the daemon. In Loom it rewrites the former <c>remote</c> role,
 	/// takes This PC's chats or links with the daemon, starts a link to every paired host, keeps the sign-in entry in step with its setting and
-	/// the role, and follows the <see cref="Role"/> setting. In the <c>local</c> role and the daemon it first takes the data folder's single-writer
-	/// lock, so the daemon and this Loom never both write the chats.</summary>
+	/// the role, follows the <see cref="Role"/> setting, and lets browsers open <c>loom://</c> links in it. In the <c>local</c> role and the daemon it
+	/// first takes the data folder's single-writer lock, so the daemon and this Loom never both write the chats.</summary>
 	/// <exception cref="InvalidOperationException">In the daemon: Loom on this PC runs its chats itself, so the daemon must not.</exception>
 	public void Start( ModuleContext context )
 	{
@@ -295,6 +296,8 @@ public sealed class RemoteModule : ILoknModule
 		StartLinks( dataFolder );
 		FollowLoginItem();
 		FollowRole();
+		if ( _hooks is null && !LoknPaths.IsCustom && OperatingSystem.IsWindows() )
+			PairingProtocol.Install( app );
 	}
 
 	/// <summary>Ends a switch under way, and stops the gateway, the daemon's status or every link and releases the single-writer lock. Paired hosts stay

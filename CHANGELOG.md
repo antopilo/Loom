@@ -3,6 +3,16 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.3.1
+
+- **Connect a device in one click.** Remote access now has one button, **Connect a device**. Loom moves your chats to
+  the background daemon (after running agents finish), starts it at sign-in, opens the network (Tailscale when it runs
+  on this PC, else your local network) and shows a code. Scan it with the phone, or open its link on the other PC. The
+  device gets control at once, so show the code to that device only. Roles, network modes, view-only codes and the
+  other settings moved to **Advanced**.
+- **Pairing links open Loom.** Clicking a `loom://pair` link in a browser opens Loom and pairs with that PC at once.
+- **Paste a pairing link in the web client.** A browser that is not paired shows a field for the link.
+
 ## 0.3.0
 
 - **Nothing changes unless you turn it on.** After the update Loom works as before: your chats run in this window, no
