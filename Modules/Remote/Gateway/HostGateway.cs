@@ -526,7 +526,8 @@ public sealed class HostGateway
 			return;
 
 		var network = Network;
-		if ( network.Error is not null || (request.Mode == "lan" && !network.LanAddresses.SequenceEqual( ReadLanAddresses() )) )
+		// Every mode listens on the LAN too, so a changed LAN address restarts any of them.
+		if ( network.Error is not null || !network.LanAddresses.SequenceEqual( ReadLanAddresses() ) )
 			RequestNetwork( request, isForced: true );
 	}
 
@@ -619,11 +620,15 @@ public sealed class HostGateway
 				{
 					var addresses = await TailscaleCli.GetAddressesAsync( cancellationToken ).ConfigureAwait( false );
 					var dns = await TailscaleCli.GetDnsNameAsync( cancellationToken ).ConfigureAwait( false );
-					state = StartListener( state, addresses );
+					var lan = ReadLanAddresses();
+					state = StartListener( state with { LanAddresses = lan }, [.. lan, .. addresses] );
 					await TailscaleCli.ServeAsync( port, cancellationToken ).ConfigureAwait( false );
 					state = state with { IsServed = true };
-					// Serve's HTTPS address works even where the host could not listen on the tailnet addresses, so it comes first.
+					// A Loom PC on the same network tries the LAN first; Serve's HTTPS address works even where the host could not listen on the
+					// tailnet addresses, so it comes before them.
 					var reached = new List<string>();
+					if ( state.Error is null )
+						reached.AddRange( lan.Select( address => BuildAddress( address, port ) ) );
 					if ( dns is not null )
 						reached.Add( $"wss://{dns}{WebSocketHost.Path}" );
 					if ( state.Error is null )
@@ -633,23 +638,27 @@ public sealed class HostGateway
 				}
 				case "funnel":
 				{
-					state = StartListener( state, [] );
+					var lan = ReadLanAddresses();
+					state = StartLocalListener( state with { LanAddresses = lan }, lan );
 					var dns = await TailscaleCli.GetDnsNameAsync( cancellationToken ).ConfigureAwait( false )
 						?? throw new TailscaleException( "Tailscale gives this PC no DNS name; turn on MagicDNS in the tailnet." );
 					await TailscaleCli.FunnelAsync( port, true, cancellationToken ).ConfigureAwait( false );
-					state = state with { IsServed = true, IsFunnel = true, Addresses = [$"wss://{dns}{WebSocketHost.Path}"], WebUrl = $"https://{dns}/" };
+					// A Loom PC on the same network tries the LAN first, and Funnel's public address when it is away.
+					state = state with { IsServed = true, IsFunnel = true, Addresses = [.. ListLan( state ), $"wss://{dns}{WebSocketHost.Path}"], WebUrl = $"https://{dns}/" };
 					break;
 				}
 				case "relay":
 				{
 					if ( relayUrl.Length == 0 )
 						throw new InvalidOperationException( "The relay mode needs the relay's address." );
-					state = StartListener( state, [] );
+					var lan = ReadLanAddresses();
+					state = StartLocalListener( state with { LanAddresses = lan }, lan );
 					var relay = new RelayHostLink( relayUrl, Keys, AcceptWebSocketAsync );
 					relay.StatusChanged += status => UpdateRelayStatus( relay, status );
 					relay.Failed += error => _post( () => _app.ReportError( "Remote relay", error ) );
 					relay.Start();
-					state = state with { Relay = relay, RelayStatus = relay.Status, WebUrl = RelayDialer.BuildPageUrl( relayUrl, Keys.HostId ) };
+					// A Loom PC on the same network tries the LAN first; the relay is the fallback dialers try last.
+					state = state with { Relay = relay, RelayStatus = relay.Status, WebUrl = RelayDialer.BuildPageUrl( relayUrl, Keys.HostId ), Addresses = [.. ListLan( state )] };
 					break;
 				}
 			}
@@ -710,6 +719,17 @@ public sealed class HostGateway
 			return state with { Listener = listener, Error = exception.Message + " Loom listens on 127.0.0.1 only." };
 		}
 	}
+
+	/// <summary>Starts the listener on loopback and the LAN for a mode that reaches devices another way, such as Funnel or the relay: when the LAN
+	/// addresses cannot be listened on, it listens on loopback only and records no error, since the mode itself still works.</summary>
+	private NetworkState StartLocalListener( NetworkState state, IReadOnlyList<string> lan )
+	{
+		var started = StartListener( state, lan );
+		return started.Error is null ? started : started with { Error = null, LanAddresses = [] };
+	}
+
+	/// <summary>Lists the LAN addresses a state listens on, as host:port, for Loom PCs on the same network to try first.</summary>
+	private static IEnumerable<string> ListLan( NetworkState state ) => state.LanAddresses.Select( address => BuildAddress( address, state.Port ) );
 
 	/// <summary>Creates and starts a WebSocket listener with the web client mapped.</summary>
 	/// <exception cref="IOException">An endpoint cannot be bound.</exception>

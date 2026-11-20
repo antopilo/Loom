@@ -170,8 +170,9 @@ internal static class RemoteUiChecks
 		screen.ClickButton( "Pair to watch\u2026", () => ReadLink( screen ) is not null && screen.Find( IsQrCode ) is not null, "Pair to watch shows a QR code and a link." );
 		var withdrawn = ReadLink( screen )!;
 		CoreChecks.Check( screen.Find( IsQrCode ) is { Bounds: { Width: >= 100 } bounds } && Math.Abs( bounds.Width - bounds.Height ) < 1, "The QR code is square and large enough to scan." );
-		CoreChecks.Check( PairingLink.TryParse( withdrawn ) is { Addrs.Count: 0 } link && link.HostId == gateway.Keys.HostId && link.Relay == relayUrl,
-			"The pairing link names the host and the relay." );
+		CoreChecks.Check( PairingLink.TryParse( withdrawn ) is { } link && link.HostId == gateway.Keys.HostId && link.Relay == relayUrl
+			&& link.Addrs.SequenceEqual( HostGateway.ReadLanAddresses().Select( address => $"{address}:{port}" ) ),
+			"The pairing link names the host, its LAN addresses for a Loom PC on the same network, and the relay." );
 		CoreChecks.Check( screen.HasText( "expires in " ) && gateway.LiveOffer is { Control: false }, "The offer shows its countdown and is live on the daemon to watch." );
 		screen.ClickButton( "Done", () => screen.Find( IsQrCode ) is null && screen.HasButton( "Pair to watch\u2026" ) && gateway.LiveOffer is null,
 			"Done hides the code and withdraws the offer on the daemon." );
