@@ -13,8 +13,13 @@
 		<RootNamespace>Lokn</RootNamespace>
 		<ApplicationIcon>assets\brand\loom.ico</ApplicationIcon>
 		<!-- The release version: the installer's package version, and the version Program reports to Goo. Raise it for every release. -->
-		<Version>0.4.3</Version>
+		<Version>0.4.4</Version>
 	</PropertyGroup>
+	<ItemGroup>
+		<!-- Lets the GC compact the large-object heap once it is fragmented: chats churn through large JSON and image buffers, which otherwise left
+		     over 150 MB of free gaps in a long-running window. 0 is off, 9 is most aggressive; 5 trades a little GC time for that memory. -->
+		<RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
 		<!-- Installs, updates and uninstalls Loom; see scripts/installer.ps1. Keep it at the version of the vpk tool in dotnet-tools.json. -->

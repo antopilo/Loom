@@ -240,7 +240,8 @@ public sealed partial class ConversationStore
 			if ( document.Version != FileVersion || document.ConversationId != conversationId || document.Messages is null || !IsValid( document.Messages ) )
 				throw new JsonException( "The messages document is unsupported or belongs to another conversation." );
 
-			return document.Messages;
+			// Files from before messages were compacted still hold the parts Loom never reads; they leave memory as the chat loads.
+			return [.. document.Messages.Select( message => message.RichContent is null ? message : message with { RichContent = CompactRichContent( message.RichContent ) } )];
 		}
 		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException or JsonException or ArgumentException )
 		{

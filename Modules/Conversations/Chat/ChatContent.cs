@@ -482,6 +482,7 @@ public sealed partial class ChatContent : PanelContent
 		session.Detach( context.Id );
 		_gitWatch?.Dispose();
 		_gitWatch = null;
+		ReleaseImages();
 	}
 
 	/// <summary>Builds selectable body text in the shell's typography.</summary>

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Goo;
 using Lokn.Core;
 using Lokn.Modules.Projects;
@@ -554,12 +555,25 @@ public sealed partial class ConversationStore
 		WorkingChanged?.Invoke( conversationId, isWorking );
 	}
 
-	/// <summary>Clones rich JSON so message storage owns it independently of a backend event document.</summary>
+	/// <summary>Clones rich JSON so message storage owns it independently of a backend event document, without what Loom never shows.</summary>
 	/// <remarks>Cloning JSON that is already a clone, such as a backend frame's, returns it without copying.</remarks>
 	private static ConversationMessage BuildOwnedMessage( ConversationMessage message ) => message with
 	{
-		RichContent = message.RichContent?.Clone(),
+		RichContent = CompactRichContent( message.RichContent?.Clone() ),
 	};
+
+	/// <summary>Drops the parts of a message's rich JSON that Loom never reads and that can be megabytes, such as a bash result's <c>details.trace</c>,
+	/// so an open chat does not keep them in memory; anything else is returned as it is.</summary>
+	internal static JsonElement? CompactRichContent( JsonElement? rich )
+	{
+		if ( rich is not { ValueKind: JsonValueKind.Object } element || !element.TryGetProperty( "details", out var details )
+			|| details.ValueKind != JsonValueKind.Object || !details.TryGetProperty( "trace", out _ ) )
+			return rich;
+
+		var node = System.Text.Json.Nodes.JsonNode.Parse( element.GetRawText() )!.AsObject();
+		node["details"]!.AsObject().Remove( "trace" );
+		return JsonSerializer.SerializeToElement( node );
+	}
 
 	/// <summary>Rejects assignments to a project that does not exist or would cross account profiles.</summary>
 	private void EnsureProjectProfile( SettingsProfile profile, Guid? projectId )
