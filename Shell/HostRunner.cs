@@ -360,10 +360,10 @@ internal sealed class HostRunner
 		_tray?.Update( status );
 	}
 
-	/// <summary>Opens Loom on this PC, for the bare folder when the daemon is bare, optionally on a panel; an open Loom gets the request forwarded
+	/// <summary>Opens Loom on this PC, for the bare folder when the daemon is bare, optionally following a link; an open Loom gets the request forwarded
 	/// and comes forward. Runs on the icon's thread.</summary>
-	/// <param name="panel">The panel type to open, or null.</param>
-	private void OpenLoom( string? panel )
+	/// <param name="link">The link to follow, such as Remote access's, or null.</param>
+	private void OpenLoom( string? link )
 	{
 		if ( Environment.ProcessPath is not { } executable )
 		{
@@ -377,10 +377,10 @@ internal sealed class HostRunner
 			info.ArgumentList.Add( "--bare" );
 			info.ArgumentList.Add( _bare );
 		}
-		if ( panel is not null )
+		if ( link is not null )
 		{
-			info.ArgumentList.Add( AttentionNotifier.OpenPanelArgument );
-			info.ArgumentList.Add( panel );
+			info.ArgumentList.Add( AttentionNotifier.OpenLinkArgument );
+			info.ArgumentList.Add( link );
 		}
 
 		try

@@ -3,7 +3,7 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
-## 0.3.1
+## 0.4.1
 
 - **Run shell snippets.** Bash, PowerShell and cmd code blocks in a chat have a Run button next to Copy. It opens a
   terminal on this PC beside the chat that runs the snippet and stays open.
@@ -13,6 +13,26 @@ version being packed. Write for users: what changed for them, not how.
 - **No more stuck keys.** If an Alt, Ctrl, Shift or Windows key release got lost, Backspace and other keys stopped
   working until Alt+Tab. Loom now notices and clears it.
 - **Clicks keep working.** The window could ignore every click and key until Alt+Tab. Goo 0.32 fixes this.
+
+## 0.4.0
+
+- **Remote access is one simple page in Settings.** Settings › Remote shows **Serve over** (Off, Tailscale, Anywhere:
+  a link with Tailscale Funnel, a relay, or this network) with what is left to do and a button for each step,
+  **Pair to control…** and **Pair to watch…** with a QR code, your **Devices** with Revoke, and the PCs you connect to.
+  Choosing a way to serve moves your chats to the background daemon by itself. With Funnel, a phone needs nothing
+  installed: scan the code and the browser opens Loom.
+- A code that only a Loom PC can open no longer shows as a QR code.
+- **Right-click a pane's grip** for its menu; a left click no longer opens it, so dragging a panel never pops it up.
+
+## 0.3.1
+
+- **Connect a device in one click.** Remote access now has one button, **Connect a device**. Loom moves your chats to
+  the background daemon (after running agents finish), starts it at sign-in, opens the network (Tailscale when it runs
+  on this PC, else your local network) and shows a code. Scan it with the phone, or open its link on the other PC. The
+  device gets control at once, so show the code to that device only. Roles, network modes, view-only codes and the
+  other settings moved to **Advanced**.
+- **Pairing links open Loom.** Clicking a `loom://pair` link in a browser opens Loom and pairs with that PC at once.
+- **Paste a pairing link in the web client.** A browser that is not paired shows a field for the link.
 
 ## 0.3.0
 

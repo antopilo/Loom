@@ -152,7 +152,11 @@ public static partial class TailscaleCli
 		{
 			var result = await RunAsync( arguments, cancellationToken ).ConfigureAwait( false );
 			if ( result.Code != 0 )
-				throw new TailscaleException( $"'tailscale {string.Join( ' ', arguments )}' failed: " + ReadFirstLine( result ) );
+			{
+				// Tailscale prints the page that enables Serve or Funnel for this PC on a later line; it is kept, so Remote access can open it.
+				var link = HttpsLink().Match( result.Error + "\n" + result.Output );
+				throw new TailscaleException( $"'tailscale {string.Join( ' ', arguments )}' failed: " + ReadFirstLine( result ) + (link.Success ? " " + link.Value : "") );
+			}
 		}
 	}
 
@@ -192,6 +196,10 @@ public static partial class TailscaleCli
 	/// <summary>Matches the <c>--bg</c> flag in Serve's help.</summary>
 	[GeneratedRegex( @"(^|[\s,])--?bg\b", RegexOptions.Multiline )]
 	private static partial Regex BackgroundFlag();
+
+	/// <summary>Matches the first https address in a command's output.</summary>
+	[GeneratedRegex( @"https://\S+" )]
+	private static partial Regex HttpsLink();
 }
 
 /// <summary>Tailscale's state as <c>tailscale status --json</c> reports it.</summary>

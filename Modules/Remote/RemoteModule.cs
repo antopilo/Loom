@@ -38,6 +38,7 @@ public sealed class RemoteModule : ILoknModule
 		LocalRole, "Remote", value => Roles.Contains( value ) )
 	{
 		Choices = [new( LocalRole, "This Loom" ), new( DaemonRole, "Daemon" )],
+		IsHidden = true,
 	};
 
 	/// <summary>Defines the host's WebSocket port.</summary>
@@ -47,6 +48,7 @@ public sealed class RemoteModule : ILoknModule
 	{
 		Minimum = 1,
 		Maximum = 65535,
+		IsHidden = true,
 	};
 
 	/// <summary>Defines how devices reach the host, or off for the named pipe only; every mode but off is a preview.</summary>
@@ -54,28 +56,49 @@ public sealed class RemoteModule : ILoknModule
 		"remote.network", "Network access", "How other devices reach this PC's chats.",
 		"off", "Remote", value => Networks.Contains( value ) )
 	{
-		Choices = [new( "off", "Off" ), new( "lan", "LAN (Preview)" ), new( "tailscale", "Tailscale (Preview)" ), new( "relay", "Relay (Preview)" ), new( "funnel", "Funnel (Preview)" )],
+		Choices = [new( "off", "Off" ), new( "lan", "This network" ), new( "tailscale", "Tailscale: my devices" ), new( "relay", "Through a relay" ), new( "funnel", "Anywhere: a link" )],
+		IsHidden = true,
 	};
 
 	/// <summary>Defines the relay's address for the relay mode.</summary>
 	public static readonly Setting<string> RelayUrl = new(
 		"remote.relay-url", "Relay", "The relay's https address, for the Relay mode.",
-		"", "Remote" );
+		"", "Remote" )
+	{
+		IsHidden = true,
+	};
 
 	/// <summary>Defines whether the daemon starts when the user signs in.</summary>
 	public static readonly Setting<bool> LoginItem = new(
 		"remote.login-item", "Start the daemon at sign-in", "Keeps chats reachable after sign-in without opening Loom, while chats run in the daemon.",
-		false, "Remote" );
+		false, "Remote" )
+	{
+		IsHidden = true,
+	};
 
 	/// <summary>Defines whether the daemon shows its icon in the notification area while it runs.</summary>
 	public static readonly Setting<bool> Tray = new(
 		"remote.tray", "Show the daemon in the notification area", "An icon near the clock while the daemon runs: open Loom, see its agents, or stop it.",
-		true, "Remote" );
+		true, "Remote" )
+	{
+		IsHidden = true,
+	};
 
 	/// <summary>Defines whether this PC lets the agents of the hosts it paired with use its browser tabs through their browser tools.</summary>
 	public static readonly Setting<bool> LendBrowser = new(
 		"remote.lend-browser", "Let agents on paired hosts use this PC's browser", "While Loom here is linked with a paired host, the host's agents may open, read and use pages in this PC's Browser panels.",
-		true, "Remote" );
+		true, "Remote" )
+	{
+		IsHidden = true,
+	};
+
+	/// <summary>Defines the Settings entry that shows Remote access, the Remote tab's only row: where devices connect from, pairing, devices and the
+	/// PCs this one connects to; its value is never set, only its editor is used. The plain remote settings are hidden, since it shows them.</summary>
+	internal static readonly Setting<string> Access = new(
+		"remote.access", "Remote access", "", "", "Remote" )
+	{
+		Editor = ( app, scope ) => Cell.Mount<RemoteModule, AccessContent>( "remote-access", app.GetModule<RemoteModule>() ),
+	};
 
 	/// <summary>Defines the route of the pairing notification's answers, <c>lokn://remote/pairing/allow/&lt;deviceId&gt;</c> and <c>…/view/…</c>.</summary>
 	internal const string PairingRoute = "pairing";
@@ -95,6 +118,9 @@ public sealed class RemoteModule : ILoknModule
 
 	/// <summary>Holds the link of every paired host, in the order they were added.</summary>
 	private readonly List<RemoteClient> _links = [];
+
+	/// <summary>Holds what Remote access does once it shows, or empty (<see cref="OpenAccess"/>).</summary>
+	private readonly State<string> _accessRequest = new( "" );
 
 	/// <summary>Counts changes of <see cref="_links"/>, so views reading <see cref="Links"/> rebuild.</summary>
 	private readonly State<int> _version = new( 0 );
@@ -229,7 +255,7 @@ public sealed class RemoteModule : ILoknModule
 	private bool UsesDaemonControl => OperatingSystem.IsWindows() && (_hooks is null || _hooks.DaemonExecutable is not null);
 
 	/// <summary>Registers the remote settings, the Remote access panel, the window stream panel, the status bar's connection dot, the pairing answers',
-	/// reconnect and role routes, and the daemon's sign-in switch for its notification-area menu.</summary>
+	/// reconnect and role routes, the handler of <c>loom://pair#…</c> links, and the daemon's sign-in switch for its notification-area menu.</summary>
 	public void Register( ModuleBuilder builder )
 	{
 		builder
@@ -241,18 +267,19 @@ public sealed class RemoteModule : ILoknModule
 			.Setting( Tray )
 			.Setting( LendBrowser )
 			.Service<IHostLoginItem>( new HostLoginItem( this ) )
-			.Panel( AccessContent.PanelId, AccessContent.Title, context => new AccessContent( context, this ), "\uE968" )
+			.Setting( Access )
 			.Slot( ShellSlots.StatusRight, 0, context => new RemoteStatusContent( context, this ) )
 			.Route( PairingRoute, request => Prompts?.AnswerLink( request.Path ) )
 			.Route( ReconnectRoute, request => ReconnectHost( Uri.UnescapeDataString( request.Path ) ) )
-			.Route( RoleRoute, OpenRoleLink );
+			.Route( RoleRoute, OpenRoleLink )
+			.LinkHandler( PairingProtocol.Open );
 		StreamPanel.Register( builder, BuildStreamSource );
 	}
 
 	/// <summary>Starts the gateway and the status of its notification-area icon in the daemon. In Loom it rewrites the former <c>remote</c> role,
 	/// takes This PC's chats or links with the daemon, starts a link to every paired host, keeps the sign-in entry in step with its setting and
-	/// the role, and follows the <see cref="Role"/> setting. In the <c>local</c> role and the daemon it first takes the data folder's single-writer
-	/// lock, so the daemon and this Loom never both write the chats.</summary>
+	/// the role, follows the <see cref="Role"/> setting, and lets browsers open <c>loom://</c> links in it. In the <c>local</c> role and the daemon it
+	/// first takes the data folder's single-writer lock, so the daemon and this Loom never both write the chats.</summary>
 	/// <exception cref="InvalidOperationException">In the daemon: Loom on this PC runs its chats itself, so the daemon must not.</exception>
 	public void Start( ModuleContext context )
 	{
@@ -295,6 +322,8 @@ public sealed class RemoteModule : ILoknModule
 		StartLinks( dataFolder );
 		FollowLoginItem();
 		FollowRole();
+		if ( _hooks is null && !LoknPaths.IsCustom && OperatingSystem.IsWindows() )
+			PairingProtocol.Install( app );
 	}
 
 	/// <summary>Ends a switch under way, and stops the gateway, the daemon's status or every link and releases the single-writer lock. Paired hosts stay
@@ -368,6 +397,28 @@ public sealed class RemoteModule : ILoknModule
 	{
 		Notice = null;
 		_roleVersion.Value++;
+	}
+
+	/// <summary>Gets what Remote access should do once it shows: <see cref="AccessContent.AddHostRequest"/>, a pairing link to pair with, or empty;
+	/// reading it rebuilds the reader when it changes.</summary>
+	internal string AccessRequest => _accessRequest.Value;
+
+	/// <summary>Opens Settings at Remote access, which then focuses the pairing link field for <see cref="AccessContent.AddHostRequest"/> or pairs with a
+	/// <c>loom://pair#…</c> link.</summary>
+	/// <param name="app">The application.</param>
+	/// <param name="request">What Remote access does once it shows, or empty.</param>
+	internal void OpenAccess( LoknApplication app, string request = "" )
+	{
+		_accessRequest.Value = request;
+		app.OpenLink( LoknLinks.Create( "shell", "settings", Access.Id ) );
+	}
+
+	/// <summary>Takes the request <see cref="OpenAccess"/> left, so it runs once.</summary>
+	internal string TakeAccessRequest()
+	{
+		var request = _accessRequest.Value;
+		_accessRequest.Value = "";
+		return request;
 	}
 
 	/// <summary>Finds the link of a paired host, or null.</summary>
@@ -798,13 +849,13 @@ public sealed class RemoteModule : ILoknModule
 	private bool IsDaemonRunning() => UsesDaemonControl ? DaemonControl.IsRunning : Daemon?.Status == ClientState.Connected;
 
 	/// <summary>Follows <c>lokn://remote/role/…</c>: <c>daemon</c> or <c>local</c> chooses where This PC's chats run, which moves them as the setting does;
-	/// any other path opens Remote access.</summary>
-	private static void OpenRoleLink( RouteRequest request )
+	/// <c>add-host</c> opens Remote access at the pairing link field, and any other path opens Remote access.</summary>
+	private void OpenRoleLink( RouteRequest request )
 	{
 		if ( request.Path is LocalRole or DaemonRole )
 			request.App.Settings.Set( Role, SettingsScope.Global, request.Path );
 		else
-			request.App.Panels.Open( AccessContent.TypeId );
+			OpenAccess( request.App, request.Path == AccessContent.AddHostRequest ? AccessContent.AddHostRequest : "" );
 	}
 
 	/// <summary>Writes the sign-in entry now and whenever the settings change, in Loom and in the daemon alike; checks never touch the user's Run key.</summary>

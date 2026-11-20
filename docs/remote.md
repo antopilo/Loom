@@ -67,7 +67,7 @@ stacks for failures of its own loop, to `%TEMP%\Lokn\host.log` (bare: `host.log`
 which starts over past 1 MiB (the previous one kept as `host.log.1`); Remote access shows the path.
 
 While it runs, the daemon shows an icon in the notification area, unless `remote.tray` (Global,
-default on; **Show in the notification area** in Remote access) is off; it follows the setting live.
+default on; **Show the daemon in the notification area** in Settings › Remote) is off; it follows the setting live.
 The Remote module publishes the daemon's `HostStatus` (Core) with `LoknApplication.PublishHostStatus`
 whenever an agent starts or stops working, a chat's questions change, a connection joins or leaves,
 the network's error changes or a setting changes. `HostRunner` reads it on its loop and hands it to
@@ -83,10 +83,10 @@ bare daemon; a running window gets the launch forwarded and comes forward). A ri
   a chat waits (devices are distinct paired devices; Loom on this PC is not one), whether Loom on
   this PC is connected over the pipe, the error when there is one, and `<n> pairing(s) waiting for you`
   while devices wait for an answer to their pairing (Pairing confirm);
-- **Remote access…**: Loom with `--open-panel remote.access`, which the desktop handles on its own
-  launch and on a forwarded one, activating an open panel of that type or opening one;
+- **Remote access…**: Loom with `--open-link lokn://remote/role`, which the desktop follows on its own
+  launch and on a forwarded one, opening Settings › Remote at Remote access;
 - **Start at login**: checked when the Run value exists; choosing it sets `remote.login-item`
-  through the Remote module's `IHostLoginItem` service, as the panel's switch does, and the module
+  through the Remote module's `IHostLoginItem` service, as the setting does, and the module
   writes the Run value. It is disabled in a bare daemon and while `remote.role` is not `daemon`;
 - a separator and **Stop daemon**, which sets the stop event as `--host --stop` does.
 
@@ -257,7 +257,8 @@ and return a `HostResponse` (status, headers, body) for `GET` and `HEAD`; other 
   (role `host`), one `RemoteClient` per linked host (the daemon link and each paired host), the paired
   hosts list (`PairedHosts`, `HostPairing`), the remote `IWorkspaceHost`, the stream panel, the web client
   assets, web push, relay and funnel modes, the browser frames (`BrowserService`), the localhost tunnel
-  (`TunnelService` on the host, one `TunnelClient` per paired host), and the **Remote access** panel.
+  (`TunnelService` on the host, one `TunnelClient` per paired host), and **Remote access**, the editor of the `remote.access`
+  entry in Settings › Remote (`lokn://remote/role` opens it there through the shell's `lokn://shell/settings/<id>` link).
 - `Relay/` (`Lokn.Relay`, ASP.NET Core, not a module, not referenced by the app) copies
   ciphertext between a host and its devices and serves the web client under `/h/{hostId}/`.
 
@@ -332,9 +333,8 @@ the dialog and marks the notification read in every Loom window. **Allow control
 device list (`admin.scopes`) and revoking also end the wait. Without a Loom attached, the daemon's tray icon
 announces the device instead (Roles). A restarted daemon forgets the waits; the devices stay view-only.
 
-Pre-granted links. **Pair device** with **Allow control right away** on (Remote access warns in the error
-color: "Anyone who opens this link in the next 5 minutes can run programs on this PC as you.") sends
-`admin.pair { control: true }`; the device that pairs through that offer is stored with
+Pre-granted links. **Pair to control…** in Remote access sends `admin.pair { control: true }` and warns that the device gets control of this
+PC, so the code is for that device only; **Pair to watch…** pairs with view only. The device that pairs through a control offer is stored with
 `["view","control"]`, its `paired` frame says so, and Loom on this PC hears `admin.paired { deviceId, name,
 control: true }` instead of a question. An answer without `control` comes from an older daemon: the panel
 withdraws the offer (`admin.unpair`) and asks to restart the daemon.
@@ -811,7 +811,7 @@ panel of that window counts as none, since the chat may be attached in another w
 enter the daemon's registry, whose own names win, so Omp's switches and descriptions are the daemon's.
 
 Each paired host's link offers only its browser tools, and only while `remote.lend-browser` (Global, default on; **Let
-agents on paired hosts use this PC's browser** in Remote access, Hosts) is on and the host lets it control; turning it off offers an
+agents on paired hosts use this PC's browser** in Settings › Remote) is on and the host lets it control; turning it off offers an
 empty list, which stops the lending, and a `tool.call` for any other tool, or while it is off, is answered with an
 error. Its other tools would act on its own PC rather than the host's. Its browser tools never show the host's agents
 this PC: they load only `http` and `https` pages, through the proxy that sends loopback to the host (Localhost

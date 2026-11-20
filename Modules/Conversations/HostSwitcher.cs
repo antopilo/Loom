@@ -16,9 +16,6 @@ internal sealed class HostSwitcher( PanelContext context, ConversationsModule mo
 	/// <summary>Defines the Remote module, which pairs hosts.</summary>
 	private const string RemoteModule = "remote";
 
-	/// <summary>Defines the Remote access panel, where hosts are added and managed.</summary>
-	private const string RemoteAccessPanel = "remote.access";
-
 	/// <summary>Defines a status dot's diameter in logical pixels.</summary>
 	private const int DotSize = HistoryContent.ActivityOrb.Size;
 
@@ -180,11 +177,11 @@ internal sealed class HostSwitcher( PanelContext context, ConversationsModule mo
 
 		if ( !IsRemoteLoaded && app.Hosts.All.Count > 1 )
 			entries.Add( new MenuNote( "Remote is off" ) );
-		if ( app.Panels.Types.Any( type => type.Id == RemoteAccessPanel ) )
+		if ( IsRemoteLoaded )
 		{
 			entries.Add( new MenuSeparator() );
-			entries.Add( new MenuAction( "Add host…", () => context.Run( () => app.Panels.Open( RemoteAccessPanel, input: "add-host" ) ) ) { AccessKey = Key.A } );
-			entries.Add( new MenuAction( "Manage hosts…", () => context.Run( () => app.Panels.Open( RemoteAccessPanel, input: "hosts" ) ) ) { AccessKey = Key.M } );
+			entries.Add( new MenuAction( "Add host…", () => context.Run( () => app.OpenLink( LoknLinks.Create( RemoteModule, "role", "add-host" ) ) ) ) { AccessKey = Key.A } );
+			entries.Add( new MenuAction( "Manage hosts…", () => context.Run( () => app.OpenLink( LoknLinks.Create( RemoteModule, "role" ) ) ) ) { AccessKey = Key.M } );
 		}
 		return entries;
 	}

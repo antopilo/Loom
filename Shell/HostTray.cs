@@ -5,7 +5,7 @@ using Lokn.Core;
 namespace Lokn;
 
 /// <summary>What the daemon's icon in the notification area asks of the daemon; each runs on the icon's thread.</summary>
-/// <param name="Open">Opens Loom, on a panel type or null for its main window.</param>
+/// <param name="Open">Opens Loom, on a link such as <see cref="HostTrayMenu.RemoteAccessLink"/> or null for its main window.</param>
 /// <param name="IsStartAtLogin">Reads whether the daemon's sign-in entry exists.</param>
 /// <param name="SetStartAtLogin">Turns the sign-in entry on or off.</param>
 /// <param name="Stop">Stops the daemon.</param>
@@ -80,8 +80,8 @@ internal sealed unsafe class HostTray : IDisposable
 	/// <summary>Holds the devices whose pairing was announced or seen while Loom was connected, so each is announced at most once; on the icon's thread.</summary>
 	private readonly HashSet<string> _shownPairings = new( StringComparer.Ordinal );
 
-	/// <summary>Stores the panel the last notification opens Loom on when clicked, or null for Loom as it is; on the icon's thread.</summary>
-	private string? _balloonPanel;
+	/// <summary>Stores the link the last notification opens Loom on when clicked, or null for Loom as it is; on the icon's thread.</summary>
+	private string? _balloonLink;
 
 	/// <summary>Stores the tooltip last shown; on the icon's thread.</summary>
 	private string _tip = "";
@@ -230,7 +230,7 @@ internal sealed unsafe class HostTray : IDisposable
 				Open( null );
 				return;
 			case BalloonClickEvent:
-				Open( _balloonPanel );
+				Open( _balloonLink );
 				return;
 			case ContextMenuEvent:
 				ShowMenu( window, (short)(wParam & 0xFFFF), (short)((wParam >> 16) & 0xFFFF) );
@@ -239,10 +239,10 @@ internal sealed unsafe class HostTray : IDisposable
 	}
 
 	/// <summary>Opens Loom, letting it take the foreground this click gave the daemon.</summary>
-	private void Open( string? panel )
+	private void Open( string? link )
 	{
 		AllowSetForegroundWindow( AnyProcess );
-		_actions.Open( panel );
+		_actions.Open( link );
 	}
 
 	/// <summary>Shows the latest status: adds, changes or removes the icon, and shows the notification when a chat starts waiting for the user or a
@@ -283,12 +283,12 @@ internal sealed unsafe class HostTray : IDisposable
 
 		if ( _isAdded && status.State == HostState.NeedsYou && previous != HostState.NeedsYou )
 		{
-			_balloonPanel = null;
+			_balloonLink = null;
 			ShowBalloon( window, HostTrayMenu.BalloonTitle, HostTrayMenu.BuildBalloon( status ) );
 		}
 		if ( _isAdded && HostTrayMenu.ShouldShowPairing( status, _shownPairings ) )
 		{
-			_balloonPanel = HostTrayMenu.RemoteAccessPanel;
+			_balloonLink = HostTrayMenu.RemoteAccessLink;
 			ShowBalloon( window, status.PairingBalloonTitle, status.PairingBalloon );
 		}
 	}
@@ -414,7 +414,7 @@ internal sealed unsafe class HostTray : IDisposable
 				Open( null );
 				break;
 			case HostTrayCommand.RemoteAccess:
-				Open( HostTrayMenu.RemoteAccessPanel );
+				Open( HostTrayMenu.RemoteAccessLink );
 				break;
 			case HostTrayCommand.StartAtLogin:
 				_actions.SetStartAtLogin( !items.First( item => item.Command == HostTrayCommand.StartAtLogin ).IsChecked );
