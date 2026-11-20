@@ -119,8 +119,20 @@ internal sealed record ShellProfile( string Name, string CommandLine )
 		return (file, [.. arguments]);
 	}
 
+	/// <summary>Finds PowerShell 7 on PATH or in its default install directory.</summary>
+	internal static string? FindPowerShell() =>
+		ToolLocator.Find( "pwsh.exe" ) ?? FindExisting( Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.ProgramFiles ), "PowerShell", "7", "pwsh.exe" ) );
+
+	/// <summary>Finds Windows PowerShell in the system directory.</summary>
+	internal static string? FindWindowsPowerShell() =>
+		FindExisting( Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.System ), "WindowsPowerShell", "v1.0", "powershell.exe" ) );
+
+	/// <summary>Finds the Command Prompt.</summary>
+	internal static string? FindCommandPrompt() =>
+		FindExisting( Environment.GetEnvironmentVariable( "ComSpec" ) ) ?? FindExisting( Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.System ), "cmd.exe" ) );
+
 	/// <summary>Finds Git for Windows' bash beside git on PATH or in the default install directory.</summary>
-	private static string? FindGitBash()
+	internal static string? FindGitBash()
 	{
 		if ( ToolLocator.Find( "git.exe" ) is { } git && Path.GetDirectoryName( Path.GetDirectoryName( git ) ) is { } root
 			&& FindExisting( Path.Combine( root, "bin", "bash.exe" ) ) is { } bash )
@@ -133,5 +145,5 @@ internal sealed record ShellProfile( string Name, string CommandLine )
 	private static string? FindExisting( string? path ) => path is { Length: > 0 } && File.Exists( path ) ? path : null;
 
 	/// <summary>Quotes a path that contains spaces.</summary>
-	private static string Quote( string path ) => path.Contains( ' ' ) ? $"\"{path}\"" : path;
+	internal static string Quote( string path ) => path.Contains( ' ' ) ? $"\"{path}\"" : path;
 }

@@ -69,4 +69,18 @@ public sealed class TerminalModule : ILoknModule, ITerminalLauncher
 		var app = _app ?? throw new InvalidOperationException( "The Terminal module has not started." );
 		app.Panels.Open( "terminal.shell", input: new ShellProfile( title, commandLine ), hostId: LoknHost.LocalId );
 	}
+
+	/// <summary>Reports whether the language names a shell family; Bash snippets fall back to PowerShell, so every family runs on Windows.</summary>
+	public bool CanRunSnippet( string language ) => ShellSnippet.FindKind( language ) is not null;
+
+	/// <summary>Opens a terminal on this PC beside the active panel that runs the snippet and stays open.</summary>
+	/// <remarks>The snippet's script and shell paths are this PC's, so it runs here whichever host is current, as <see cref="Run"/> does.</remarks>
+	public void RunSnippet( string code, string language )
+	{
+		var app = _app ?? throw new InvalidOperationException( "The Terminal module has not started." );
+		if ( ShellSnippet.Build( code, language ) is { } profile )
+			app.Panels.Open( "terminal.shell", input: profile, hostId: LoknHost.LocalId );
+		else
+			app.ReportError( "Terminal", new InvalidOperationException( $"No installed shell runs {language} code." ) );
+	}
 }

@@ -128,7 +128,7 @@ public static partial class MarkdownView
 				while ( index + count < blocks.Count && blocks[index + count].Kind == "list" )
 					count++;
 
-				child = BuildList( blocks.Skip( index ).Take( count ).ToArray(), fade, following, index );
+				child = BuildList( blocks.Skip( index ).Take( count ).ToArray(), openLink, fade, following, index );
 				index += count - 1;
 			}
 			else
@@ -191,10 +191,10 @@ public static partial class MarkdownView
 	private static Blob BuildBlock( MarkdownBlock block, Action<Uri> openLink, Func<int, double>? fade = null, int after = 0 )
 	{
 		if ( block.Kind == "code" )
-			return BuildCode( block.Text, block.Marker );
+			return BuildCode( block.Text, block.Marker, isRunnable: true );
 
 		if ( block.Kind == "table" )
-			return BuildTable( block.Text );
+			return BuildTable( block.Text, openLink );
 
 		if ( block.Kind == "rule" )
 		{
@@ -217,7 +217,7 @@ public static partial class MarkdownView
 			};
 		}
 
-		var text = BuildInlineText( block.Text, fade: fade, after: after );
+		var text = BuildInlineText( block.Text, openLink, fade: fade, after: after );
 		if ( block.Kind == "heading" )
 		{
 			var level = block.Marker.Length;
@@ -226,23 +226,7 @@ public static partial class MarkdownView
 			text.LineHeight = HeadingLineHeight;
 		}
 
-		var links = new List<Blob>();
-		foreach ( Match link in LinkPattern().Matches( block.Text ) )
-		{
-			var destination = link.Groups[2].Value;
-			if ( Uri.TryCreate( destination, UriKind.Absolute, out var uri ) && uri.Scheme is "https" or "http" )
-				links.Add( Theme.Current.BuildButton( "Open " + link.Groups[1].Value, () => openLink( uri ) ) );
-		}
-
-		if ( links.Count == 0 )
-			return text;
-
-		return new Container
-		{
-			Gap = Theme.Current.Spacing,
-			MinWidth = 0,
-			Children = [text, .. links],
-		};
+		return text;
 	}
 
 	/// <summary>Builds consecutive list items with a shared marker column and hanging, nested indentation.</summary>
@@ -250,7 +234,7 @@ public static partial class MarkdownView
 	/// <param name="fade">The tail opacity by following visible characters, or null at rest.</param>
 	/// <param name="following">Visible characters after each block of the enclosing document, or null at rest.</param>
 	/// <param name="first">The index of the first item in <paramref name="following"/>.</param>
-	private static Container BuildList( IReadOnlyList<MarkdownBlock> items, Func<int, double>? fade = null, int[]? following = null, int first = 0 )
+	private static Container BuildList( IReadOnlyList<MarkdownBlock> items, Action<Uri> openLink, Func<int, double>? fade = null, int[]? following = null, int first = 0 )
 	{
 		var markerWidth = Math.Max( MarkerWidth, (int)Math.Ceiling( items.Max( item => item.Marker.Length ) * CharacterEms * BodySize ) );
 		var rows = new List<Blob>();
@@ -266,7 +250,7 @@ public static partial class MarkdownView
 				Children =
 				[
 					BuildListMarker( item.Marker, markerWidth ),
-					BuildInlineText( item.Text, grow: true, fade: fade, after: following?[first + index] ?? 0 ),
+					BuildInlineText( item.Text, openLink, grow: true, fade: fade, after: following?[first + index] ?? 0 ),
 				],
 			} );
 		}
@@ -341,29 +325,37 @@ public static partial class MarkdownView
 		get; set;
 	}
 
+	/// <summary>Gets or sets the test of whether a fenced-code language runs as a shell snippet; the Markdown module sets it while it runs.</summary>
+	public static Func<string, bool>? CanRunCode
+	{
+		get; set;
+	}
+
+	/// <summary>Gets or sets the action that runs a shell snippet in a terminal beside the chat; the Markdown module sets it while it runs.</summary>
+	public static Action<string, string>? RunCode
+	{
+		get; set;
+	}
+
 	/// <summary>Builds a selectable code or diff block with a language badge, syntax colors and internal scrolling.</summary>
 	/// <param name="code">The code to show.</param>
 	/// <param name="language">The fenced-code or tool language; it picks the colors and labels the block.</param>
 	/// <param name="framed">Whether the block draws its own raised background and inset.</param>
 	/// <param name="showLanguage">Whether the language badge is shown; a tool head that already names it leaves it out.</param>
 	/// <param name="fadeLines">How many trailing lines fade out, marking a cut preview.</param>
-	public static Blob BuildCode( string code, string language = "", bool framed = true, bool showLanguage = true, int fadeLines = 0 )
+	/// <param name="isRunnable">Whether a shell snippet gets a Run button; written code blocks do, tool output does not.</param>
+	public static Blob BuildCode( string code, string language = "", bool framed = true, bool showLanguage = true, int fadeLines = 0, bool isRunnable = false )
 	{
 		var lines = code.Replace( "\r\n", "\n" ).Split( '\n' );
 		var children = new List<Blob>();
-		// The header holds the language and a Copy button, which copies every line, also those not shown.
+		// The header holds the language, a Run button for shell snippets, and a Copy button, which copies every line, also those not shown.
 		var header = new List<Blob>();
 		if ( showLanguage && language.Length > 0 && language != "text" )
 			header.Add( BuildBadge( language ) );
+		if ( isRunnable && RunCode is { } run && CanRunCode?.Invoke( language ) == true && code.Trim().Length > 0 )
+			header.Add( BuildCodeButton( "Run", "Run in terminal", () => run( code, language ) ) );
 		if ( CopyText is { } copy && code.Length > 0 )
-		{
-			var button = Theme.Current.BuildButton( "Copy", () => copy( code ) );
-			button.AccessibilityName = "Copy code";
-			button.Color = Theme.Current.Muted;
-			button.FontSize = CodeSize;
-			button.FlexShrink = 0;
-			header.Add( button );
-		}
+			header.Add( BuildCodeButton( "Copy", "Copy code", () => copy( code ) ) );
 		if ( header.Count > 0 )
 			children.Add( new Row { Key = "code-language", JustifyContent = JustifyContent.FlexEnd, AlignItems = AlignItems.Center, Gap = Theme.Current.Spacing, Children = header } );
 		var grammar = CodeHighlighter.Find( language );
@@ -401,6 +393,17 @@ public static partial class MarkdownView
 			BorderRadius = Theme.Current.Radius,
 			Children = children,
 		};
+	}
+
+	/// <summary>Builds one quiet button of a code block's header.</summary>
+	private static Blob BuildCodeButton( string label, string name, Action action )
+	{
+		var button = Theme.Current.BuildButton( label, action );
+		button.AccessibilityName = name;
+		button.Color = Theme.Current.Muted;
+		button.FontSize = CodeSize;
+		button.FlexShrink = 0;
+		return button;
 	}
 
 	/// <summary>Builds a checklist mark: an empty ring, or a filled disc with a check once done.</summary>
@@ -444,7 +447,7 @@ public static partial class MarkdownView
 	}
 
 	/// <summary>Builds a table whose columns share widths across rows and scroll when they cannot fit.</summary>
-	private static Blob BuildTable( string markdown )
+	private static Blob BuildTable( string markdown, Action<Uri> openLink )
 	{
 		var lines = markdown.Split( '\n' );
 		var alignments = SplitCells( lines[1] ).Select( ComputeAlignment ).ToArray();
@@ -476,7 +479,7 @@ public static partial class MarkdownView
 			var cells = new List<Blob>();
 			for ( var column = 0; column < columnCount; column++ )
 			{
-				var text = BuildInlineText( column < rows[index].Count ? rows[index][column] : "" );
+				var text = BuildInlineText( column < rows[index].Count ? rows[index][column] : "", openLink );
 				text.FontWeight = isHeader ? EmphasisWeight : RegularWeight;
 				text.LineHeight = CellLineHeight;
 				text.TextAlign = column < alignments.Length ? alignments[column] : TextAlign.Left;
@@ -496,14 +499,15 @@ public static partial class MarkdownView
 			} );
 		}
 
-		// A horizontal viewport lets the content-sized table shrink to fit, wrapping cells, and scroll only once
-		// every column reaches its minimum.
+		// A scrolling viewport lets the content-sized table shrink to fit, wrapping cells, and scroll sideways only once
+		// every column reaches its minimum; its height fits the table, so the wheel still scrolls the chat. It scrolls on
+		// both axes because Goo 0.31 never draws a horizontal-only viewport that scrolls into view inside a vertical one.
 		return new Row
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Table",
 			MinWidth = 0,
-			OverflowX = Overflow.Scroll,
+			Overflow = Overflow.Scroll,
 			AlignItems = AlignItems.FlexStart,
 			Children =
 			[
@@ -581,28 +585,70 @@ public static partial class MarkdownView
 		return cells;
 	}
 
-	/// <summary>Builds inline bold, italic, code, strike-through, and link-label spans in prose typography, fading its tail when <paramref name="fade"/> is given.</summary>
-	private static Text BuildInlineText( string text, bool grow = false, Func<int, double>? fade = null, int after = 0 ) => new( BuildInlineSpans( text, fade, after ) )
-	{
-		Selectable = true,
-		FontFamily = ViewStyle.FontFamily,
-		FontSize = BodySize,
-		LineHeight = BodyLineHeight,
-		Color = Theme.Current.Text,
-		MinWidth = 0,
-		FlexGrow = grow ? 1 : 0,
-	};
-
-	/// <summary>Builds inline spans; with a fade, characters split into runs of equal opacity by how many visible characters follow them.</summary>
-	private static TextSpan[] BuildInlineSpans( string text, Func<int, double>? fade, int after )
+	/// <summary>Builds inline bold, italic, code, strike-through and link spans in prose typography, fading its tail when <paramref name="fade"/> is given.</summary>
+	/// <remarks>A click on a link's text opens it; a drag that selects text does not.</remarks>
+	private static Text BuildInlineText( string text, Action<Uri>? openLink, bool grow = false, Func<int, double>? fade = null, int after = 0 )
 	{
 		var runs = ParseInlineRuns( text );
+		var view = new Text( BuildInlineSpans( text, runs, fade, after ) )
+		{
+			Selectable = true,
+			FontFamily = ViewStyle.FontFamily,
+			FontSize = BodySize,
+			LineHeight = BodyLineHeight,
+			Color = Theme.Current.Text,
+			MinWidth = 0,
+			FlexGrow = grow ? 1 : 0,
+		};
+		if ( openLink is null || !runs.Any( run => run.Link is not null ) )
+			return view;
+
+		// Each link's range in the shown text, which is the runs' text in order.
+		var links = new List<(int Start, int End, Uri Link)>();
+		var offset = 0;
+		foreach ( var run in runs )
+		{
+			if ( run.Link is { } link )
+				links.Add( (offset, offset + run.Text.Length, link) );
+			offset += run.Text.Length;
+		}
+
+		var handle = new ElementHandle();
+		Point? pressed = null;
+		view.Handle = handle;
+		view.OnPointerDown = e => pressed = e.Button == PointerButton.Primary ? e.WindowPosition : null;
+		view.OnPointerUp = e =>
+		{
+			if ( pressed is not { } start || e.Button != PointerButton.Primary )
+				return;
+
+			pressed = null;
+			var end = e.WindowPosition;
+			if ( Math.Abs( end.X - start.X ) > ClickSlop || Math.Abs( end.Y - start.Y ) > ClickSlop
+				|| !handle.TryGetTextPositionAt( end, TextCoordinateSpace.Window, out var position ) )
+				return;
+
+			foreach ( var (from, to, link) in links )
+			{
+				if ( position.Offset >= from && position.Offset < to )
+				{
+					openLink( link );
+					return;
+				}
+			}
+		};
+		return view;
+	}
+
+	/// <summary>Builds inline spans; with a fade, characters split into runs of equal opacity by how many visible characters follow them.</summary>
+	private static TextSpan[] BuildInlineSpans( string text, List<InlineRun> runs, Func<int, double>? fade, int after )
+	{
 		if ( fade is null || fade( after ) >= 1 )
 			return [.. runs.Select( run => new TextSpan( run.Text, BuildInlineStyle( run.Kind, 1 )! ) )];
 
 		var spans = new List<TextSpan>();
 		var remaining = runs.Sum( run => run.Text.Length );
-		foreach ( var (value, kind) in runs )
+		foreach ( var (value, kind, _) in runs )
 		{
 			if ( value.Length == 0 )
 				continue;
@@ -636,7 +682,7 @@ public static partial class MarkdownView
 	/// Each span is masked by one private-use character before emphasis is matched, so emphasis around code, such as <c>**`file.cs`**</c>,
 	/// and link labels with code keep their formatting instead of showing the backticks.
 	/// </remarks>
-	private static List<(string Text, InlineKind Kind)> ParseInlineRuns( string text )
+	private static List<InlineRun> ParseInlineRuns( string text )
 	{
 		var codes = new List<string>();
 		var masked = new StringBuilder( text.Length );
@@ -670,10 +716,10 @@ public static partial class MarkdownView
 			index = close + length;
 		}
 
-		var runs = new List<(string Text, InlineKind Kind)>();
-		AddEmphasisRuns( masked.ToString(), InlineKind.Plain, codes, runs );
+		var runs = new List<InlineRun>();
+		AddEmphasisRuns( masked.ToString(), InlineKind.Plain, null, codes, runs );
 		if ( runs.Count == 0 )
-			runs.Add( (text, InlineKind.Plain) );
+			runs.Add( new( text, InlineKind.Plain, null ) );
 		return runs;
 	}
 
@@ -694,14 +740,14 @@ public static partial class MarkdownView
 		return -1;
 	}
 
-	/// <summary>Adds the runs of masked text, matching emphasis and links and parsing their contents again with the outer emphasis added.</summary>
-	private static void AddEmphasisRuns( string text, InlineKind outer, List<string> codes, List<(string Text, InlineKind Kind)> runs )
+	/// <summary>Adds the runs of masked text, matching emphasis and links and parsing their contents again with the outer emphasis and link added.</summary>
+	private static void AddEmphasisRuns( string text, InlineKind outer, Uri? link, List<string> codes, List<InlineRun> runs )
 	{
 		var position = 0;
 		foreach ( Match match in InlinePattern().Matches( text ) )
 		{
 			if ( match.Index > position )
-				AddCodeRuns( text[position..match.Index], outer, codes, runs );
+				AddCodeRuns( text[position..match.Index], outer, link, codes, runs );
 			// Groups one through five capture the visible text of each alternative; a link's destination follows in six.
 			var group = 1;
 			while ( !match.Groups[group].Success )
@@ -713,15 +759,16 @@ public static partial class MarkdownView
 				4 => InlineKind.Italic,
 				_ => InlineKind.Link,
 			};
-			AddEmphasisRuns( match.Groups[group].Value, outer | kind, codes, runs );
+			var inner = kind == InlineKind.Link ? ParseWebLink( match.Groups[6].Value ) ?? link : link;
+			AddEmphasisRuns( match.Groups[group].Value, outer | kind, inner, codes, runs );
 			position = match.Index + match.Length;
 		}
 		if ( position < text.Length )
-			AddCodeRuns( text[position..], outer, codes, runs );
+			AddCodeRuns( text[position..], outer, link, codes, runs );
 	}
 
-	/// <summary>Adds text with its masked code spans restored as code runs.</summary>
-	private static void AddCodeRuns( string text, InlineKind kind, List<string> codes, List<(string Text, InlineKind Kind)> runs )
+	/// <summary>Adds text with its masked code spans restored as code runs, and bare web addresses outside a link as link runs.</summary>
+	private static void AddCodeRuns( string text, InlineKind kind, Uri? link, List<string> codes, List<InlineRun> runs )
 	{
 		var start = 0;
 		for ( var index = 0; index < text.Length; index++ )
@@ -730,13 +777,51 @@ public static partial class MarkdownView
 			if ( code < 0 || code >= codes.Count )
 				continue;
 			if ( index > start )
-				runs.Add( (text[start..index], kind) );
-			runs.Add( (codes[code], kind | InlineKind.Code) );
+				AddUrlRuns( text[start..index], kind, link, runs );
+			runs.Add( new( codes[code], kind | InlineKind.Code, link ?? ParseBareUrl( codes[code] ) ) );
 			start = index + 1;
 		}
 		if ( start < text.Length )
-			runs.Add( (text[start..], kind) );
+			AddUrlRuns( text[start..], kind, link, runs );
 	}
+
+	/// <summary>Adds plain text, splitting out each bare web address as a link run unless the text already belongs to a link.</summary>
+	private static void AddUrlRuns( string text, InlineKind kind, Uri? link, List<InlineRun> runs )
+	{
+		if ( link is not null )
+		{
+			runs.Add( new( text, kind, link ) );
+			return;
+		}
+
+		var position = 0;
+		foreach ( Match match in BareUrlPattern().Matches( text ) )
+		{
+			// Closing punctuation after an address ends the sentence, not the address.
+			var value = match.Value.TrimEnd( '.', ',', ';', ':', '!', '?', '\'', '"' );
+			if ( ParseWebLink( value ) is not { } uri )
+				continue;
+			if ( match.Index > position )
+				runs.Add( new( text[position..match.Index], kind, null ) );
+			runs.Add( new( value, kind | InlineKind.Link, uri ) );
+			position = match.Index + value.Length;
+		}
+		if ( position < text.Length )
+			runs.Add( new( text[position..], kind, null ) );
+	}
+
+	/// <summary>Reads a code span that is exactly one web address, such as <c>`https://example.com`</c>, or null.</summary>
+	private static Uri? ParseBareUrl( string code ) => BareUrlPattern().Match( code ) is { Success: true } match && match.Length == code.Length ? ParseWebLink( code ) : null;
+
+	/// <summary>Reads an absolute http or https address, the only links a click opens, or null.</summary>
+	private static Uri? ParseWebLink( string destination ) =>
+		Uri.TryCreate( destination.Trim(), UriKind.Absolute, out var uri ) && uri.Scheme is "https" or "http" ? uri : null;
+
+	/// <summary>Defines how far, in logical pixels, the pointer may move between press and release and still count as a click on a link.</summary>
+	private const double ClickSlop = 4;
+
+	/// <summary>Stores one run of visible inline text, its emphasis, and the web address it links to, if any.</summary>
+	private readonly record struct InlineRun( string Text, InlineKind Kind, Uri? Link );
 
 	/// <summary>Builds the style of one inline run at an opacity; plain text at full opacity needs none.</summary>
 	private static Style? BuildInlineStyle( InlineKind kind, double alpha )
@@ -968,9 +1053,9 @@ public static partial class MarkdownView
 	[GeneratedRegex( @"\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)" )]
 	private static partial Regex InlinePattern();
 
-	/// <summary>Matches explicit Markdown links for native open-link actions.</summary>
-	[GeneratedRegex( @"\[([^\]]+)\]\(([^)]+)\)" )]
-	private static partial Regex LinkPattern();
+	/// <summary>Matches a bare web address in prose; trailing sentence punctuation is trimmed after the match.</summary>
+	[GeneratedRegex( @"https?://[^\s<>()\[\]{}""'`]+" )]
+	private static partial Regex BareUrlPattern();
 }
 
 /// <summary>Stores one parsed Markdown block, its semantic prefix or language, and its list nesting depth.</summary>
