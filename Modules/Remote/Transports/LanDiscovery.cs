@@ -138,7 +138,7 @@ public sealed class LanDiscovery : IDisposable
 		using var socket = new UdpClient( AddressFamily.InterNetwork ) { EnableBroadcast = true };
 		socket.Client.Bind( new IPEndPoint( IPAddress.Any, 0 ) );
 		var bytes = Encoding.UTF8.GetBytes( query );
-		foreach ( var target in ListBroadcastAddresses() )
+		foreach ( var target in ListTargets() )
 		{
 			try
 			{
@@ -146,7 +146,7 @@ public sealed class LanDiscovery : IDisposable
 			}
 			catch ( SocketException )
 			{
-				// A network that refuses broadcasts is skipped.
+				// A network that refuses broadcasts, or an address that cannot be reached, is skipped.
 			}
 		}
 
@@ -202,8 +202,10 @@ public sealed class LanDiscovery : IDisposable
 		}
 	}
 
-	/// <summary>Lists the directed broadcast address of each up IPv4 network of this PC, and the limited broadcast address.</summary>
-	private static IEnumerable<IPAddress> ListBroadcastAddresses()
+	/// <summary>Lists where a query goes: the limited broadcast address, the directed broadcast address of each up IPv4 network of this PC, and, for a
+	/// network of at most <see cref="MaxSweep"/> addresses, each of its other addresses, since some Wi-Fi extenders and access points pass unicast but
+	/// drop broadcasts in one direction.</summary>
+	private static IEnumerable<IPAddress> ListTargets()
 	{
 		var targets = new List<IPAddress> { IPAddress.Broadcast };
 		foreach ( var network in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces() )
@@ -214,13 +216,31 @@ public sealed class LanDiscovery : IDisposable
 			{
 				if ( unicast.Address.AddressFamily != AddressFamily.InterNetwork || IPAddress.IsLoopback( unicast.Address ) || unicast.IPv4Mask is null )
 					continue;
-				var address = unicast.Address.GetAddressBytes();
-				var mask = unicast.IPv4Mask.GetAddressBytes();
-				for ( var index = 0; index < 4; index++ )
-					address[index] |= (byte)~mask[index];
-				targets.Add( new IPAddress( address ) );
+				var own = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian( unicast.Address.GetAddressBytes() );
+				var mask = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian( unicast.IPv4Mask.GetAddressBytes() );
+				var first = own & mask;
+				var last = first | ~mask;
+				targets.Add( ToAddress( last ) );
+				if ( last - first > MaxSweep )
+					continue;
+				for ( var address = first + 1; address < last; address++ )
+				{
+					if ( address != own )
+						targets.Add( ToAddress( address ) );
+				}
 			}
 		}
 		return targets.Distinct();
+	}
+
+	/// <summary>Defines the largest network whose addresses a query is also sent to one by one: a /22.</summary>
+	private const uint MaxSweep = 1024;
+
+	/// <summary>Builds an IPv4 address from its number.</summary>
+	private static IPAddress ToAddress( uint address )
+	{
+		var bytes = new byte[4];
+		System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian( bytes, address );
+		return new IPAddress( bytes );
 	}
 }

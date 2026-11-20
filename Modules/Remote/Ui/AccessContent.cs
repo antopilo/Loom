@@ -69,10 +69,12 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 		return new Container { Gap = theme.Spacing, Children = children };
 	}
 
-	/// <summary>Reads the daemon's status at once, then ticks every second for the pairing countdown and the status refresh, while the view shows.</summary>
+	/// <summary>Reads the daemon's status and searches for nearby PCs at once, then ticks every second for the pairing countdown and the status refresh,
+	/// while the view shows.</summary>
 	protected override void Mounted()
 	{
 		UpdateDaemonStatus();
+		SearchNearby();
 		Every( Tick, UpdateTick );
 	}
 

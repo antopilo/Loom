@@ -42,12 +42,10 @@ internal sealed partial class AccessContent
 			yield return blob;
 	}
 
-	/// <summary>Builds Nearby: the Loom PCs on this network not paired yet, each with Pair, or the code to compare while a request waits; searching first
-	/// when the page opens. A PC answers only while its Remote access is on.</summary>
+	/// <summary>Builds Nearby: the Loom PCs on this network not paired yet, each with Pair, or the code to compare while a request waits. The first
+	/// search starts when the page mounts. A PC answers only while its Remote access is on.</summary>
 	private IEnumerable<Blob> BuildNearby( Theme theme )
 	{
-		if ( _nearby is null && !_isSearching )
-			SearchNearby();
 		var local = _context.App.Hosts.Local.Name;
 		var found = (_nearby ?? []).Where( host => _module.FindLink( host.HostId ) is null && host.Name != local && host.Name != Environment.MachineName ).ToArray();
 		yield return BuildSection( "Nearby on this network", theme );
