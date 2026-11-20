@@ -100,7 +100,7 @@ internal sealed class PairingPrompts : IDisposable
 		if ( parts.Length == 2 && parts[1].Length > 0 && parts[0] is "allow" or "view" )
 			Answer( Uri.UnescapeDataString( parts[1] ), parts[0] == "allow" );
 		else if ( path == "devices" )
-			_app.Panels.Open( AccessContent.TypeId );
+			_app.OpenLink( LoknLinks.Create( Source, RemoteModule.RoleRoute ) );
 	}
 
 	/// <summary>Sends the user's answer for a waiting device with <c>admin.confirm</c>, once; the daemon's <c>admin.pairing.done</c> then dismisses it.</summary>

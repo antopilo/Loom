@@ -7,7 +7,7 @@ namespace Lokn.Modules.Remote;
 /// <summary>The one-button part of the Remote access panel: Connect a device moves This PC's chats to the daemon, starts it at sign-in, opens the
 /// network (Tailscale Funnel when Tailscale runs, so a phone needs nothing installed; else LAN, for Loom PCs) and shows a pairing code that grants
 /// control; while phones cannot reach this PC, a checklist of what is left; then the paired devices and the Advanced toggle.</summary>
-public sealed partial class AccessContent
+internal sealed partial class AccessContent
 {
 	/// <summary>Defines Tailscale's download page.</summary>
 	private const string TailscaleDownload = "https://tailscale.com/download";
@@ -169,8 +169,7 @@ public sealed partial class AccessContent
 		}
 	}
 
-	/// <summary>Builds the Advanced toggle and, while open, where This PC's chats run, the daemon's controls, network and view-only pairing, and the
-	/// paired hosts' names and browser lending.</summary>
+	/// <summary>Builds the Advanced toggle and, while open, the daemon's controls, network state and view-only pairing, and the paired hosts' names.</summary>
 	private IEnumerable<Blob> BuildAdvanced( Theme theme )
 	{
 		var isOpen = _isAdvanced;
@@ -184,8 +183,6 @@ public sealed partial class AccessContent
 		if ( !isOpen )
 			yield break;
 
-		foreach ( var blob in BuildRoles( theme ) )
-			yield return blob;
 		if ( _module.RunningRole == RemoteModule.DaemonRole )
 		{
 			foreach ( var blob in BuildDaemon( theme ) )

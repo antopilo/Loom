@@ -6,9 +6,9 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>The daemon part of the Remote access panel: its controls, network and view-only pairing in Advanced, the pairings waiting for an answer, and
+/// <summary>The daemon part of Remote access: its controls, network state and view-only pairing in Advanced, the pairings waiting for an answer, and
 /// the requests behind them.</summary>
-public sealed partial class AccessContent
+internal sealed partial class AccessContent
 {
 	/// <summary>Defines the drawn size of one QR module in logical pixels.</summary>
 	private const int QrModule = 4;
@@ -26,14 +26,14 @@ public sealed partial class AccessContent
 	internal const string ControlText = "Control: also send prompts, change the store, and use this PC's files, terminals, processes and windows (stream and input) as you. "
 		+ "Loom's own keys and device list stay off-limits, but a controlling device can run any program, so only allow devices you trust like this PC.";
 
-	/// <summary>Lists the network modes with their labels, explanations and whether they are still a preview.</summary>
-	private static readonly (string Mode, string Label, string Text, bool IsPreview)[] NetworkChoices =
+	/// <summary>Lists the network modes with their labels.</summary>
+	private static readonly (string Mode, string Label)[] NetworkChoices =
 	[
-		("off", "Off", "Only Loom on this PC reaches the daemon, over a private pipe. Devices already connected are disconnected.", false),
-		("lan", "LAN", "Devices on this network connect to this PC's addresses directly. Phones need Tailscale, the relay or Funnel for the web client.", true),
-		("tailscale", "Tailscale", "Devices on your tailnet connect; phones open the web client over Tailscale's HTTPS.", true),
-		("relay", "Relay", "Devices connect through a relay you run, which only passes encrypted bytes. The relay serves the web client's code, so use one you trust.", true),
-		("funnel", "Funnel", "Devices anywhere connect over Tailscale Funnel's public HTTPS address.", true),
+		("off", "Off"),
+		("lan", "LAN"),
+		("tailscale", "Tailscale"),
+		("relay", "Relay"),
+		("funnel", "Tailscale Funnel"),
 	];
 
 	/// <summary>Holds the QR's dark and light colors: scanners need dark modules on a light ground whatever the theme.</summary>
@@ -45,28 +45,19 @@ public sealed partial class AccessContent
 	/// <summary>Stores the daemon's last device list, or null before the first.</summary>
 	private JsonArray? _devices;
 
-	/// <summary>Stores the network mode being edited, or null to show the daemon's.</summary>
-	private string? _networkDraft;
-
-	/// <summary>Stores the port being edited, or null to show the daemon's.</summary>
-	private string? _portDraft;
-
-	/// <summary>Stores the relay address being edited, or null to show the daemon's.</summary>
-	private string? _relayDraft;
-
 	/// <summary>Stores the pairing offer shown, or null.</summary>
 	private Pairing? _pairing;
 
 	/// <summary>Stores whether a status refresh runs.</summary>
 	private bool _isRefreshing;
 
-	/// <summary>Stores whether the panel asks to confirm stopping the daemon.</summary>
+	/// <summary>Stores whether the view asks to confirm stopping the daemon.</summary>
 	private bool _isConfirmingStop;
 
 	/// <summary>Counts ticks, so the status refreshes every few.</summary>
 	private int _ticks;
 
-	/// <summary>Builds the daemon part of Advanced: its status, start and stop, a restart when it runs another build, sign-in, network and view-only
+	/// <summary>Builds the daemon part of Advanced: its status, start and stop, a restart when it runs another build, its network state and view-only
 	/// pairing; only its status and log while This PC's chats move.</summary>
 	private IEnumerable<Blob> BuildDaemon( Theme theme )
 	{
@@ -119,48 +110,20 @@ public sealed partial class AccessContent
 			yield return theme.BuildButton( "Restart daemon", () => _context.Run( client.RestartDaemon ) );
 		}
 
-		var isLoginItem = _context.App.Settings.Get( RemoteModule.LoginItem, SettingsScope.Global );
-		yield return BuildSwitch( "Start the daemon at sign-in", isLoginItem, true,
-			() => _context.App.Settings.Set( RemoteModule.LoginItem, SettingsScope.Global, !isLoginItem ) );
-		var isTrayShown = _context.App.Settings.Get( RemoteModule.Tray, SettingsScope.Global );
-		yield return BuildSwitch( "Show in the notification area", isTrayShown, true,
-			() => _context.App.Settings.Set( RemoteModule.Tray, SettingsScope.Global, !isTrayShown ) );
-
 		if ( client.Status != ClientState.Connected || _status is not { } status )
 			yield break;
 
 		yield return BuildParagraph( $"{Frame.ReadString( status, "hostName" )} · host id {Frame.ReadString( status, "hostId" )} · process {Frame.ReadLong( status, "pid" )}",
 			theme.Muted, selectable: true );
-		foreach ( var blob in BuildNetwork( client, status, theme ) )
+		foreach ( var blob in BuildNetwork( status, theme ) )
 			yield return blob;
 		foreach ( var blob in BuildPairing( client, theme ) )
 			yield return blob;
 	}
 
-	/// <summary>Builds the network editor: mode buttons with the chosen mode's explanation, the port, the relay address, Apply, and what the mode reaches.</summary>
-	private IEnumerable<Blob> BuildNetwork( RemoteClient client, JsonObject status, Theme theme )
+	/// <summary>Builds what the network mode, chosen in the Network access setting below, reaches: addresses, web address, relay and the last error.</summary>
+	private IEnumerable<Blob> BuildNetwork( JsonObject status, Theme theme )
 	{
-		var network = _networkDraft ?? Frame.ReadString( status, "network" ) ?? "off";
-		var port = _portDraft ?? (Frame.ReadLong( status, "port" ) ?? RemoteModule.Port.DefaultValue).ToString( CultureInfo.InvariantCulture );
-		var relay = _relayDraft ?? Frame.ReadString( status, "relayUrl" ) ?? "";
-		yield return BuildSection( "Network access", theme );
-		yield return new Row
-		{
-			Gap = theme.Spacing,
-			FlexWrap = FlexWrap.Wrap,
-			Children = [.. NetworkChoices.Select( choice => BuildChoice( "network:" + choice.Mode, choice.Label, choice.Mode == network, () =>
-			{
-				_networkDraft = choice.Mode;
-				_version.Value++;
-			}, choice.IsPreview ) )],
-		};
-		yield return BuildParagraph( NetworkChoices.Where( choice => choice.Mode == network ).Select( choice => choice.Text ).FirstOrDefault() ?? "", theme.Muted );
-		if ( network != "off" )
-			yield return BuildEntry( "port", "Port", port, "47390", text => _portDraft = text );
-		if ( network == "relay" )
-			yield return BuildEntry( "relay", "Relay", relay, "https://relay.example.com", text => _relayDraft = text );
-		yield return theme.BuildButton( "Apply", () => RunRequest( () => UpdateNetworkAsync( client, network, port, relay ) ), isEnabled: !_isBusy );
-
 		if ( Frame.ReadStrings( status, "addresses" ) is { Count: > 0 } addresses )
 			yield return BuildParagraph( "Devices reach this PC at " + string.Join( ", ", addresses ) + ".", theme.Muted, selectable: true );
 		if ( Frame.ReadString( status, "webUrl" ) is { } webUrl )
@@ -213,35 +176,6 @@ public sealed partial class AccessContent
 				],
 			};
 		}
-	}
-
-	/// <summary>Builds a toggle button among choices, the chosen one outlined in the accent color, with the Preview tag for a choice still in preview.</summary>
-	private Button BuildChoice( string key, string label, bool isChosen, Action choose, bool isPreview = false )
-	{
-		var theme = Theme.Current;
-		void Choose() => _context.Run( choose );
-		var text = new Text { Content = label, Color = isChosen ? theme.Accent : theme.Text, };
-		return new Button
-		{
-			Key = key,
-			Height = theme.ControlHeight,
-			Padding = new Edges( 0, theme.Spacing ),
-			FlexDirection = FlexDirection.Row,
-			AlignItems = AlignItems.Center,
-			JustifyContent = JustifyContent.Center,
-			Gap = theme.Spacing / 2,
-			BorderRadius = theme.Radius,
-			BorderWidth = theme.BorderWidth,
-			BorderColor = isChosen ? theme.Accent : theme.Border,
-			Focusable = true,
-			Cursor = Cursor.Pointer,
-			AccessibilityName = $"{label}{(isChosen ? ", chosen" : "")}",
-			OnClick = Choose,
-			KeyBindings = [new( Key.Enter, KeyModifiers.None, Choose ), new( Key.Space, KeyModifiers.None, Choose )],
-			HoverStyle = new Style { BackgroundColor = theme.Hover, },
-			FocusStyle = new Style { BackgroundColor = theme.Hover, },
-			Children = isPreview ? [text, BuildPreviewTag( theme )] : [text],
-		};
 	}
 
 	/// <summary>Draws a QR code as one path of dark runs on a light square with the quiet zone.</summary>
@@ -352,28 +286,6 @@ public sealed partial class AccessContent
 				return;
 			}
 			_version.Value++;
-		} );
-	}
-
-	/// <summary>Sends <c>admin.network</c> and shows the daemon's new status, with what failed when the mode did not fully start.</summary>
-	private async Task UpdateNetworkAsync( RemoteClient client, string network, string port, string relay )
-	{
-		if ( !int.TryParse( port, NumberStyles.None, CultureInfo.InvariantCulture, out var number ) || number is < 1 or > 65535 )
-			throw new ArgumentException( "The port must be a number from 1 to 65535." );
-
-		var frame = Frame.Create( "admin.network" );
-		frame["network"] = network;
-		frame["port"] = number;
-		frame["relayUrl"] = relay.Trim();
-		var status = await client.RequestAsync( frame, _context.Lifetime ).ConfigureAwait( false );
-		var error = Frame.ReadString( status, "error" );
-		_context.Post( () =>
-		{
-			_status = status;
-			_networkDraft = null;
-			_portDraft = null;
-			_relayDraft = null;
-			ShowMessage( error is null ? "The daemon listens with the new settings." : "The daemon applied the settings, but: " + error, error is not null );
 		} );
 	}
 

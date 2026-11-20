@@ -20,7 +20,7 @@ internal static class HostTrayChecks
 		CheckStatus();
 		Console.WriteLine( "PASS host tray status: working, waiting, devices and errors give the running, needs-you and error states, their activity line and tooltip, pending pairings name the newest device, and an equal status publishes nothing." );
 		CheckMenu();
-		Console.WriteLine( "PASS host tray menu: Open Loom, the activity and connection lines, the error, the pairings waiting for an answer, Remote access, Start at login from the Run value only where allowed, and Stop daemon after a separator; the pairing notification shows once per device and only while Loom is not connected; --open-panel is read from launch arguments." );
+		Console.WriteLine( "PASS host tray menu: Open Loom, the activity and connection lines, the error, the pairings waiting for an answer, Remote access, Start at login from the Run value only where allowed, and Stop daemon after a separator; the pairing notification shows once per device and only while Loom is not connected; --open-link is read from launch arguments." );
 		if ( OperatingSystem.IsWindows() )
 		{
 			CheckIcon();
@@ -112,9 +112,9 @@ internal static class HostTrayChecks
 			&& !HostTrayMenu.ShouldShowPairing( null, shown ) && !HostTrayMenu.ShouldShowPairing( new HostStatus( 0, 0, 0, false, null ), shown ),
 			"A device first seen while Loom is connected is never announced, not even after Loom leaves, and no pending device announces nothing." );
 
-		CoreChecks.Check( AttentionNotifier.ReadPanelType( ["--bare", @"C:\demo", AttentionNotifier.OpenPanelArgument, HostTrayMenu.RemoteAccessPanel] ) == "remote.access"
-			&& AttentionNotifier.ReadPanelType( ["--bare", @"C:\demo"] ) is null && AttentionNotifier.ReadPanelType( [AttentionNotifier.OpenPanelArgument] ) is null,
-			"A launch asks for a panel with --open-panel and its type; without one it asks for none." );
+		CoreChecks.Check( AttentionNotifier.ReadLink( ["--bare", @"C:\demo", AttentionNotifier.OpenLinkArgument, HostTrayMenu.RemoteAccessLink] ) == "lokn://remote/role"
+			&& AttentionNotifier.ReadLink( ["--bare", @"C:\demo"] ) is null && AttentionNotifier.ReadLink( [AttentionNotifier.OpenLinkArgument] ) is null,
+			"A launch asks for a link with --open-link and the link; without one it asks for none." );
 	}
 
 	/// <summary>Checks that the icon has the requested size, the state's dot colour at the dot's centre, and Loom's icon away from the dot.</summary>

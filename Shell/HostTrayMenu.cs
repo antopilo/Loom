@@ -39,8 +39,8 @@ internal sealed record HostTrayItem( HostTrayCommand Command, string Text, bool 
 /// <remarks>Pure functions of a <see cref="HostStatus"/>, so the checks cover them without a desktop; <c>HostTray</c> shows them.</remarks>
 internal static class HostTrayMenu
 {
-	/// <summary>Defines the panel type <see cref="HostTrayCommand.RemoteAccess"/> opens Loom on.</summary>
-	internal const string RemoteAccessPanel = "remote.access";
+	/// <summary>Defines the link <see cref="HostTrayCommand.RemoteAccess"/> opens Loom on: Remote access in Settings.</summary>
+	internal const string RemoteAccessLink = "lokn://remote/role";
 
 	/// <summary>Defines the notification's title when a chat starts waiting for the user.</summary>
 	internal const string BalloonTitle = "An agent needs you";

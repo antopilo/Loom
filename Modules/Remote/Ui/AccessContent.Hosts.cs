@@ -3,11 +3,11 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>The hosts part of the Remote access panel: every paired host with its state, Reconnect and Remove, and the field that adds one from its
-/// pairing link; in Advanced, their names and the switch that lends this PC's browser to their agents.</summary>
-public sealed partial class AccessContent
+/// <summary>The hosts part of Remote access: every paired host with its state, Reconnect and Remove, and the field that adds one from its pairing link;
+/// in Advanced, their names.</summary>
+internal sealed partial class AccessContent
 {
-	/// <summary>Stores whether the pairing link field takes focus when it first shows, as the <see cref="AddHostInput"/> input asks.</summary>
+	/// <summary>Stores whether the pairing link field takes focus when it next shows, as an <see cref="AddHostRequest"/> asks.</summary>
 	private bool _isAddFocused;
 
 	/// <summary>Stores the pairing link pasted in the Add host form.</summary>
@@ -65,14 +65,14 @@ public sealed partial class AccessContent
 		};
 	}
 
-	/// <summary>Builds the hosts part of Advanced: the lend-browser switch and each paired host's name, what it allows, build and id.</summary>
+	/// <summary>Builds the hosts part of Advanced: each paired host's name, what it allows, build and id.</summary>
 	private IEnumerable<Blob> BuildHostSettings( Theme theme )
 	{
+		if ( _module.Links is not { Count: > 0 } links )
+			yield break;
+
 		yield return BuildSection( "PCs you connect to", theme );
-		var isLending = _context.App.Settings.Get( RemoteModule.LendBrowser, SettingsScope.Global );
-		yield return BuildSwitch( RemoteModule.LendBrowser.Title, isLending, true,
-			() => _context.App.Settings.Set( RemoteModule.LendBrowser, SettingsScope.Global, !isLending ) );
-		foreach ( var link in _module.Links )
+		foreach ( var link in links )
 		{
 			var hostId = link.Host.Id;
 			var name = link.Host.Name;

@@ -3,7 +3,8 @@ using Lokn.Core;
 
 namespace Lokn;
 
-/// <summary>Registers the shell's essential window commands and the Settings panel, whose Modules tab turns modules on and off.</summary>
+/// <summary>Registers the shell's essential window commands and the Settings panel, whose Modules tab turns modules on and off, and the
+/// <c>lokn://shell/settings/&lt;setting id&gt;</c> link that opens Settings at a setting, so modules show their settings without referencing the shell.</summary>
 internal sealed class ShellModule : ILoknModule
 {
 	/// <summary>Gets the stable shell module identifier.</summary>
@@ -15,6 +16,8 @@ internal sealed class ShellModule : ILoknModule
 	/// <summary>Keeps the shell commands available for the application lifetime.</summary>
 	public bool CanUnload => false;
 
+	/// <summary>Defines the route of <c>lokn://shell/settings/&lt;setting id&gt;</c>, which opens Settings at that setting.</summary>
+	internal const string SettingsRoute = "settings";
 
 	/// <summary>Registers shell commands, panels and settings.</summary>
 	public void Register( ModuleBuilder builder )
@@ -34,6 +37,13 @@ internal sealed class ShellModule : ILoknModule
 			.Setting( DataBackups.Backups )
 			.PanelOnly( "settings", "Settings", context => new SettingsContent( context ) )
 			.Command( "open.settings", "Open Settings", context => OpenSettings( context.App ) )
+			.Route( SettingsRoute, request =>
+			{
+				if ( request.App.Settings.Definitions.FirstOrDefault( item => item.Id == Uri.UnescapeDataString( request.Path ) ) is { } setting )
+					ShowSetting( request.App, setting );
+				else
+					OpenSettings( request.App );
+			} )
 			.Command( "split-right", "Shell: split right", context => context.App.Panels.SplitActive( SplitAxis.Horizontal ),
 				new( Key.BackSlash, KeyModifiers.Primary ) )
 			.Command( "split-down", "Shell: split down", context => context.App.Panels.SplitActive( SplitAxis.Vertical ),
@@ -62,6 +72,13 @@ internal sealed class ShellModule : ILoknModule
 			app.Panels.Activate( settings.Id );
 		else
 			app.Panels.Open( "shell.settings" );
+	}
+
+	/// <summary>Opens Settings on the tab holding a setting, highlighted and scrolled into view.</summary>
+	internal static void ShowSetting( LoknApplication app, SettingDefinition setting )
+	{
+		OpenSettings( app );
+		app.Panels.FindContent<SettingsContent>()?.Content.ShowSetting( setting );
 	}
 }
 

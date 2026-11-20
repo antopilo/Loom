@@ -33,7 +33,7 @@ public sealed class RemoteStatusContent( PanelContext context, RemoteModule modu
 			ClientState.Stopped => "stopped",
 			_ => "connecting",
 		};
-		void Open() => context.Run( () => context.App.Panels.Open( AccessContent.TypeId ) );
+		void Open() => context.Run( () => context.App.OpenLink( LoknLinks.Create( "remote", RemoteModule.RoleRoute ) ) );
 		var button = new Button
 		{
 			FlexDirection = FlexDirection.Row,

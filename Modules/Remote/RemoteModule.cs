@@ -77,6 +77,15 @@ public sealed class RemoteModule : ILoknModule
 		"remote.lend-browser", "Let agents on paired hosts use this PC's browser", "While Loom here is linked with a paired host, the host's agents may open, read and use pages in this PC's Browser panels.",
 		true, "Remote" );
 
+	/// <summary>Defines the Settings entry that shows Remote access: Connect a device, the devices, the hosts and Advanced; its value is never set,
+	/// only its editor is used. Its category sorts first in the Remote tab, above the plain remote settings.</summary>
+	internal static readonly Setting<string> Access = new(
+		"remote.access", "Remote access", "Use this PC's chats from your phone or another PC, and the chats of other PCs here.",
+		"", "Connect" )
+	{
+		Editor = ( app, scope ) => Cell.Mount<RemoteModule, AccessContent>( "remote-access", app.GetModule<RemoteModule>() ),
+	};
+
 	/// <summary>Defines the route of the pairing notification's answers, <c>lokn://remote/pairing/allow/&lt;deviceId&gt;</c> and <c>…/view/…</c>.</summary>
 	internal const string PairingRoute = "pairing";
 
@@ -95,6 +104,9 @@ public sealed class RemoteModule : ILoknModule
 
 	/// <summary>Holds the link of every paired host, in the order they were added.</summary>
 	private readonly List<RemoteClient> _links = [];
+
+	/// <summary>Holds what Remote access does once it shows, or empty (<see cref="OpenAccess"/>).</summary>
+	private readonly State<string> _accessRequest = new( "" );
 
 	/// <summary>Counts changes of <see cref="_links"/>, so views reading <see cref="Links"/> rebuild.</summary>
 	private readonly State<int> _version = new( 0 );
@@ -241,7 +253,7 @@ public sealed class RemoteModule : ILoknModule
 			.Setting( Tray )
 			.Setting( LendBrowser )
 			.Service<IHostLoginItem>( new HostLoginItem( this ) )
-			.Panel( AccessContent.PanelId, AccessContent.Title, context => new AccessContent( context, this ), "\uE968" )
+			.Setting( Access )
 			.Slot( ShellSlots.StatusRight, 0, context => new RemoteStatusContent( context, this ) )
 			.Route( PairingRoute, request => Prompts?.AnswerLink( request.Path ) )
 			.Route( ReconnectRoute, request => ReconnectHost( Uri.UnescapeDataString( request.Path ) ) )
@@ -371,6 +383,28 @@ public sealed class RemoteModule : ILoknModule
 	{
 		Notice = null;
 		_roleVersion.Value++;
+	}
+
+	/// <summary>Gets what Remote access should do once it shows: <see cref="AccessContent.AddHostRequest"/>, a pairing link to pair with, or empty;
+	/// reading it rebuilds the reader when it changes.</summary>
+	internal string AccessRequest => _accessRequest.Value;
+
+	/// <summary>Opens Settings at Remote access, which then focuses the pairing link field for <see cref="AccessContent.AddHostRequest"/> or pairs with a
+	/// <c>loom://pair#…</c> link.</summary>
+	/// <param name="app">The application.</param>
+	/// <param name="request">What Remote access does once it shows, or empty.</param>
+	internal void OpenAccess( LoknApplication app, string request = "" )
+	{
+		_accessRequest.Value = request;
+		app.OpenLink( LoknLinks.Create( "shell", "settings", Access.Id ) );
+	}
+
+	/// <summary>Takes the request <see cref="OpenAccess"/> left, so it runs once.</summary>
+	internal string TakeAccessRequest()
+	{
+		var request = _accessRequest.Value;
+		_accessRequest.Value = "";
+		return request;
 	}
 
 	/// <summary>Finds the link of a paired host, or null.</summary>
@@ -801,13 +835,13 @@ public sealed class RemoteModule : ILoknModule
 	private bool IsDaemonRunning() => UsesDaemonControl ? DaemonControl.IsRunning : Daemon?.Status == ClientState.Connected;
 
 	/// <summary>Follows <c>lokn://remote/role/…</c>: <c>daemon</c> or <c>local</c> chooses where This PC's chats run, which moves them as the setting does;
-	/// any other path opens Remote access.</summary>
-	private static void OpenRoleLink( RouteRequest request )
+	/// <c>add-host</c> opens Remote access at the pairing link field, and any other path opens Remote access.</summary>
+	private void OpenRoleLink( RouteRequest request )
 	{
 		if ( request.Path is LocalRole or DaemonRole )
 			request.App.Settings.Set( Role, SettingsScope.Global, request.Path );
 		else
-			request.App.Panels.Open( AccessContent.TypeId );
+			OpenAccess( request.App, request.Path == AccessContent.AddHostRequest ? AccessContent.AddHostRequest : "" );
 	}
 
 	/// <summary>Writes the sign-in entry now and whenever the settings change, in Loom and in the daemon alike; checks never touch the user's Run key.</summary>

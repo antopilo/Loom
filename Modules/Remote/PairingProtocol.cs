@@ -43,7 +43,7 @@ internal static class PairingProtocol
 		if ( !string.Equals( request.Uri.Scheme, Scheme, StringComparison.OrdinalIgnoreCase ) || PairingLink.TryParse( text ) is null )
 			return false;
 
-		request.App.Panels.Open( AccessContent.TypeId, input: text );
+		request.App.GetModule<RemoteModule>().OpenAccess( request.App, text );
 		return true;
 	}
 }
