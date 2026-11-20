@@ -102,6 +102,9 @@ public sealed class HostGateway
 	/// <summary>Stores the pipe listener, or null.</summary>
 	private IAsyncDisposable? _pipe;
 
+	/// <summary>Stores what answers discovery queries for this host on the LAN, or null when its port was taken.</summary>
+	private LanDiscovery? _discovery;
+
 	/// <summary>Stores the running network listeners and what they reach; replaced with <see cref="Interlocked"/>.</summary>
 	private NetworkState _network = NetworkState.Off;
 
@@ -231,6 +234,8 @@ public sealed class HostGateway
 			pipe.Start();
 			_pipe = pipe;
 		}
+		var discovery = new LanDiscovery( Keys.HostId, () => [.. ListLan( Network )] );
+		_discovery = discovery.Start() ? discovery : null;
 
 		RequestNetwork( new( settings.Network, settings.Port, settings.RelayUrl ), isForced: true );
 	}
@@ -245,6 +250,8 @@ public sealed class HostGateway
 		Devices.Added -= FollowAdded;
 		Offers.Used -= ForgetOffer;
 		_app.Settings.Changed -= FollowSettings;
+		_discovery?.Dispose();
+		_discovery = null;
 		NetworkChange.NetworkAddressChanged -= MarkAddressesChanged;
 		_retry.Dispose();
 		_addressQuiet.Dispose();
@@ -553,6 +560,12 @@ public sealed class HostGateway
 				state = state with { Error = state.Error is null ? cleanup : state.Error + " " + cleanup };
 			Volatile.Write( ref _network, state );
 			_post( () => Changed?.Invoke() );
+			// Devices still connected learn the new addresses at once, so they can come back after the next change too.
+			if ( !state.Addresses.SequenceEqual( previous.Addresses ) )
+			{
+				foreach ( var connection in Connections.Where( connection => connection.DeviceId != LocalDevice ) )
+					_ = PushAsync( connection, new JsonObject { ["t"] = "host.addrs", ["addrs"] = Frame.BuildStrings( state.Addresses ) } );
+			}
 			if ( state.Relay is { } relay )
 				UpdateRelayStatus( relay, relay.Status );
 

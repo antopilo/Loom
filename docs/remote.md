@@ -754,6 +754,15 @@ socket stayed up 30 s), and hands each data socket to the host's accept path, wh
 secure channel as for a direct WebSocket. Relay sockets ping every 20 s and count the relay
 gone after 20 s without a pong. `RelayDialer.ConnectAsync` opens the device's socket.
 
+## Discovery
+
+Every mode except `off` also listens on the host's LAN addresses and lists them first, so a Loom PC on the same
+network connects directly. A paired PC keeps up to 8 host addresses, the newest reported first (`sync.addrs`, and
+the `host.addrs { addrs }` push the host sends to connected devices when its addresses change). When none answers,
+the client broadcasts `loom-find:<hostId>` over UDP to port 47391 on each IPv4 network, and the host with that id
+answers `{ hostId, addrs }` with its LAN addresses; the client dials those, then the relay. A private address gets
+2 s before the next one. Discovery reveals only addresses: every dial still checks the host's key.
+
 ## Tailscale and Funnel
 
 Network modes `tailscale` and `funnel` run `tailscale.exe` (`%ProgramFiles%\Tailscale` or PATH).

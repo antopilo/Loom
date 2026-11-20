@@ -457,6 +457,7 @@ public sealed class RemoteClient
 				peer.OnPush( type, frame => _post( () => ApplyAdminPush( frame ) ) );
 		}
 		// Loom on this PC runs the daemon's tool calls; a paired PC runs only its browser tools, which act on its own windows' views of the session's tabs.
+		peer.OnPush( "host.addrs", frame => _post( () => ApplyAddressPush( frame ) ) );
 		peer.OnPush( "tool.call", frame => _post( () => _ = RunToolAsync( peer, frame ) ) )
 			.OnPush( "tool.cancel", frame => _post( () => CancelTool( frame ) ) );
 		var stream = Kind == HostLinkKind.Paired ? new RemoteStreamSource( peer, carrier.Scopes.Contains( DeviceScopes.Control ) ) : null;
@@ -573,11 +574,15 @@ public sealed class RemoteClient
 		(previous as RemoteWorkspaceHost)?.Dispose();
 	}
 
-	/// <summary>Saves what the paired host reported as it connected: the addresses it listens on now, so the next dial reaches it after its address changed
-	/// without pairing again, and its name, which then shows while it is offline.</summary>
+	/// <summary>Saves what the paired host reported as it connected or when its network changed: the addresses it listens on now, first, then the ones
+	/// known before, so the next dial reaches it after its addresses changed without pairing again; and its name, which then shows while it is offline.</summary>
+	/// <remarks>Earlier addresses stay after the reported ones, up to <see cref="MaxAddresses"/>, since a host that switched modes, such as from the LAN to
+	/// Funnel, closes the connection before a device could learn the new addresses, and may switch back.</remarks>
 	private void UpdatePairedReport( PairedHost paired, IReadOnlyList<string>? addresses, string hostName )
 	{
-		var addrs = addresses is { Count: > 0 } ? addresses : paired.Addrs;
+		IReadOnlyList<string> addrs = addresses is { Count: > 0 }
+			? [.. addresses.Concat( paired.Addrs ).Distinct( StringComparer.Ordinal ).Take( MaxAddresses )]
+			: paired.Addrs;
 		var name = hostName.Length > 0 ? hostName : paired.HostName;
 		if ( paired.Addrs.SequenceEqual( addrs, StringComparer.Ordinal ) && paired.HostName == name )
 			return;
@@ -591,6 +596,16 @@ public sealed class RemoteClient
 		{
 			_app.ReportError( "Remote", exception );
 		}
+	}
+
+	/// <summary>Defines how many host addresses a paired PC keeps, the newest reported first.</summary>
+	private const int MaxAddresses = 8;
+
+	/// <summary>Follows <c>host.addrs</c>, which the host pushes when its addresses change while this PC stays connected.</summary>
+	private void ApplyAddressPush( JsonObject frame )
+	{
+		if ( _paired is { } paired )
+			UpdatePairedReport( paired, Frame.ReadStrings( frame, "addrs" ), HostName );
 	}
 
 	/// <summary>Raises <see cref="AdminPushed"/> for an <c>admin.*</c> push of the daemon link.</summary>

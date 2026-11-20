@@ -12,6 +12,9 @@ internal static class HostPairing
 	/// public address or relay after it should not wait long.</summary>
 	private static readonly TimeSpan PrivateDialTimeout = TimeSpan.FromSeconds( 2 );
 
+	/// <summary>Defines how long a dial waits for hosts on this network to answer a discovery query.</summary>
+	private static readonly TimeSpan DiscoveryTimeout = TimeSpan.FromSeconds( 1.5 );
+
 	/// <summary>Gets the device key file in a data folder, which this PC pairs and connects with.</summary>
 	internal static string ComputeDeviceKeyPath( string dataFolder ) => Path.Combine( dataFolder, "device-key.pem" );
 
@@ -48,19 +51,33 @@ internal static class HostPairing
 	public static async Task<(T Result, string? Address)> DialEachAsync<T>( IReadOnlyList<string> addrs, string? relay, string hostId, Func<MessageConnection, CancellationToken, Task<T>> run, CancellationToken cancellationToken )
 	{
 		var failures = new List<string>();
-		foreach ( var addr in addrs )
+		async Task<(bool IsDone, T Result)> TryAsync( string addr )
 		{
 			using var timeout = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken );
 			timeout.CancelAfter( IsPrivate( addr ) ? PrivateDialTimeout : DialTimeout );
 			try
 			{
 				var carrier = await WebSocketDialer.ConnectAsync( WebSocketDialer.BuildHostUri( addr, RemoteModule.Port.DefaultValue ), timeout.Token ).ConfigureAwait( false );
-				return (await run( carrier, timeout.Token ).ConfigureAwait( false ), addr);
+				return (true, await run( carrier, timeout.Token ).ConfigureAwait( false ));
 			}
 			catch ( Exception exception ) when ( exception is WebSocketException or IOException or OperationCanceledException or UriFormatException && !cancellationToken.IsCancellationRequested )
 			{
 				failures.Add( $"{addr}: {exception.Message}" );
+				return (false, default!);
 			}
+		}
+
+		foreach ( var addr in addrs )
+		{
+			if ( await TryAsync( addr ).ConfigureAwait( false ) is (true, var result) )
+				return (result, addr);
+		}
+
+		// None of the saved addresses answered: the host may be on this network at a new address, which it gives when asked by its id.
+		foreach ( var addr in (await LanDiscovery.FindAsync( hostId, DiscoveryTimeout, cancellationToken ).ConfigureAwait( false )).Except( addrs, StringComparer.Ordinal ) )
+		{
+			if ( await TryAsync( addr ).ConfigureAwait( false ) is (true, var result) )
+				return (result, addr);
 		}
 
 		if ( relay is { Length: > 0 } )

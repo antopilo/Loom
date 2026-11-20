@@ -156,6 +156,7 @@ internal static class RemoteRelayChecks
 	{
 		CheckRelayUris();
 		CheckTailscaleParsing();
+		await CheckDiscoveryAsync();
 		var folder = Path.Combine( Path.GetTempPath(), "lokn-relay-" + Guid.NewGuid().ToString( "N" ) );
 		Directory.CreateDirectory( folder );
 		try
@@ -167,6 +168,24 @@ internal static class RemoteRelayChecks
 		{
 			Directory.Delete( folder, true );
 		}
+	}
+
+	/// <summary>Checks that a discovery query finds a host on this PC by its id with the addresses it gives, and that another id finds nothing.</summary>
+	private static async Task CheckDiscoveryAsync()
+	{
+		CoreChecks.Check( LanDiscovery.ReadAnswer( LanDiscovery.BuildAnswer( "a", ["10.0.0.2:47390"] ), "b" ).Count == 0
+			&& LanDiscovery.ReadAnswer( "not json"u8, "a" ).Count == 0, "An answer for another host, or a datagram that is no answer, gives no address." );
+		var hostId = Guid.NewGuid().ToString( "N" );
+		using var host = new LanDiscovery( hostId, () => ["192.168.50.7:47390"] );
+		if ( !host.Start() )
+		{
+			Console.WriteLine( "SKIP LAN discovery round trip: another program holds the discovery port." );
+			return;
+		}
+		var found = await LanDiscovery.FindAsync( hostId, TimeSpan.FromSeconds( 1.5 ), CancellationToken.None );
+		CoreChecks.Check( found.SequenceEqual( ["192.168.50.7:47390"] ), $"A broadcast query finds the host by its id with its addresses ({string.Join( ", ", found )})." );
+		var other = await LanDiscovery.FindAsync( Guid.NewGuid().ToString( "N" ), TimeSpan.FromSeconds( 0.5 ), CancellationToken.None );
+		CoreChecks.Check( other.Count == 0, "A query for another host id gets no answer." );
 	}
 
 	/// <summary>Checks that relay addresses in every accepted form become WebSocket endpoints.</summary>
