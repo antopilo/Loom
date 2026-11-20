@@ -184,9 +184,8 @@ internal static class SearchChecks
 		var setting = app.Search.Search( ShellSettings.ShowStatusBar.Title, "settings" )[0].Hits[0];
 		CoreChecks.Check( setting.Item.Detail == ShellSettings.ShowStatusBar.Category, "Settings list each setting with its category." );
 		app.Search.Run( setting );
-		var settings = app.Panels.Panels.SingleOrDefault( panel => panel.TypeId == "shell.settings" );
-		CoreChecks.Check( settings is not null && app.Panels.ActivePanelId == settings.Id, "Running a setting opens Settings." );
-		CoreChecks.Check( app.Search.Search( "settings", "panels" ) is [{ Hits: [{ Item.Title: "Settings" }, ..] }], "Panels list the open panels." );
+		CoreChecks.Check( app.Popups.Windows.Any( window => window.TypeId == "shell.settings" ), "Running a setting opens Settings in its popup window." );
+		CoreChecks.Check( app.Search.Search( "status bar", "settings" ) is [{ Hits: [_, ..] }], "Settings stay searchable while Settings is open." );
 
 		var task = workspaces.NewTask( app, WorkspacesModule.HomeSession, WorkspacesModule.HomeTitle, app.Panels.HideAll );
 		workspaces.RenameTask( WorkspacesModule.HomeSession, task, "Fix the build" );
@@ -194,8 +193,9 @@ internal static class SearchChecks
 		projects.OpenProject( app, project );
 		var projectTask = workspaces.CurrentTask;
 		workspaces.RenameTask( ProjectsModule.SessionKey( project.Id ), projectTask, "Bindless meshlets" );
-		CoreChecks.Check( app.Search.ComputeTypes().Select( type => type.Id ).ToArray() is ["tasks", "projects", "panels", "actions", "settings"],
-			"Without Conversations the tabs are Tasks, Projects, Panels, Actions and Settings." );
+		// Settings opens in a popup window now, so no panel is open here and Panels may be left out.
+		CoreChecks.Check( app.Search.ComputeTypes().Select( type => type.Id ).Where( id => id != "panels" ).ToArray() is ["tasks", "projects", "actions", "settings"],
+			"Without Conversations the tabs are Tasks, Projects, Actions and Settings, with Panels while a panel is open." );
 		var tasks = app.Search.Search( "", "tasks" )[0].Hits;
 		CoreChecks.Check( tasks.Any( hit => hit.Item is { Title: "Fix the build", Detail: null } ) && tasks.Any( hit => hit.Item is { Title: "Bindless meshlets", Detail: "Ferrite" } ),
 			"Tasks lists the tasks outside projects and each project's tasks with the project's name." );
@@ -208,8 +208,8 @@ internal static class SearchChecks
 		var conversations = new ConversationsModule( store, ( _, _, _ ) => new FixtureContent() ) { Dependencies = ["workspaces", "projects"] };
 		CoreChecks.Check( app.Load( conversations ), "Conversations loads." );
 		var chat = store.CreateConversation( profile, project.Id, "Meshlet renderer" );
-		var types = app.Search.ComputeTypes().Select( type => type.Id ).ToArray();
-		CoreChecks.Check( types is ["projects", "chats", "panels", "actions", "settings"], "With Conversations, its chats replace the tasks." );
+		var types = app.Search.ComputeTypes().Select( type => type.Id ).Where( id => id != "panels" ).ToArray();
+		CoreChecks.Check( types is ["projects", "chats", "actions", "settings"], "With Conversations, its chats replace the tasks." );
 		CoreChecks.Check( app.Search.Search( "ferrite", "projects" ) is [{ Hits: [{ Item.Actions: [{ Label: "New chat" }, { Label: "New task" }] }] }],
 			"Projects lists each project once, from Conversations, which starts chats and tasks in it." );
 		var found = app.Search.Search( "meshlet", "chats" )[0].Hits[0];
@@ -217,7 +217,7 @@ internal static class SearchChecks
 		app.Search.Run( found, found.Item.Actions[0] );
 		CoreChecks.Check( store.Get( chat.Id ).IsPinned, "A chat's Pin action pins it." );
 
-		CoreChecks.Check( app.Unload( "conversations" ) && app.Search.ComputeTypes().Select( type => type.Id ).ToArray() is ["tasks", "projects", "panels", "actions", "settings"],
+		CoreChecks.Check( app.Unload( "conversations" ) && app.Search.ComputeTypes().Select( type => type.Id ).Where( id => id != "panels" ).ToArray() is ["tasks", "projects", "actions", "settings"],
 			"Unloading Conversations removes Chats and brings back Projects' own tasks and projects." );
 		app.Shutdown();
 	}
