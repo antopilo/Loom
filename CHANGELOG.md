@@ -11,6 +11,7 @@ version being packed. Write for users: what changed for them, not how.
   Choosing a way to serve moves your chats to the background daemon by itself. With Funnel, a phone needs nothing
   installed: scan the code and the browser opens Loom.
 - A code that only a Loom PC can open no longer shows as a QR code.
+- **Right-click a pane's grip** for its menu; a left click no longer opens it, so dragging a panel never pops it up.
 
 ## 0.3.1
 
