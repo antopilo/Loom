@@ -73,6 +73,19 @@ internal sealed partial class AccessContent
 		_ => "anywhere",
 	};
 
+	/// <summary>Builds the switch of <see cref="RemoteModule.AgentWindows"/>: whether agents of chats on this PC may see and use its windows.</summary>
+	private Row BuildAgentWindows( Theme theme )
+	{
+		var settings = _module.Context.App.Settings;
+		var isOn = settings.Get( RemoteModule.AgentWindows, SettingsScope.Global );
+		return BuildSettingRow( "agent-windows", RemoteModule.AgentWindows.Title, RemoteModule.AgentWindows.Description,
+			theme.BuildSwitch( RemoteModule.AgentWindows.Title, isOn, () => _context.Run( () =>
+			{
+				settings.Set( RemoteModule.AgentWindows, SettingsScope.Global, !isOn );
+				_version.Value++;
+			} ) ), theme );
+	}
+
 	/// <summary>Builds Sharing: the level picker, then the picked level's own settings, the move under way, and Pair a device.</summary>
 	private IEnumerable<Blob> BuildServe( Theme theme )
 	{
@@ -82,6 +95,7 @@ internal sealed partial class AccessContent
 		yield return BuildSection( "Sharing", theme );
 		yield return BuildLevels( level, theme );
 		yield return BuildParagraph( Levels.First( item => item.Level == level ).Text, theme.Muted );
+		yield return BuildGroup( theme, [BuildAgentWindows( theme )] );
 
 		if ( _pendingNetwork is not null || _module.Switching is not null )
 		{

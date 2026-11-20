@@ -15,6 +15,9 @@ public sealed class ClientStreamSource : IStreamSource
 	/// <summary>Raised when the stream ends, also when the connection closes under it.</summary>
 	public event Action<string>? Ended;
 
+	/// <summary>Raised when an agent acts in the window the current connection's stream shows.</summary>
+	public event Action<AgentWindowUse>? AgentUsed;
+
 	/// <summary>Gets whether the connected host grants control; false while disconnected.</summary>
 	public bool CanControl => _current?.CanControl ?? false;
 
@@ -30,6 +33,7 @@ public sealed class ClientStreamSource : IStreamSource
 		{
 			previous.FrameReceived -= RaiseFrame;
 			previous.Ended -= RaiseEnded;
+			previous.AgentUsed -= RaiseAgentUsed;
 			previous.Stop();
 		}
 		_current = stream;
@@ -37,6 +41,7 @@ public sealed class ClientStreamSource : IStreamSource
 		{
 			stream.FrameReceived += RaiseFrame;
 			stream.Ended += RaiseEnded;
+			stream.AgentUsed += RaiseAgentUsed;
 		}
 		else if ( previous is not null )
 			Ended?.Invoke( "The connection to the host closed." );
@@ -66,4 +71,7 @@ public sealed class ClientStreamSource : IStreamSource
 
 	/// <summary>Passes the end of a stream on.</summary>
 	private void RaiseEnded( string message ) => Ended?.Invoke( message );
+
+	/// <summary>Passes an agent's action on.</summary>
+	private void RaiseAgentUsed( AgentWindowUse use ) => AgentUsed?.Invoke( use );
 }

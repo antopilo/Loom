@@ -42,12 +42,16 @@ public sealed class StreamService : IHostService
 		get; init;
 	}
 
+	/// <summary>Holds the streams of every open connection, so <see cref="NotifyAgent"/> finds the ones that show a window.</summary>
+	private readonly ConcurrentDictionary<RemoteConnection, ConcurrentDictionary<long, Capture>> _connections = new();
+
 	/// <summary>Registers the <c>cap.*</c> handlers for one connection and stops its streams when it closes.</summary>
 	public void Register( RemoteConnection connection )
 	{
 		var peer = connection.Peer;
 		var streams = new ConcurrentDictionary<long, Capture>();
 		long lastCap = 0;
+		_connections[connection] = streams;
 
 		peer.On( "cap.list", _ =>
 		{
@@ -134,12 +138,37 @@ public sealed class StreamService : IHostService
 
 		peer.Closed += _ =>
 		{
+			_connections.TryRemove( KeyValuePair.Create( connection, streams ) );
 			foreach ( var cap in streams.Keys )
 			{
 				if ( streams.TryRemove( cap, out var capture ) )
 					capture.Session.Dispose();
 			}
 		};
+	}
+
+	/// <summary>Pushes <c>cap.agent</c> to every connection that streams the window an agent used, and to Loom on this PC (<see cref="HostGateway.LocalDevice"/>),
+	/// whose panels stream in process; safe on any thread.</summary>
+	/// <param name="use">What the agent did, where.</param>
+	/// <returns>How many connections it went to.</returns>
+	public int NotifyAgent( AgentWindowUse use )
+	{
+		var sent = 0;
+		foreach ( var (connection, streams) in _connections )
+		{
+			if ( connection.DeviceId != HostGateway.LocalDevice && !streams.Values.Any( capture => capture.Window == use.Hwnd ) )
+				continue;
+
+			var push = new JsonObject { ["t"] = "cap.agent", ["hwnd"] = use.Hwnd, ["kind"] = use.Kind };
+			if ( use.HasPoint )
+			{
+				push["x"] = use.X;
+				push["y"] = use.Y;
+			}
+			PushQuietly( connection.Peer, push );
+			sent++;
+		}
+		return sent;
 	}
 
 	/// <summary>Reads the windows to offer: the test lister, this PC's windows on Windows, or none elsewhere.</summary>

@@ -409,4 +409,53 @@ internal static class StreamNative
 	[DllImport( "gdi32.dll" )]
 	[return: MarshalAs( UnmanagedType.Bool )]
 	internal static extern bool GdiFlush();
+
+	/// <summary>Defines OpenProcess's right to query limited information, which a process of any integrity grants.</summary>
+	internal const uint ProcessQueryLimited = 0x1000;
+
+	/// <summary>Defines OpenProcessToken's right to query a token.</summary>
+	internal const uint TokenQuery = 0x0008;
+
+	/// <summary>Defines GetTokenInformation's class reporting whether a token is elevated.</summary>
+	internal const int TokenElevationClass = 20;
+
+	/// <summary>Opens a process.</summary>
+	[DllImport( "kernel32.dll", SetLastError = true )]
+	internal static extern nint OpenProcess( uint access, [MarshalAs( UnmanagedType.Bool )] bool inherit, uint process );
+
+	/// <summary>Gets a pseudo handle of the calling process, which needs no closing.</summary>
+	[DllImport( "kernel32.dll" )]
+	internal static extern nint GetCurrentProcess();
+
+	/// <summary>Closes a kernel handle.</summary>
+	[DllImport( "kernel32.dll" )]
+	[return: MarshalAs( UnmanagedType.Bool )]
+	internal static extern bool CloseHandle( nint handle );
+
+	/// <summary>Opens a process's access token.</summary>
+	[DllImport( "advapi32.dll", SetLastError = true )]
+	[return: MarshalAs( UnmanagedType.Bool )]
+	internal static extern bool OpenProcessToken( nint process, uint access, out nint token );
+
+	/// <summary>Reads a 32-bit piece of information about a token, such as whether it is elevated.</summary>
+	[DllImport( "advapi32.dll", SetLastError = true )]
+	[return: MarshalAs( UnmanagedType.Bool )]
+	internal static extern bool GetTokenInformation( nint token, int informationClass, out int information, int length, out int returned );
+
+	/// <summary>Reports whether a process runs elevated, or null when its token cannot be read, as for an elevated process read from one that is not.</summary>
+	/// <param name="process">A process handle with query rights, or <see cref="GetCurrentProcess"/>.</param>
+	internal static bool? IsElevated( nint process )
+	{
+		if ( !OpenProcessToken( process, TokenQuery, out var token ) )
+			return null;
+
+		try
+		{
+			return GetTokenInformation( token, TokenElevationClass, out var elevated, sizeof( int ), out _ ) ? elevated != 0 : null;
+		}
+		finally
+		{
+			_ = CloseHandle( token );
+		}
+	}
 }

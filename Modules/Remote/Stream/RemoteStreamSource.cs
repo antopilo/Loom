@@ -25,6 +25,9 @@ public sealed class RemoteStreamSource : IStreamSource
 	/// <summary>Stores the last frame received while a start awaited its answer, with its stream id.</summary>
 	private (long Cap, StreamFrame Frame)? _early;
 
+	/// <summary>Stores the handle of the window the running stream shows, or of the last one.</summary>
+	private long _window;
+
 	/// <summary>Creates the source and registers its push handlers on a peer that has not started.</summary>
 	/// <param name="peer">The connection to the host.</param>
 	/// <param name="canControl">Whether the host granted this device the <c>control</c> scope.</param>
@@ -34,6 +37,7 @@ public sealed class RemoteStreamSource : IStreamSource
 		CanControl = canControl;
 		peer.OnPush( "cap.frame", ReceiveFrame );
 		peer.OnPush( "cap.end", ReceiveEnd );
+		peer.OnPush( "cap.agent", ReceiveAgent );
 		peer.Closed += _ => End( null, "The connection to the host closed." );
 	}
 
@@ -42,6 +46,9 @@ public sealed class RemoteStreamSource : IStreamSource
 
 	/// <inheritdoc/>
 	public event Action<string>? Ended;
+
+	/// <inheritdoc/>
+	public event Action<AgentWindowUse>? AgentUsed;
 
 	/// <inheritdoc/>
 	public bool CanControl
@@ -95,6 +102,7 @@ public sealed class RemoteStreamSource : IStreamSource
 		{
 			_isStarting = false;
 			_cap = cap;
+			_window = window;
 			early = _early is { } held && held.Cap == cap ? held.Frame : null;
 			_early = null;
 		}
@@ -183,6 +191,25 @@ public sealed class RemoteStreamSource : IStreamSource
 
 		FrameReceived?.Invoke( received );
 	}
+
+	/// <summary>Passes on a <c>cap.agent</c> of the streamed window: an agent acted in it.</summary>
+	private void ReceiveAgent( JsonObject frame )
+	{
+		if ( Frame.ReadLong( frame, "hwnd" ) is not { } window )
+			return;
+
+		lock ( _lock )
+		{
+			if ( _cap == 0 || _window != window )
+				return;
+		}
+
+		AgentUsed?.Invoke( new( window, Frame.ReadString( frame, "kind" ) ?? "", ReadFraction( frame, "x" ), ReadFraction( frame, "y" ) ) );
+	}
+
+	/// <summary>Reads a coordinate fraction of <c>cap.agent</c>, or -1 when it is missing.</summary>
+	private static double ReadFraction( JsonObject frame, string name ) =>
+		frame[name] is JsonValue value && value.GetValueKind() == JsonValueKind.Number && value.TryGetValue<double>( out var number ) ? number : -1;
 
 	/// <summary>Ends the running stream on the host's <c>cap.end</c>.</summary>
 	private void ReceiveEnd( JsonObject frame )

@@ -188,6 +188,12 @@ public sealed class HostGateway
 		get; private set;
 	}
 
+	/// <summary>Gets the window stream service, once started.</summary>
+	internal StreamService? Streams
+	{
+		get; private set;
+	}
+
 	/// <summary>Raised on the UI thread after a connection joined or left <see cref="Connections"/>, the network listeners' state changed, or a
 	/// pairing started or stopped waiting for the user's answer.</summary>
 	internal event Action? Changed;
@@ -223,10 +229,12 @@ public sealed class HostGateway
 		push.Failed += message => _post( () => _app.ReportError( "Web push", new InvalidOperationException( message ) ) );
 		var chats = new ChatService( _store, _sessions, _post, _paths.Uploads, push, error => _app.ReportError( "Web push", error ), () => Network.Addresses );
 		Chats = chats;
+		var streams = new StreamService();
+		Streams = streams;
 		var tools = new ToolService( _app, _post );
 		var tabs = _app.Hosts.Local.BrowserTabs;
 		tabs.Windows = tools;
-		_services.AddRange( [chats, tools, new BrowserService( tabs, _post ), new TunnelService( ReadGatewayPorts ), new WorkspaceService( _app ), new StreamService(), push, new AdminService( this )] );
+		_services.AddRange( [chats, tools, new BrowserService( tabs, _post ), new TunnelService( ReadGatewayPorts ), new WorkspaceService( _app ), streams, push, new AdminService( this )] );
 		Devices.Revoked += CloseDevice;
 		Devices.Revoked += ForgetRevoked;
 		Devices.Added += FollowAdded;

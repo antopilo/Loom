@@ -193,6 +193,7 @@ else
 		RelayChecks.Run();
 		StreamChecks.Run();
 		await RemoteStreamChecks.RunAsync();
+		await RemoteAgentWindowChecks.RunAsync();
 		await RemoteWorkspaceChecks.RunAsync();
 		await RemoteRelayChecks.RunAsync();
 		await RemoteWebChecks.RunAsync();

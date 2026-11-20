@@ -626,6 +626,16 @@ window holds back the capture instead, so an H.264 stream stays decodable. The h
 Windows.Graphics.Capture, falling back to `PrintWindow` where it is unavailable, and writes per-stream
 timings to `%TEMP%\Lokn\stream.log` every five seconds.
 
+Two more host pushes serve the agents' window tools (Host tools):
+
+| Push | Meaning |
+|---|---|
+| `window.show { ch?, hwnd, title, panel? }` | An agent of chat `ch` works with window `hwnd` of the host. The gateway sends it to every `control` connection attached to the chat, with `panel` the client panel it was attached as (`attach.panel`; omitted for the connection's own id), else to device `local` when it is connected. The client opens a `remote.stream` panel on that host beside `panel` (else beside a panel that shows `ch`, else in the active pane) that streams `hwnd` at once, skipping the window list, or brings the one already streaming it forward (one per host and window). The active pane stays where it was, and the stream does not take the keyboard focus. |
+| `cap.agent { hwnd, kind, x?, y? }` | An agent acted in window `hwnd`: `kind` is `capture`, `click`, `type`, `key` or `scroll`; `x`, `y` are where, as fractions (0 to 1) of the window's width and height, for `click` and `scroll`. Sent to every connection that streams `hwnd` and always to device `local`, whose panels stream in process; a daemon-role Loom passes it to them. Viewers show **Agent is using this window** in the panel's header until 3 s after the last action, and a short ripple at the point. |
+
+A stream panel's input (`StreamPanelInput { hwnd, title }`) is also its saved state, so a restored layout streams the
+same window again, or shows the window list with the reason when it is gone.
+
 ## Web client and push
 
 The host's WebSocket listener also serves the web client, embedded in the Remote module
@@ -845,3 +855,31 @@ forwarding), so `browser_navigate` refuses files, drive and UNC paths and other 
 such an address, and `browser_show` refuses `html` and `path`, whose files are on the host: the agent serves the page
 on the host's localhost instead and passes its `url`. `browser_screenshot` uploads its PNG to the host (`upload`,
 `BrowserTabs.ShareFile`) and answers the host's path, which the agent can read.
+
+### Window tools
+
+Agents see and use the windows of the PC their chat runs on through tools the Remote module offers with
+`AgentToolRegistry.Offer` (module `remote`), in the daemon and in Loom in role `local`; Loom in role `daemon` leaves them to
+its daemon. They are offered only while `remote.agent-windows` (Global, default on; **Let agents see and use this PC's
+windows** in Remote access) is on, and only on Windows.
+
+| Tool | Arguments | Does |
+|---|---|---|
+| `window_list` | `{}` | The visible windows (`WindowCatalog`): `id` (the hwnd), `title`, `process`, `width`, `height` (client pixels). |
+| `window_show` | `{ window }` | Shows the window to the user live (below). |
+| `window_capture` | `{ window }` | Captures the window at most 1280 pixels wide as JPEG under `screenshots` in the host's data folder and answers the path and size; the agent reads the file to see it, as with `browser_screenshot`. It captures as streams do (Windows.Graphics.Capture, else `PrintWindow`), waiting up to 1 s for the first frame. |
+| `window_click` | `{ window, x, y, button?: left\|right\|middle, double? }` | Moves the pointer to the point and clicks. |
+| `window_type` | `{ window, text }` | Types the text as Unicode key input where the window's focus is; a line break presses Enter. |
+| `window_key` | `{ window, key, modifiers? }` | Presses a key (Enter, Tab, Escape, Backspace, Delete, Insert, Home, End, PageUp, PageDown, arrows, Space, F1–F24, A–Z, 0–9; `Ctrl+S` form allowed) with `Ctrl`, `Shift` or `Alt` held, releasing them after. |
+| `window_scroll` | `{ window, x, y, delta }` | Turns the wheel over the point, `delta` notches (positive up). |
+
+`window` is the hwnd, or a case-insensitive part of a title or process name that names one window (a whole title
+wins over partial matches); several or no matches are refused with the candidates' ids. Coordinates are pixels of
+the window's last capture, the image `window_capture` or the last input tool returned; before any capture, the size a
+capture would have now. Input goes through `InputInjector`, which brings the window to the foreground; a window that
+closed, runs elevated while Loom does not, or could not be brought to the front is refused with an error. Each input
+tool waits 150 ms and answers a fresh capture.
+
+Every tool but `window_list` shows the window: in the daemon by `window.show` to the Loom that shows the agent's chat
+(Stream frames), in a `local`-role Loom by opening the stream panel in process (`LocalStreamSource`) beside the calling
+panel. Each action also goes to the window's viewers as `cap.agent`.

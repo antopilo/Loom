@@ -92,6 +92,15 @@ public sealed class RemoteModule : ILoknModule
 		IsHidden = true,
 	};
 
+	/// <summary>Defines whether the agents of chats on this PC may list, capture and use its windows through the <c>window_*</c> tools, which show the window
+	/// to the user live in a stream panel beside the chat (<see cref="AgentWindowTools"/>).</summary>
+	public static readonly Setting<bool> AgentWindows = new(
+		"remote.agent-windows", "Let agents see and use this PC's windows", "Agents of chats on this PC may capture its windows and click and type in them; Loom shows the window live beside the chat while they do.",
+		true, "Remote" )
+	{
+		IsHidden = true,
+	};
+
 	/// <summary>Defines the Settings entry that shows Remote access, the Remote tab's only row: where devices connect from, pairing, devices and the
 	/// PCs this one connects to; its value is never set, only its editor is used. The plain remote settings are hidden, since it shows them.</summary>
 	internal static readonly Setting<string> Access = new(
@@ -148,6 +157,9 @@ public sealed class RemoteModule : ILoknModule
 
 	/// <summary>Counts the daemon's failures in the <c>daemon</c> role.</summary>
 	private readonly DaemonFailures _failures = new();
+
+	/// <summary>Stores the <c>window_*</c> agent tools while this process runs chats' agents: in the daemon and in the <c>local</c> role; null otherwise.</summary>
+	private AgentWindowTools? _windowTools;
 
 	/// <summary>Stores whether this module itself writes the <see cref="Role"/> setting, so following the setting leaves that change to its writer.</summary>
 	private bool _isChoosing;
@@ -266,6 +278,7 @@ public sealed class RemoteModule : ILoknModule
 			.Setting( LoginItem )
 			.Setting( Tray )
 			.Setting( LendBrowser )
+			.Setting( AgentWindows )
 			.Service<IHostLoginItem>( new HostLoginItem( this ) )
 			.Setting( Access )
 			.Slot( ShellSlots.StatusRight, 0, context => new RemoteStatusContent( context, this ) )
@@ -309,6 +322,7 @@ public sealed class RemoteModule : ILoknModule
 
 			_statusFeed = new HostStatusFeed( app, conversations.Hosts.Local, Gateway, isUserDaemon: _hooks is null && !LoknPaths.IsCustom );
 			FollowLoginItem();
+			StartWindowTools( app, dataFolder );
 			return;
 		}
 
@@ -322,6 +336,7 @@ public sealed class RemoteModule : ILoknModule
 		StartLinks( dataFolder );
 		FollowLoginItem();
 		FollowRole();
+		StartWindowTools( app, dataFolder );
 		if ( _hooks is null && !LoknPaths.IsCustom && OperatingSystem.IsWindows() )
 			PairingProtocol.Install( app );
 	}
@@ -344,6 +359,9 @@ public sealed class RemoteModule : ILoknModule
 		_dataLock = null;
 		_context?.App.Settings.Changed -= UpdateLoginItem;
 		_context?.App.Settings.Changed -= UpdateRole;
+		_context?.App.Settings.Changed -= UpdateWindowTools;
+		_windowTools?.Dispose();
+		_windowTools = null;
 		_context = null;
 	}
 
@@ -659,6 +677,7 @@ public sealed class RemoteModule : ILoknModule
 	{
 		RunningRole = role;
 		_roleVersion.Value++;
+		UpdateWindowTools();
 		if ( _hooks?.Role is null )
 			AppDomain.CurrentDomain.SetData( RoleSlot, role );
 	}
@@ -918,7 +937,47 @@ public sealed class RemoteModule : ILoknModule
 
 	/// <summary>Supplies a new stream panel's source: the windows of the paired host the panel is on, across reconnects, else this PC's own.</summary>
 	private IStreamSource? BuildStreamSource( PanelContext context ) =>
-		context.HostId is { } hostId && !context.Host.IsLocal ? FindLink( hostId )?.Stream : new LocalStreamSource();
+		context.HostId is { } hostId && !context.Host.IsLocal ? FindLink( hostId )?.Stream : new LocalStreamSource( _hooks?.Windows?.CreateCapturer );
+
+	/// <summary>Creates the <c>window_*</c> agent tools on Windows, or with a check's replacements, and publishes them as <see cref="UpdateWindowTools"/> decides.</summary>
+	private void StartWindowTools( LoknApplication app, string dataFolder )
+	{
+		if ( _hooks?.Windows is null && !OperatingSystem.IsWindows() )
+			return;
+
+		_windowTools = new AgentWindowTools( app, _hooks?.Windows, Path.Combine( dataFolder, "screenshots" ), ShowAgentWindow, NotifyAgentWindow );
+		app.Settings.Changed += UpdateWindowTools;
+		UpdateWindowTools();
+	}
+
+	/// <summary>Offers the <c>window_*</c> tools while the user lets agents use this PC's windows and this process runs This PC's agents: the daemon, or
+	/// Loom in the <c>local</c> role. In the <c>daemon</c> role the daemon offers them, and this Loom shows what its agents do.</summary>
+	private void UpdateWindowTools()
+	{
+		if ( _windowTools is not { } tools || _context is not { } context )
+			return;
+
+		tools.Publish( context.App.Settings.Get( AgentWindows, SettingsScope.Global ) && RunningRole is LocalRole or HostRole );
+	}
+
+	/// <summary>Shows a window an agent works with to the user: in the daemon, by <c>window.show</c> to the Loom that shows the agent's chat; in a
+	/// <c>local</c>-role Loom, in a stream panel beside the agent's panel. Answers whether a Loom window shows it.</summary>
+	private bool ShowAgentWindow( AgentToolContext context, CaptureWindow window )
+	{
+		if ( Gateway is { } gateway )
+			return gateway.Chats?.ShowWindow( context.Conversation, window.Hwnd, window.Title ) > 0;
+
+		StreamPanel.Show( context.App, LoknHost.LocalId, context.Caller, window.Hwnd, window.Title );
+		return true;
+	}
+
+	/// <summary>Tells the viewers of a window what an agent did in it: this process's stream panels, and in the daemon each connection that streams it
+	/// and Loom on this PC (<c>cap.agent</c>).</summary>
+	private void NotifyAgentWindow( AgentWindowUse use )
+	{
+		AgentWindowActivity.Raise( use );
+		Gateway?.Streams?.NotifyAgent( use );
+	}
 }
 
 /// <summary>Checks' replacements for what the Remote module would otherwise take from the user's data folder, settings, pipe and network.</summary>
@@ -932,6 +991,12 @@ internal sealed record RemoteHooks
 
 	/// <summary>Gets the daemon's pipe name, or null for no pipe; checks hand connections to <see cref="HostGateway.RunConnectionAsync"/> instead.</summary>
 	public string? PipeName
+	{
+		get; init;
+	}
+
+	/// <summary>Gets the replacements for the window list, capture and input of the <c>window_*</c> agent tools, or null for this PC's own.</summary>
+	public AgentWindowHooks? Windows
 	{
 		get; init;
 	}

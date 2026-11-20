@@ -440,6 +440,47 @@ public sealed partial class ChatService : IHostService, IDisposable
 		}
 	}
 
+	/// <summary>Asks Loom to show a window of this PC streamed beside a chat, for an agent that works with it: pushes <c>window.show</c> to every
+	/// controlling connection attached to the chat, with the client's panel that shows it, else to Loom on this PC (<see cref="HostGateway.LocalDevice"/>)
+	/// when it is connected; on the UI thread.</summary>
+	/// <param name="chat">The chat whose agent works with the window, or null when no chat's agent asked.</param>
+	/// <param name="window">The window's handle.</param>
+	/// <param name="title">The window's title.</param>
+	/// <returns>How many connections it went to.</returns>
+	internal int ShowWindow( Guid? chat, long window, string title )
+	{
+		JsonObject Build( Guid? panel )
+		{
+			var push = Frame.Create( "window.show" );
+			if ( chat is { } id )
+				push = push.WithChannel( id );
+			push["hwnd"] = window;
+			push["title"] = title;
+			if ( panel is { } shown )
+				push["panel"] = shown.ToString( "N" );
+			return push;
+		}
+
+		var sent = 0;
+		if ( chat is { } attached && _chats.TryGetValue( attached, out var record ) )
+		{
+			foreach ( var link in record.Subscribers.Where( link => link.Connection.CanControl ) )
+			{
+				link.Send( Build( link.Attached.TryGetValue( attached, out var panel ) && panel != link.PanelId ? panel : null ) );
+				sent++;
+			}
+		}
+		if ( sent > 0 )
+			return sent;
+
+		foreach ( var link in _links.Where( link => link.Connection.DeviceId == HostGateway.LocalDevice ) )
+		{
+			link.Send( Build( null ) );
+			sent++;
+		}
+		return sent;
+	}
+
 	/// <summary>Raises a chat's sequence number and sends one push, filled per connection, to each connection attached to it.</summary>
 	private void Broadcast( HostChat chat, string type, Action<JsonObject> fill )
 	{

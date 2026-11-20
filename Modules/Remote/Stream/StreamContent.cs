@@ -65,25 +65,33 @@ public sealed partial class StreamContent : PanelContent
 	/// <summary>Stores whether this PC decodes H.264, read once per process.</summary>
 	private static readonly Lazy<bool> CanDecodeH264 = new( () => OperatingSystem.IsWindows() && H264Decoder.IsAvailable() );
 
-	/// <summary>Creates the panel over a source and lists the source's windows.</summary>
+	/// <summary>Creates the panel over a source and lists the source's windows, or streams the window it was opened for at once.</summary>
 	/// <param name="context">The panel's context.</param>
 	/// <param name="source">The host connection: <see cref="LocalStreamSource"/> or a remote one.</param>
 	/// <param name="options">The options each stream starts with; null uses <see cref="CaptureOptions.Default"/>.</param>
-	public StreamContent( PanelContext context, IStreamSource source, CaptureOptions? options = null )
+	/// <param name="initial">The window to stream at once, such as one an agent works with or the one a saved layout streamed; null shows the window list.</param>
+	public StreamContent( PanelContext context, IStreamSource source, CaptureOptions? options = null, StreamPanelInput? initial = null )
 	{
 		_context = context;
 		_source = source;
 		_options = (options ?? CaptureOptions.Default).Clamp() with { Codec = CanDecodeH264.Value ? CaptureOptions.H264 : CaptureOptions.Jpeg };
 		_source.FrameReceived += QueueFrame;
 		_source.Ended += QueueEnded;
-		UpdateList();
+		_source.AgentUsed += QueueAgent;
+		_open.Add( this );
+		if ( initial is not null )
+			UpdateStart( new( initial.Hwnd, initial.Title, "", 0, 0 ), isChosen: false );
+		else
+			UpdateList();
 	}
 
 	/// <summary>Stops the stream and lets go of the source's events and the last frame.</summary>
 	public override void Closed()
 	{
+		_open.Remove( this );
 		_source.FrameReceived -= QueueFrame;
 		_source.Ended -= QueueEnded;
+		_source.AgentUsed -= QueueAgent;
 		ReleaseKeys();
 		if ( _streaming is not null )
 			_source.Stop();
@@ -152,7 +160,7 @@ public sealed partial class StreamContent : PanelContent
 	/// <summary>Builds one window as a button with its title, process and size.</summary>
 	private Button BuildWindowRow( CaptureWindow window, Theme theme )
 	{
-		void Start() => _context.Run( () => UpdateStart( window ) );
+		void Start() => _context.Run( () => UpdateStart( window, isChosen: true ) );
 		return new Button
 		{
 			Key = "window:" + window.Hwnd,
@@ -200,6 +208,7 @@ public sealed partial class StreamContent : PanelContent
 			[
 				theme.BuildButton( "Windows", () => _context.Run( UpdateBack ) ),
 				new Text { Content = window.Title, FlexShrink = 1, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, },
+				.. BuildAgentLabel( theme ),
 				new Text { Content = stats, Color = theme.Muted, FontSize = ViewStyle.SmallSize, FlexShrink = 0, TextWrap = TextWrap.NoWrap, },
 			],
 		};
@@ -216,7 +225,8 @@ public sealed partial class StreamContent : PanelContent
 			Overflow = Overflow.Hidden,
 			BackgroundColor = theme.Canvas,
 			Focusable = true,
-			AutoFocus = true,
+			// A stream an agent opened must not take the focus from the chat composer.
+			AutoFocus = _isChosen,
 			Cursor = _source.CanControl ? Cursor.Default : Cursor.NotAllowed,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = $"Stream of {window.Title}",
@@ -279,6 +289,7 @@ public sealed partial class StreamContent : PanelContent
 					Width = frame.Width * fit.Scale,
 					Height = frame.Height * fit.Scale,
 				},
+				.. BuildAgentMarker( fit, frame.Width, frame.Height ),
 			],
 		};
 	}
@@ -329,8 +340,11 @@ public sealed partial class StreamContent : PanelContent
 	}
 
 	/// <summary>Starts streaming a window.</summary>
-	private void UpdateStart( CaptureWindow window )
+	/// <param name="window">The window.</param>
+	/// <param name="isChosen">Whether the user chose it in the list, which focuses the stream; false for one opened for an agent or restored.</param>
+	private void UpdateStart( CaptureWindow window, bool isChosen )
 	{
+		_isChosen = isChosen;
 		_streaming = window;
 		_status = "";
 		_latency = 0;

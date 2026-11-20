@@ -455,7 +455,10 @@ public sealed class RemoteClient
 		{
 			foreach ( var type in (string[])["admin.pairing", "admin.pairing.done", "admin.paired"] )
 				peer.OnPush( type, frame => _post( () => ApplyAdminPush( frame ) ) );
+			// The daemon's agents use this PC's windows, which this Loom streams in process; its panels learn of each action as if a local agent took it.
+			peer.OnPush( "cap.agent", ApplyAgentPush );
 		}
+		peer.OnPush( "window.show", frame => _post( () => ApplyWindowShow( frame ) ) );
 		// Loom on this PC runs the daemon's tool calls; a paired PC runs only its browser tools, which act on its own windows' views of the session's tabs.
 		peer.OnPush( "host.addrs", frame => _post( () => ApplyAddressPush( frame ) ) );
 		peer.OnPush( "tool.call", frame => _post( () => _ = RunToolAsync( peer, frame ) ) )
@@ -600,6 +603,29 @@ public sealed class RemoteClient
 
 	/// <summary>Defines how many host addresses a paired PC keeps, the newest reported first.</summary>
 	private const int MaxAddresses = 8;
+
+	/// <summary>Follows <c>window.show</c>: an agent of the host works with one of its windows, so a stream panel of it on this host opens beside the
+	/// chat's panel, or the one already open comes forward, without taking the focus.</summary>
+	private void ApplyWindowShow( JsonObject frame )
+	{
+		if ( IsStopped || Frame.ReadLong( frame, "hwnd" ) is not { } window )
+			return;
+
+		Guid? beside = Frame.ReadString( frame, "panel" ) is { } text && Guid.TryParseExact( text, "N", out var panel ) ? panel : null;
+		if ( beside is null && Frame.ReadChannel( frame ) is { } chat && _chats.TryGetValue( chat, out var shown ) && shown.Panels.Count > 0 )
+			beside = shown.Panels.First();
+		StreamPanel.Show( _app, Host.Host.Id, beside, window, Frame.ReadString( frame, "title" ) ?? "" );
+	}
+
+	/// <summary>Follows the daemon's <c>cap.agent</c>: tells this Loom's stream panels, which stream this PC's windows in process, what its agent did.</summary>
+	private static void ApplyAgentPush( JsonObject frame )
+	{
+		if ( Frame.ReadLong( frame, "hwnd" ) is not { } window )
+			return;
+
+		double Read( string name ) => frame[name] is JsonValue value && value.TryGetValue<double>( out var number ) ? number : -1;
+		AgentWindowActivity.Raise( new( window, Frame.ReadString( frame, "kind" ) ?? "", Read( "x" ), Read( "y" ) ) );
+	}
 
 	/// <summary>Follows <c>host.addrs</c>, which the host pushes when its addresses change while this PC stays connected.</summary>
 	private void ApplyAddressPush( JsonObject frame )

@@ -10,6 +10,9 @@ public interface IStreamSource
 	/// <summary>Raised when the stream ends without <see cref="Stop"/>, such as when the window closes or the connection drops, with a message for the user.</summary>
 	event Action<string>? Ended;
 
+	/// <summary>Raised when an agent acts in the streamed window, such as a click of its tools, so the panel marks it (<c>cap.agent</c>).</summary>
+	event Action<AgentWindowUse>? AgentUsed;
+
 	/// <summary>Gets whether this source may send input: the host granted the <c>control</c> scope.</summary>
 	bool CanControl
 	{

@@ -69,6 +69,12 @@ public sealed class InputInjector( nint window )
 	/// <summary>Defines the key flag of a release.</summary>
 	private const uint KeyUpFlag = 0x0002;
 
+	/// <summary>Defines the key flag of a Unicode character sent in the scan code.</summary>
+	private const uint UnicodeFlag = 0x0004;
+
+	/// <summary>Defines the virtual key of Enter.</summary>
+	private const ushort EnterKey = 0x0D;
+
 	/// <summary>Defines the largest normalized absolute coordinate.</summary>
 	private const int AbsoluteRange = 65535;
 
@@ -222,6 +228,65 @@ public sealed class InputInjector( nint window )
 			},
 		};
 		return StreamNative.SendInput( 1, [key], Marshal.SizeOf<StreamNative.Input>() ) == 1;
+	}
+
+	/// <summary>Types text into the window as Unicode characters, independent of the keyboard layout; a line break presses Enter.</summary>
+	/// <param name="text">The text; carriage returns are skipped.</param>
+	/// <returns>False when the window is gone, could not be brought to the foreground, or Windows refused the input.</returns>
+	public bool SendText( string text )
+	{
+		if ( !StreamNative.IsWindow( window ) )
+			return false;
+
+		UpdateForeground();
+		if ( !IsForeground() )
+			return false;
+
+		var inputs = new List<StreamNative.Input>( text.Length * 2 );
+		foreach ( var character in text )
+		{
+			if ( character == '\r' )
+				continue;
+
+			var isEnter = character == '\n';
+			foreach ( var isDown in (bool[])[true, false] )
+			{
+				inputs.Add( new()
+				{
+					Type = KeyboardType,
+					Data = new()
+					{
+						Keyboard = isEnter
+							? new() { VirtualKey = EnterKey, ScanCode = (ushort)StreamNative.MapVirtualKey( EnterKey, VirtualKeyToScanCode ), Flags = isDown ? 0u : KeyUpFlag }
+							: new() { ScanCode = character, Flags = UnicodeFlag | (isDown ? 0u : KeyUpFlag) },
+					},
+				} );
+			}
+		}
+		return inputs.Count == 0 || StreamNative.SendInput( (uint)inputs.Count, [.. inputs], Marshal.SizeOf<StreamNative.Input>() ) == inputs.Count;
+	}
+
+	/// <summary>Reports whether Windows would refuse this process's input into a window: its process runs elevated, such as as administrator, and this one does not.</summary>
+	/// <param name="window">The window.</param>
+	public static bool IsRefused( nint window )
+	{
+		if ( StreamNative.IsElevated( StreamNative.GetCurrentProcess() ) == true )
+			return false;
+
+		_ = StreamNative.GetWindowThreadProcessId( window, out var id );
+		var process = StreamNative.OpenProcess( StreamNative.ProcessQueryLimited, false, id );
+		if ( process == 0 )
+			return false;
+
+		try
+		{
+			// An elevated process lets a process that is not read its handle but not its token.
+			return StreamNative.IsElevated( process ) is null or true;
+		}
+		finally
+		{
+			_ = StreamNative.CloseHandle( process );
+		}
 	}
 
 	/// <summary>Restores the window when minimized and makes it the foreground window, borrowing the foreground thread's input state when Windows refuses a plain request.</summary>

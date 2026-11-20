@@ -572,6 +572,11 @@ The Shell module's own tools (`shell_state`, `shell_open_panel`,
 called `workspace` before; Lokn moves saved `workspace.*` settings to `shell.*` at startup.
 Workspaces (saved layouts) is a separate feature module and is always on.
 
+The Remote module's window tools (`window_list`, `window_show`, `window_capture`, `window_click`,
+`window_type`, `window_key`, `window_scroll`) let agents see and drive this PC's windows, which the
+user watches in a Window stream panel beside the chat; they are offered with `app.Tools.Offer`
+while `remote.agent-windows` is on ([Window tools](remote.md#window-tools)).
+
 ### Tool cards
 
 A module can draw calls to its own tools as a card in the chat instead of the chat's

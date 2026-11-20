@@ -3,6 +3,12 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## Unreleased
+
+- **Watch agents use your apps.** When an agent works with a window on your PC, Loom opens a live Window stream of it
+  beside the chat, marks where the agent clicks and says "Agent is using this window". The agent can see the window and
+  click, type, press keys and scroll in it. Turn it off in Remote access: **Let agents see and use this PC's windows**.
+
 ## 0.4.3
 
 - **Find Loom PCs near you.** Remote access lists Loom PCs on your network; pairing sends a request that their user
