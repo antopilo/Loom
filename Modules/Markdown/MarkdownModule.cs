@@ -22,11 +22,22 @@ public sealed class MarkdownModule : ILoknModule, IMarkdownRenderer
 	/// <summary>Builds the blocks of a Markdown text.</summary>
 	public Blob Build( string markdown, Action<Uri> openLink ) => MarkdownView.Build( markdown, openLink );
 
-	/// <summary>Lets code blocks copy their text to the clipboard of the app's window.</summary>
-	public void Start( ModuleContext context ) => MarkdownView.CopyText = text => context.App.Window?.Clipboard.WriteText( text );
+	/// <summary>Lets code blocks copy their text to the clipboard of the app's window, and run shell snippets in a terminal when the Terminal module is loaded.</summary>
+	public void Start( ModuleContext context )
+	{
+		var app = context.App;
+		MarkdownView.CopyText = text => app.Window?.Clipboard.WriteText( text );
+		MarkdownView.CanRunCode = language => app.Services.Get<ITerminalLauncher>()?.CanRunSnippet( language ) == true;
+		MarkdownView.RunCode = ( code, language ) => app.Services.Get<ITerminalLauncher>()?.RunSnippet( code, language );
+	}
 
-	/// <summary>Removes the copy action, which holds the app, so an unloaded module leaves nothing behind.</summary>
-	public void Stop() => MarkdownView.CopyText = null;
+	/// <summary>Removes the copy and run actions, which hold the app, so an unloaded module leaves nothing behind.</summary>
+	public void Stop()
+	{
+		MarkdownView.CopyText = null;
+		MarkdownView.CanRunCode = null;
+		MarkdownView.RunCode = null;
+	}
 
 	/// <summary>Builds a framed, colored code block.</summary>
 	public Blob BuildCode( string code, string language ) => MarkdownView.BuildCode( code, language );

@@ -3,6 +3,17 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.1
+
+- **Run shell snippets.** Bash, PowerShell and cmd code blocks in a chat have a Run button next to Copy. It opens a
+  terminal on this PC beside the chat that runs the snippet and stays open.
+- **Clickable links.** Click a link's text in a chat to open it, including plain `https://` addresses. The separate
+  Open buttons are gone.
+- **Tables show when you scroll to them.** Tables that started out of view no longer stay blank until clicked.
+- **No more stuck keys.** If an Alt, Ctrl, Shift or Windows key release got lost, Backspace and other keys stopped
+  working until Alt+Tab. Loom now notices and clears it.
+- **Clicks keep working.** The window could ignore every click and key until Alt+Tab. Goo 0.32 fixes this.
+
 ## 0.4.0
 
 - **Remote access is one simple page in Settings.** Settings › Remote shows **Serve over** (Off, Tailscale, Anywhere:
