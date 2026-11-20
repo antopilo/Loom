@@ -3,6 +3,15 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.3
+
+- **Find Loom PCs near you.** Remote access lists Loom PCs on your network; pairing sends a request that their user
+  allows. Paired hosts on the same network are found again when their address changes.
+- **Chats of a paired host sit under their worktrees** in the sidebar, as on this PC.
+- **Much smoother window streams.** Windows are captured by the compositor and sent as H.264 video, encoded by the GPU
+  when it can, at up to 30 frames per second and a fraction of the data. Older Loom versions on the other side still
+  get pictures as before.
+
 ## 0.4.2
 
 - **Settings opens in its own window.** Close it like any dialog; your layout no longer changes.
