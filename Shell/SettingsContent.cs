@@ -26,15 +26,6 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	/// <summary>Defines the text field's width in logical pixels.</summary>
 	private const int FieldWidth = 240;
 
-	/// <summary>Defines the switch's width in logical pixels.</summary>
-	private const int SwitchWidth = 40;
-
-	/// <summary>Defines the switch's height in logical pixels.</summary>
-	private const int SwitchHeight = 22;
-
-	/// <summary>Defines the gap between the switch's track and knob in logical pixels.</summary>
-	private const int KnobInset = 3;
-
 	/// <summary>Defines the stepper value's width in logical pixels.</summary>
 	private const int StepperValueWidth = 72;
 
@@ -332,84 +323,16 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	}
 
 	/// <summary>Builds a segmented control with the picked value raised.</summary>
-	private Row BuildSegments( string name, IReadOnlyList<SettingChoice> choices, object picked, Action<object> pick )
-	{
-		var theme = Theme.Current;
-		var segments = new List<Blob>();
-		foreach ( var choice in choices )
-		{
-			var isPicked = Equals( choice.Value, picked );
-			void Pick() => context.Run( () => pick( choice.Value ) );
-			segments.Add( new Button
-			{
-				Key = "segment:" + choice.Label,
-				Padding = new Edges( theme.Spacing * 0.75, theme.Spacing * 1.75 ),
-				BorderRadius = theme.Radius,
-				BackgroundColor = isPicked ? theme.Panel : Color.Transparent,
-				BorderColor = isPicked ? theme.Border : Color.Transparent,
-				BorderWidth = theme.BorderWidth,
-				Color = isPicked ? theme.Text : theme.Muted,
-				Focusable = true,
-				Cursor = Cursor.Pointer,
-				AccessibilityName = isPicked ? $"{choice.Label}, selected" : choice.Label,
-				OnClick = Pick,
-				KeyBindings =
-				[
-					new( Key.Enter, KeyModifiers.None, Pick ),
-					new( Key.Space, KeyModifiers.None, Pick ),
-				],
-				HoverStyle = new Style { Color = theme.Text },
-				FocusStyle = new Style { BorderColor = theme.Accent },
-				Children = [new Text { Content = choice.Label, FontWeight = isPicked ? TitleWeight : 400 }],
-			} );
-		}
+	private Row BuildSegments( string name, IReadOnlyList<SettingChoice> choices, object picked, Action<object> pick ) =>
+		Theme.Current.BuildSegments( name, [.. choices.Select( choice => (choice.Value, choice.Label) )], picked, value => context.Run( () => pick( value ) ) );
 
-		return new Row
-		{
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = name,
-			AlignSelf = AlignSelf.FlexStart,
-			FlexWrap = FlexWrap.Wrap,
-			Padding = 2,
-			Gap = 2,
-			BackgroundColor = theme.Canvas,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = theme.Radius + 2,
-			Children = segments,
-		};
-	}
-
-	/// <summary>Builds an on and off switch: a track in the accent color with the knob at the end when on.</summary>
+	/// <summary>Builds an on and off switch for a boolean setting.</summary>
 	private Button BuildSwitch( SettingDefinition definition, SettingsScope scope, bool isOn ) =>
 		BuildToggle( definition.Title, isOn, isEnabled: true, () => context.App.Settings.SetValue( definition, scope, !isOn ) );
 
-	/// <summary>Builds an on and off switch: a track in the accent color with the knob at the end when on; a disabled one is dimmed and ignores clicks.</summary>
-	private Button BuildToggle( string name, bool isOn, bool isEnabled, Action toggle )
-	{
-		var theme = Theme.Current;
-		void Toggle() => context.Run( toggle );
-		const int knob = SwitchHeight - KnobInset * 2;
-		return new Button
-		{
-			Key = "switch",
-			Width = SwitchWidth,
-			Height = SwitchHeight,
-			Padding = KnobInset,
-			FlexDirection = FlexDirection.Row,
-			JustifyContent = isOn ? JustifyContent.FlexEnd : JustifyContent.FlexStart,
-			BorderRadius = SwitchHeight / 2.0,
-			BackgroundColor = isOn ? theme.Accent : theme.Hover,
-			Opacity = isEnabled ? 1 : 0.4,
-			Focusable = isEnabled,
-			Cursor = isEnabled ? Cursor.Pointer : Cursor.Default,
-			AccessibilityName = $"{name}: {(isOn ? "on" : "off")}",
-			OnClick = isEnabled ? Toggle : null,
-			KeyBindings = isEnabled ? [new( Key.Enter, KeyModifiers.None, Toggle ), new( Key.Space, KeyModifiers.None, Toggle )] : [],
-			FocusStyle = new Style { BorderColor = theme.Text, BorderWidth = theme.BorderWidth },
-			Children = [new Container { Width = knob, Height = knob, BorderRadius = knob / 2.0, BackgroundColor = isOn ? theme.Canvas : theme.Muted }],
-		};
-	}
+	/// <summary>Builds an on and off switch whose flip runs guarded by the panel.</summary>
+	private Button BuildToggle( string name, bool isOn, bool isEnabled, Action toggle ) =>
+		Theme.Current.BuildSwitch( name, isOn, () => context.Run( toggle ), isEnabled );
 
 	/// <summary>Builds the Modules tab: every installed module in a card, with what it needs, what needs it, and a switch that turns it on or off.</summary>
 	/// <remarks>

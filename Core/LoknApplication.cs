@@ -35,6 +35,12 @@ public sealed class LoknApplication
 		get;
 	}
 
+	/// <summary>Gets the panels open as popup windows over the shell, such as Settings.</summary>
+	public PopupWindows Popups
+	{
+		get;
+	}
+
 	/// <summary>Gets the tools modules offer to agents.</summary>
 	public AgentToolRegistry Tools
 	{
@@ -214,6 +220,7 @@ public sealed class LoknApplication
 		Tools = new( this );
 		Search = new( this );
 		Panels = new( this );
+		Popups = new( this );
 		Settings = new( settingsPath );
 		Settings.Changed += MarkChanged;
 		Settings.Failed += MarkSettingsFailed;
@@ -449,6 +456,7 @@ public sealed class LoknApplication
 		if ( _workspacePath is not null )
 			Panels.SaveLayout( _workspacePath );
 
+		Popups.CloseAll();
 		Commands.BindDispatcher( null );
 		Tools.BindDispatcher( null );
 		foreach ( var module in _modules.Values.Reverse().ToArray() )

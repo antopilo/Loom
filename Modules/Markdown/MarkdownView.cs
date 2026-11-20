@@ -613,16 +613,18 @@ public static partial class MarkdownView
 			offset += run.Text.Length;
 		}
 
+		// The press lives outside this declaration: a rebuild between press and release replaces these handlers, and a press
+		// remembered only in this build's closure was lost, so the link did nothing.
 		var handle = new ElementHandle();
-		Point? pressed = null;
 		view.Handle = handle;
-		view.OnPointerDown = e => pressed = e.Button == PointerButton.Primary ? e.WindowPosition : null;
+		view.OnPointerDown = e => _linkPress = e.Button == PointerButton.Primary ? e.WindowPosition : null;
 		view.OnPointerUp = e =>
 		{
+			var pressed = _linkPress;
+			_linkPress = null;
 			if ( pressed is not { } start || e.Button != PointerButton.Primary )
 				return;
 
-			pressed = null;
 			var end = e.WindowPosition;
 			if ( Math.Abs( end.X - start.X ) > ClickSlop || Math.Abs( end.Y - start.Y ) > ClickSlop
 				|| !handle.TryGetTextPositionAt( end, TextCoordinateSpace.Window, out var position ) )
@@ -819,6 +821,9 @@ public static partial class MarkdownView
 
 	/// <summary>Defines how far, in logical pixels, the pointer may move between press and release and still count as a click on a link.</summary>
 	private const double ClickSlop = 4;
+
+	/// <summary>Stores where the primary pointer pressed link text, in window coordinates, until it is released; shared by every link text, since one pointer presses at a time.</summary>
+	private static Point? _linkPress;
 
 	/// <summary>Stores one run of visible inline text, its emphasis, and the web address it links to, if any.</summary>
 	private readonly record struct InlineRun( string Text, InlineKind Kind, Uri? Link );

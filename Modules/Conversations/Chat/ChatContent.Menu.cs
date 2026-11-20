@@ -23,16 +23,17 @@ public sealed partial class ChatContent
 	/// <param name="Selection">The read-only text selected when the menu opened; empty when none was.</param>
 	private readonly record struct MessageMenu( Guid MessageId, int Start, Point At, string Selection );
 
-	/// <summary>Opens the message menu at the pointer on a secondary press.</summary>
+	/// <summary>Opens the message menu at the pointer on a secondary press; other presses pass through untouched.</summary>
 	/// <remarks>
 	/// A handler's own pointer position inside the virtual transcript leaves out its scroll offset, which put the menu far off screen
-	/// in a scrolled transcript; the window position against the transcript viewport does not.
+	/// in a scrolled transcript; the window position against the transcript viewport does not. A primary press must not run a panel
+	/// change: the rebuild it causes replaced the link text's handlers between press and release, so links in messages never opened.
 	/// </remarks>
-	private Action<PointerEvent> BuildMessageMenuOpener( TranscriptPart part ) => pointer => context.Run( () =>
+	private Action<PointerEvent> BuildMessageMenuOpener( TranscriptPart part ) => pointer =>
 	{
 		if ( pointer.Button == PointerButton.Secondary )
-			OpenMessageMenu( part, pointer.WindowPosition );
-	} );
+			context.Run( () => OpenMessageMenu( part, pointer.WindowPosition ) );
+	};
 
 	/// <summary>Opens a bubble's menu, capturing the selection before the menu takes focus, and rebuilds the rows involved.</summary>
 	/// <param name="part">The bubble's part.</param>

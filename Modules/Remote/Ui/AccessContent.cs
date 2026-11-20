@@ -3,8 +3,8 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>Remote access, the only row of Settings › Remote and the editor of <see cref="RemoteModule.Access"/>, laid out as Tern's: Serve over, Pair,
-/// Devices, and the PCs this one connects to.</summary>
+/// <summary>Remote access, the only row of Settings › Remote and the editor of <see cref="RemoteModule.Access"/>, laid out as Tern's Hosts page:
+/// Sharing, Devices, and the hosts this PC is connected to.</summary>
 /// <remarks>
 /// In the <c>daemon</c> role it reads the daemon through <c>admin.*</c> requests over the pipe, refreshing every few seconds while shown, and shows
 /// the note Loom leaves when it moved This PC's chats by itself. A request made with <see cref="RemoteModule.OpenAccess"/> focuses the pairing link
@@ -15,8 +15,8 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 	/// <summary>Defines the request that focuses the pairing link field.</summary>
 	internal const string AddHostRequest = "add-host";
 
-	/// <summary>Defines the section heading size in logical pixels.</summary>
-	private const int SectionSize = 15;
+	/// <summary>Defines the section heading and badge text size in logical pixels.</summary>
+	private const int SectionSize = 12;
 
 	/// <summary>Defines the width of text entries in logical pixels.</summary>
 	private const int EntryWidth = 320;
@@ -42,8 +42,8 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 	/// <summary>Stores whether a request runs, which disables the buttons that send one.</summary>
 	private bool _isBusy;
 
-	/// <summary>Builds the notice and result line, Serve over, Pair, Devices with the pairings waiting for an answer, and the PCs this one connects to,
-	/// after taking a request <see cref="RemoteModule.OpenAccess"/> made.</summary>
+	/// <summary>Builds the notice and result line, Sharing, Devices with the pairings waiting for an answer, and Connected, after taking a request
+	/// <see cref="RemoteModule.OpenAccess"/> made.</summary>
 	protected override Blob BuildView( RemoteModule module )
 	{
 		_module = module;
@@ -63,7 +63,6 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 			children.Add( BuildParagraph( _message, _isError ? theme.Error : theme.Success, selectable: true ) );
 
 		children.AddRange( BuildServe( theme ) );
-		children.AddRange( BuildPair( theme ) );
 		children.AddRange( BuildDevices( theme ) );
 		children.AddRange( BuildPending( theme ) );
 		children.AddRange( BuildHosts( theme ) );
@@ -96,7 +95,10 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 			return;
 
 		if ( request == AddHostRequest )
+		{
+			_isAdding = true;
 			_isAddFocused = true;
+		}
 		else if ( request.StartsWith( PairingLink.UriPrefix, StringComparison.OrdinalIgnoreCase ) )
 		{
 			_hostLink = request;
@@ -105,12 +107,72 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 		_version.Value++;
 	}
 
-	/// <summary>Builds a section heading.</summary>
+	/// <summary>Builds a section heading: a muted label with space above it, so sections read as groups.</summary>
 	private static Text BuildSection( string title, Theme theme ) => new()
 	{
 		Content = title,
-		FontSize = SectionSize,
-		Margin = new Edges( theme.Spacing, 0, 0, 0 ),
+		Color = theme.Muted,
+		Margin = new Edges( theme.Spacing * 2, 0, 0, theme.Spacing / 2 ),
+	};
+
+	/// <summary>Builds a row of a group: a bold title over a muted description on the left, and its control on the right.</summary>
+	private static Row BuildSettingRow( string key, string title, string description, Blob? control, Theme theme )
+	{
+		var text = new Container
+		{
+			FlexGrow = 1,
+			FlexShrink = 1,
+			MinWidth = 0,
+			Gap = 2,
+			Children =
+			[
+				new Text { Content = title, FontWeight = 600 },
+				new Text { Content = description, Color = theme.Muted, FontSize = ViewStyle.SmallSize, TextWrap = TextWrap.Wrap },
+			],
+		};
+		return control is null ? BuildGroupRow( key, theme, text ) : BuildGroupRow( key, theme, text, control );
+	}
+
+	/// <summary>Builds a raised card that groups rows, with a divider between rows.</summary>
+	private static Container BuildGroup( Theme theme, IEnumerable<Blob> rows )
+	{
+		var children = new List<Blob>();
+		foreach ( var row in rows )
+		{
+			if ( children.Count > 0 )
+				children.Add( new Container { Height = theme.BorderWidth, BackgroundColor = theme.Divider } );
+			children.Add( row );
+		}
+		return new Container
+		{
+			BackgroundColor = theme.Raised,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = theme.Radius * 2,
+			Overflow = Overflow.Hidden,
+			Children = children,
+		};
+	}
+
+	/// <summary>Builds a row inside a group, with the group's inner padding.</summary>
+	private static Row BuildGroupRow( string key, Theme theme, params Blob[] children ) => new()
+	{
+		Key = key,
+		AlignItems = AlignItems.Center,
+		Gap = theme.Spacing,
+		Padding = new Edges( theme.Spacing, theme.Spacing * 1.5 ),
+		Children = [.. children],
+	};
+
+	/// <summary>Builds a small rounded label, such as a device's access.</summary>
+	private static Container BuildBadge( string text, Color color, Theme theme ) => new()
+	{
+		FlexShrink = 0,
+		Padding = new Edges( 2, theme.Spacing ),
+		BorderRadius = 9,
+		BorderColor = color,
+		BorderWidth = theme.BorderWidth,
+		Children = [new Text { Content = text, FontSize = SectionSize, Color = color }],
 	};
 
 	/// <summary>Builds a wrapping paragraph.</summary>

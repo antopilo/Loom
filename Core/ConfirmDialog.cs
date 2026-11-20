@@ -30,7 +30,7 @@ public sealed record ConfirmDialogInput( LoknApplication App, string Title, stri
 	}
 }
 
-/// <summary>The app's one confirmation dialog: a card in the middle of the window over a scrim, which takes all input until it closes.</summary>
+/// <summary>The app's one confirmation dialog: a <see cref="ModalWindow"/> in the middle of the window, which takes all input until it closes.</summary>
 /// <remarks>
 /// Mount it with <c>Cell.Mount&lt;ConfirmDialogInput, ConfirmDialog&gt;</c> while the question is open and leave it out to close it.
 /// Focus starts on Cancel, so Enter never accepts a destructive command by accident; Tab moves to the accept button and Escape cancels.
@@ -40,20 +40,8 @@ public sealed class ConfirmDialog : GuardedCell<ConfirmDialogInput>
 	/// <summary>Defines the card's width in logical pixels.</summary>
 	private const int CardWidth = 400;
 
-	/// <summary>Defines the opacity of the scrim over the window.</summary>
-	private const double ScrimOpacity = 0.45;
-
-	/// <summary>Defines how much rounder the card is than the theme's controls, in logical pixels.</summary>
-	private const int ExtraRadius = 3;
-
 	/// <summary>Targets the Cancel button, which holds focus when the dialog opens.</summary>
 	private readonly ElementHandle _cancel = new();
-
-	/// <summary>Hides native surfaces, such as browser pages, which would draw over the scrim and card.</summary>
-	protected override void Mounted() => Input.App.CoverNativeSurfaces( this, true );
-
-	/// <summary>Shows native surfaces again.</summary>
-	protected override void Unmounting() => Input.App.CoverNativeSurfaces( this, false );
 
 	/// <summary>Builds the scrim and the centered card: the title, the message, the listed items, the error, then Cancel and the accept button.</summary>
 	protected override Blob BuildView( ConfirmDialogInput input )
@@ -100,46 +88,19 @@ public sealed class ConfirmDialog : GuardedCell<ConfirmDialogInput>
 			Children = buttons,
 		} );
 
-		// The portal fills the window and centers the card; the modal scope keeps focus and input inside it.
-		var portal = new Portal
-		{
-			Key = "confirm-dialog",
-			Left = 0,
-			Top = 0,
-			Width = Length.Percent( 100 ),
-			Height = Length.Percent( 100 ),
-			AlignItems = AlignItems.Center,
-			JustifyContent = JustifyContent.Center,
-			Scrim = Color.Black.WithAlpha( ScrimOpacity ),
-			FocusScope = new FocusScopeOptions
-			{
-				Modal = true,
-				InitialFocus = _cancel,
-			},
-			AccessibilityRole = AccessibilityRole.Dialog,
-			AccessibilityName = input.Title,
-			OnDismiss = _ =>
-			{
-				if ( !input.IsBusy )
-					InvokeInputCallback( input.Cancel );
-			},
-		};
-		portal.Add( new Container
+		var body = new Container
 		{
 			Key = "card",
-			Width = CardWidth,
-			MaxWidth = Length.Percent( 90 ),
 			Padding = theme.Spacing * 2,
 			Gap = theme.Spacing,
-			FontFamily = theme.FontFamily,
-			FontSize = theme.FontSize,
-			BackgroundColor = theme.Raised,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = theme.Radius + ExtraRadius,
-			BoxShadow = new BoxShadow { OffsetY = 6, Blur = 18, Color = Color.Black.WithAlpha( 0.35 ) },
 			Children = card,
+		};
+		return Mount<ModalWindowInput, ModalWindow>( "confirm-dialog", new( input.App, input.Title, [body], () => InvokeInputCallback( input.Cancel ) )
+		{
+			Width = CardWidth,
+			MaxWidthPercent = 90,
+			InitialFocus = _cancel,
+			CanDismiss = !input.IsBusy,
 		} );
-		return portal;
 	}
 }

@@ -97,7 +97,7 @@ public static partial class TailscaleCli
 	internal static IReadOnlyList<string> ParseAddresses( string output ) =>
 		[.. output.Split( '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ).Where( line => System.Net.IPAddress.TryParse( line, out _ ) )];
 
-	/// <summary>Parses <c>tailscale status --json</c>: <c>BackendState</c>, <c>Self.DNSName</c>, <c>TailscaleIPs</c> and <c>AuthURL</c>.</summary>
+	/// <summary>Parses <c>tailscale status --json</c>: <c>BackendState</c>, <c>Self.DNSName</c>, <c>TailscaleIPs</c>, <c>AuthURL</c> and <c>CertDomains</c>.</summary>
 	/// <exception cref="JsonException">The text is not a status object.</exception>
 	internal static TailscaleStatus ParseStatus( string json )
 	{
@@ -111,7 +111,9 @@ public static partial class TailscaleCli
 			? ips.EnumerateArray().Where( ip => ip.ValueKind == JsonValueKind.String ).Select( ip => ip.GetString()! ).ToArray()
 			: [];
 		var authUrl = ReadString( root, "AuthURL" );
-		return new( state, string.IsNullOrEmpty( dnsName ) ? null : dnsName, addresses, string.IsNullOrEmpty( authUrl ) ? null : authUrl );
+		// Tailscale lists the names it can get certificates for only once HTTPS certificates are on for the tailnet.
+		var hasCertificates = root.TryGetProperty( "CertDomains", out var domains ) && domains.ValueKind == JsonValueKind.Array && domains.GetArrayLength() > 0;
+		return new( state, string.IsNullOrEmpty( dnsName ) ? null : dnsName, addresses, string.IsNullOrEmpty( authUrl ) ? null : authUrl, hasCertificates );
 	}
 
 	/// <summary>Determines from <c>tailscale serve --help</c> whether the CLI is 1.52 or later, whose Serve and Funnel take <c>--bg</c>.</summary>
@@ -150,7 +152,7 @@ public static partial class TailscaleCli
 		var help = await RunAsync( ["serve", "--help"], cancellationToken ).ConfigureAwait( false );
 		foreach ( var arguments in BuildCommands( port, funnel, SupportsBackground( help.Output + "\n" + help.Error ) ) )
 		{
-			var result = await RunAsync( arguments, cancellationToken ).ConfigureAwait( false );
+			var result = await RunApplyAsync( arguments, cancellationToken ).ConfigureAwait( false );
 			if ( result.Code != 0 )
 			{
 				// Tailscale prints the page that enables Serve or Funnel for this PC on a later line; it is kept, so Remote access can open it.
@@ -185,6 +187,76 @@ public static partial class TailscaleCli
 		}
 	}
 
+	/// <summary>Runs a Serve or Funnel command, reading its output as it comes: when Tailscale prints the page that enables Serve or Funnel for
+	/// this tailnet and then waits for it, the command is stopped at once and the page is reported.</summary>
+	/// <remarks>
+	/// Tailscale does not exit while that page is unvisited, so waiting for the command lost the page and only a timeout was left to report.
+	/// Serve and Funnel always run on this PC, so the process is started here rather than through a workspace host.
+	/// </remarks>
+	/// <exception cref="TailscaleException">Tailscale is not installed, waits for a page to enable Serve or Funnel, or did not finish in time.</exception>
+	private static async Task<WorkspaceProcessResult> RunApplyAsync( IReadOnlyList<string> arguments, CancellationToken cancellationToken )
+	{
+		var executable = FindExecutable() ?? throw new TailscaleException( "Tailscale is not installed. Install it from https://tailscale.com/download, sign in, then try again." );
+		var start = new System.Diagnostics.ProcessStartInfo( executable )
+		{
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+			UseShellExecute = false,
+			CreateNoWindow = true,
+		};
+		foreach ( var argument in arguments )
+			start.ArgumentList.Add( argument );
+
+		using var process = System.Diagnostics.Process.Start( start ) ?? throw new TailscaleException( "Tailscale could not be started." );
+		var printed = new System.Text.StringBuilder();
+		var page = new TaskCompletionSource<string>( TaskCreationOptions.RunContinuationsAsynchronously );
+		void Read( string? line )
+		{
+			if ( line is null )
+				return;
+			lock ( printed )
+				printed.AppendLine( line );
+			if ( EnablePage().Match( line ) is { Success: true } match )
+				page.TrySetResult( match.Value );
+		}
+		process.OutputDataReceived += ( _, e ) => Read( e.Data );
+		process.ErrorDataReceived += ( _, e ) => Read( e.Data );
+		process.BeginOutputReadLine();
+		process.BeginErrorReadLine();
+
+		using var timeout = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken );
+		timeout.CancelAfter( CommandTimeout );
+		var exited = process.WaitForExitAsync( timeout.Token );
+		try
+		{
+			if ( await Task.WhenAny( exited, page.Task ).ConfigureAwait( false ) == page.Task )
+			{
+				process.Kill( entireProcessTree: true );
+				var url = await page.Task.ConfigureAwait( false );
+				throw new TailscaleException( url.Contains( "/f/funnel", StringComparison.Ordinal )
+					? $"Funnel is not enabled for this tailnet. Allow it at {url}, then choose Check again."
+					: $"HTTPS is not enabled for this tailnet. Allow it at {url}, then choose Check again." );
+			}
+
+			await exited.ConfigureAwait( false );
+			// The exit can come before the last output lines; this waits for both streams to end.
+			process.WaitForExit();
+		}
+		catch ( OperationCanceledException ) when ( !cancellationToken.IsCancellationRequested )
+		{
+			process.Kill( entireProcessTree: true );
+			throw new TailscaleException( $"'tailscale {string.Join( ' ', arguments )}' did not finish within {CommandTimeout.TotalSeconds:0} s." );
+		}
+		catch ( OperationCanceledException )
+		{
+			process.Kill( entireProcessTree: true );
+			throw;
+		}
+
+		lock ( printed )
+			return new( process.ExitCode, printed.ToString(), "" );
+	}
+
 	/// <summary>Reads the first non-empty line a failed command printed, preferring its error output.</summary>
 	private static string ReadFirstLine( WorkspaceProcessResult result ) =>
 		( result.Error + "\n" + result.Output ).Split( '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ).FirstOrDefault() ?? $"exit code {result.Code}";
@@ -200,6 +272,10 @@ public static partial class TailscaleCli
 	/// <summary>Matches the first https address in a command's output.</summary>
 	[GeneratedRegex( @"https://\S+" )]
 	private static partial Regex HttpsLink();
+
+	/// <summary>Matches the admin page Tailscale prints, then waits on, when Serve (HTTPS) or Funnel is not enabled for the tailnet.</summary>
+	[GeneratedRegex( @"https://login\.tailscale\.com/f/\S+" )]
+	private static partial Regex EnablePage();
 }
 
 /// <summary>Tailscale's state as <c>tailscale status --json</c> reports it.</summary>
@@ -207,7 +283,8 @@ public static partial class TailscaleCli
 /// <param name="DnsName">The PC's MagicDNS name without the trailing dot, or null.</param>
 /// <param name="Addresses">The PC's tailnet addresses, IPv4 and IPv6.</param>
 /// <param name="AuthUrl">The sign-in address while signing in, or null.</param>
-public sealed record TailscaleStatus( string BackendState, string? DnsName, IReadOnlyList<string> Addresses, string? AuthUrl )
+/// <param name="HasCertificates">Whether HTTPS certificates are on for the tailnet, so Serve and Funnel can use HTTPS.</param>
+public sealed record TailscaleStatus( string BackendState, string? DnsName, IReadOnlyList<string> Addresses, string? AuthUrl, bool HasCertificates = false )
 {
 	/// <summary>Gets whether Tailscale is connected and signed in.</summary>
 	public bool IsRunning => BackendState == "Running";

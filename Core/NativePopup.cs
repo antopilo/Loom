@@ -120,10 +120,20 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 		_coveredApp = null;
 	}
 
-	/// <summary>Opens the native popup at the anchor, or falls back to a portal that covers native surfaces.</summary>
+	/// <summary>Opens a tooltip in a native popup at the anchor; shows a menu, or a tooltip the platform cannot open, in a portal that covers native surfaces.</summary>
+	/// <remarks>
+	/// Menus stay in the window: a native menu popup takes Windows' focus and pointer grab from Lokn's window, and after it closed Lokn often
+	/// ignored clicks and keys, and an editor opened from a menu choice, such as Rename, could not be typed in. Browser pages hide while a menu shows.
+	/// </remarks>
 	private void Open()
 	{
 		var input = Input;
+		if ( input.Kind == PopupKind.Menu )
+		{
+			ShowPortal();
+			return;
+		}
+
 		var root = new PopupRoot( input.Content );
 		var window = new PopupWindow( Host, root, input.Kind );
 		window.Dismissed += UpdateDismissed;
@@ -144,6 +154,12 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 		window.Dispose();
 		_window = null;
 		_root = null;
+		ShowPortal();
+	}
+
+	/// <summary>Shows the content in a portal in Lokn's window, hiding native surfaces such as browser pages while it shows.</summary>
+	private void ShowPortal()
+	{
 		_isPortal.Value = true;
 		_coveredApp = LoknApplication.Find( Host );
 		_coveredApp?.CoverNativeSurfaces( this, true );

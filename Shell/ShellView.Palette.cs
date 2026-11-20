@@ -29,9 +29,6 @@ internal sealed partial class ShellView
 	/// <summary>Defines the top inset as a fraction of a small viewport's height.</summary>
 	private const double TopInsetFraction = 0.2;
 
-	/// <summary>Defines the palette scrim opacity from zero to one.</summary>
-	private const double ScrimOpacity = 0.45;
-
 	/// <summary>Defines the search field row height in logical pixels.</summary>
 	private const int SearchHeight = 46;
 
@@ -129,43 +126,21 @@ internal sealed partial class ShellView
 		return new( types, type, groups, [.. groups.SelectMany( group => group.Hits )], null );
 	}
 
-	/// <summary>Builds the palette's modal scope: the search field, the type tabs, the results and the key hints.</summary>
+	/// <summary>Builds the palette's modal window: the search field, the type tabs, the results and the key hints.</summary>
 	private Blob BuildPalette()
 	{
-		var theme = Theme.Current;
 		var view = ComputeSearch();
 		var selected = Math.Clamp( _selectedResult, 0, Math.Max( 0, view.Count - 1 ) );
-		var portal = new Portal
+		var content = new List<Blob>
 		{
-			Key = "palette",
-			Top = Math.Min( PaletteTop, Host.Size.Height * TopInsetFraction ),
-			Height = PaletteHeight,
-			MaxHeight = Length.Percent( MaximumHeightPercent ),
-			Left = Math.Max( theme.Spacing, (Host.Size.Width - PaletteWidth) / 2 ),
-			Width = PaletteWidth,
-			MaxWidth = Length.Percent( MaximumWidthPercent ),
-			BackgroundColor = theme.Raised,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = theme.Radius * 2,
-			Overflow = Overflow.Hidden,
-			Scrim = Color.Black.WithAlpha( ScrimOpacity ),
-			FocusScope = new FocusScopeOptions
-			{
-				Modal = true,
-				InitialFocus = _searchHandle,
-			},
-			AccessibilityRole = AccessibilityRole.Dialog,
-			AccessibilityName = "Search",
-			OnDismiss = _ => ReleasePalette(),
+			BuildSearchHeader(),
+			BuildSearchTabs( view ),
+			BuildSearchResults( view, selected ),
+			BuildSearchFooter(),
 		};
-		portal.Add( BuildSearchHeader() );
-		portal.Add( BuildSearchTabs( view ) );
-		portal.Add( BuildSearchResults( view, selected ) );
-		portal.Add( BuildSearchFooter() );
 		if ( _actionsHit is { } hit )
 		{
-			portal.Add( Mount<ContextMenuInput, ContextMenu>( "search-actions", new( _actionsHandle, $"{hit.Item.Title} actions",
+			content.Add( Mount<ContextMenuInput, ContextMenu>( "search-actions", new( _actionsHandle, $"{hit.Item.Title} actions",
 				[.. hit.Item.Actions.Select( action => action with { Run = () => UpdateSearchAction( hit, action ) } )], ReleaseSearchActions )
 			{
 				Placement = PortalPlacement.BottomEnd,
@@ -173,7 +148,15 @@ internal sealed partial class ShellView
 			} ) );
 		}
 
-		return portal;
+		return Mount<ModalWindowInput, ModalWindow>( "palette", new( _app, "Search", content, ReleasePalette )
+		{
+			Width = PaletteWidth,
+			Height = PaletteHeight,
+			MaxWidthPercent = MaximumWidthPercent,
+			MaxHeightPercent = MaximumHeightPercent,
+			Top = Math.Min( PaletteTop, Host.Size.Height * TopInsetFraction ),
+			InitialFocus = _searchHandle,
+		} );
 	}
 
 	/// <summary>Builds the search field and the close button.</summary>

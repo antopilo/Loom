@@ -155,7 +155,10 @@ internal sealed partial class AccessContent
 			_version.Value++;
 		}
 		if ( ++_ticks % StatusTicks == 0 )
+		{
 			UpdateDaemonStatus();
+			UpdateSetup();
+		}
 	}
 
 	/// <summary>Reads the daemon's status and devices in the background, in the daemon role while connected.</summary>

@@ -27,7 +27,8 @@ internal static class SettingsChecks
 		CheckSharedFile();
 		CheckOwnership();
 		CheckShellBackdrop();
-		Console.WriteLine( "PASS settings inheritance, explicit reset, profile persistence, invalid input, failed writes, a file shared by two processes, module ownership, and shell backdrop choices." );
+		CheckPopups();
+		Console.WriteLine( "PASS settings inheritance, explicit reset, profile persistence, invalid input, failed writes, a file shared by two processes, module ownership, shell backdrop choices, and Settings as a popup window." );
 	}
 
 	/// <summary>Checks profile isolation and true inheritance rather than copied defaults.</summary>
@@ -207,6 +208,22 @@ internal static class SettingsChecks
 		CoreChecks.Check( window.Backdrop == WindowBackdrop.None && window.Background == Theme.Current.Canvas
 			&& ShellBackdrop.Alpha( ShellSettings.NoBackdrop, 40 ) == 1,
 			"Turning the backdrop off restores an opaque native window and ignores the opacity settings." );
+		app.Shutdown();
+	}
+
+	/// <summary>Checks Settings opens as one popup window outside the dock tree, and closing it releases its panel.</summary>
+	private static void CheckPopups()
+	{
+		var app = new LoknApplication();
+		CoreChecks.Check( app.Load( new ShellModule() ), "The shell registers Settings." );
+		var panels = app.Panels.Panels.Count;
+		ShellModule.OpenSettings( app );
+		ShellModule.OpenSettings( app );
+		var popup = app.Popups.Top;
+		CoreChecks.Check( app.Popups.Windows.Count == 1 && popup?.Content is SettingsContent && app.Panels.Panels.Count == panels,
+			"Opening Settings twice shows one popup window and adds no panel to the workspace." );
+		app.Popups.Close( popup! );
+		CoreChecks.Check( app.Popups.Windows.Count == 0 && popup!.Session.Lifetime.IsCancellationRequested, "Closing the popup ends its panel's lifetime." );
 		app.Shutdown();
 	}
 

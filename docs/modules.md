@@ -320,6 +320,26 @@ and needs to release at close. The token is already cancelled when the hook runs
 Nested Goo Cell lifetimes still follow normal mount/unmount behavior. Do not tie
 panel-owned state or background work to a pane's location in the docking tree.
 
+## Popup windows
+
+Any registered panel type opens as a popup window over the shell instead of in a pane:
+
+```csharp
+context.App.Popups.Open( "notes.page", input, new PopupOptions { Width = 800, Height = 600 } );
+```
+
+The panel is created by its type's factory as usual, with its own `PanelContext` and lifetime,
+but stays outside the dock tree: it is not saved with the layout. Opening a type that is
+already open brings its window to the front. Escape, a click on the scrim or the close button
+closes it (`App.Popups.Close( window )`), which ends the panel's lifetime and calls `Closed()`;
+so does unloading its module. While a popup is open, global shortcuts do not run; its panel's
+`ClaimsKey` still applies and Ctrl+K opens Search over it. Settings opens this way.
+
+The frame is `ModalWindow`, the same one Search and `ConfirmDialog` use: a raised card
+over a scrim with a modal focus scope, which hides native surfaces such as browser pages while it
+shows. A view that needs its own modal window mounts it directly with
+`Cell.Mount<ModalWindowInput, ModalWindow>`.
+
 ## Asking for the user
 
 A panel that is waiting for the user calls `context.RequestAttention( title, message )`,

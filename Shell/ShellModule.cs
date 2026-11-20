@@ -65,20 +65,14 @@ internal sealed class ShellModule : ILoknModule
 			.AddShellSearch( this );
 	}
 
-	/// <summary>Opens the Settings panel once, or returns to its existing panel.</summary>
-	internal static void OpenSettings( LoknApplication app )
-	{
-		if ( app.Panels.Panels.FirstOrDefault( panel => panel.TypeId == "shell.settings" ) is { } settings )
-			app.Panels.Activate( settings.Id );
-		else
-			app.Panels.Open( "shell.settings" );
-	}
+	/// <summary>Opens Settings in a popup window, or brings its open window to the front.</summary>
+	internal static void OpenSettings( LoknApplication app ) => app.Popups.Open( "shell.settings", options: new() { Width = 1000, Height = 720 } );
 
 	/// <summary>Opens Settings on the tab holding a setting, highlighted and scrolled into view.</summary>
 	internal static void ShowSetting( LoknApplication app, SettingDefinition setting )
 	{
 		OpenSettings( app );
-		app.Panels.FindContent<SettingsContent>()?.Content.ShowSetting( setting );
+		app.Popups.FindContent<SettingsContent>()?.ShowSetting( setting );
 	}
 }
 

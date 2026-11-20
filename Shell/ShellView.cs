@@ -43,6 +43,7 @@ internal sealed partial class ShellView : Cell
 			children.Add( BuildStatus() );
 		if ( BuildPaneMenu() is { } menu )
 			children.Add( menu );
+		children.AddRange( _app.Popups.Windows.Select( BuildPopup ) );
 		if ( _isPaletteOpen )
 			children.Add( BuildPalette() );
 
@@ -92,11 +93,10 @@ internal sealed partial class ShellView : Cell
 	/// <summary>Opens the Search palette when a module asks, such as the sidebar's Search button.</summary>
 	private void OpenSearch() => UpdatePalette();
 
-	/// <summary>Refreshes the shell after synchronizing native child surfaces with its overlays.</summary>
+	/// <summary>Refreshes the shell after applying a changed backdrop.</summary>
 	private void MarkChanged()
 	{
 		UpdateWindowBackdrop();
-		UpdateNativeSurfaceOcclusion();
 		Rebuild();
 	}
 
@@ -111,8 +111,19 @@ internal sealed partial class ShellView : Cell
 		_appliedBackdrop = backdrop;
 	}
 
-	/// <summary>Hides native child surfaces while the palette draws over them.</summary>
-	private void UpdateNativeSurfaceOcclusion() => _app.CoverNativeSurfaces( this, _isPaletteOpen );
+	/// <summary>Builds one popup window: its panel filling a <see cref="ModalWindow"/> with a close button, or why the panel failed.</summary>
+	private Blob BuildPopup( ShellPopup popup )
+	{
+		Blob content = popup.Content is { } panel
+			? new Container { Key = "popup-panel", FlexGrow = 1, MinHeight = 0, Children = [panel.Build()] }
+			: new Text { Key = "popup-failure", Content = popup.Failure ?? "", Color = Theme.Current.Error, Margin = Theme.Current.Spacing * 2 };
+		return Mount<ModalWindowInput, ModalWindow>( "popup:" + popup.TypeId, new( _app, popup.Title, [content], () => _app.Popups.Close( popup ) )
+		{
+			Width = popup.Options.Width,
+			Height = popup.Options.Height,
+			ShowsClose = true,
+		} );
+	}
 
 	/// <summary>Defines the essential shell command that opens the Settings panel.</summary>
 	private const string SettingsCommand = "shell.open.settings";
@@ -196,11 +207,11 @@ internal sealed partial class ShellView : Cell
 		};
 	}
 
-	/// <summary>Routes application shortcuts before focused controls, except keys a focused panel claims, while respecting palette modality.</summary>
+	/// <summary>Routes application shortcuts before focused controls, except keys a focused panel claims, while respecting modal windows.</summary>
 	private bool UpdateGlobalKey( Key key, KeyModifiers modifiers )
 	{
 		var isPaletteKey = key == Key.P && modifiers == KeyModifiers.PrimaryShift;
-		if ( !isPaletteKey && !_isPaletteOpen && _app.Panels.ClaimsKey( key, modifiers ) )
+		if ( !isPaletteKey && !_isPaletteOpen && (_app.Popups.Top is null ? _app.Panels.ClaimsKey( key, modifiers ) : _app.Popups.ClaimsKey( key, modifiers )) )
 			return false;
 
 		if ( isPaletteKey || (key == Key.K && modifiers == KeyModifiers.Primary) )
@@ -211,6 +222,10 @@ internal sealed partial class ShellView : Cell
 
 		if ( _isPaletteOpen )
 			return UpdatePaletteKey( key, modifiers );
+
+		// A popup is modal: its keys go to its controls, not to commands acting on panels behind it.
+		if ( _app.Popups.Top is not null )
+			return false;
 
 		if ( _app.Commands.FindShortcut( key, modifiers ) is not { } id )
 			return false;

@@ -173,6 +173,95 @@ public sealed record Theme
 		};
 	}
 
+	/// <summary>Defines the switch's width in logical pixels.</summary>
+	private const int SwitchWidth = 40;
+
+	/// <summary>Defines the switch's height in logical pixels.</summary>
+	private const int SwitchHeight = 22;
+
+	/// <summary>Defines the gap between the switch's track and knob in logical pixels.</summary>
+	private const int KnobInset = 3;
+
+	/// <summary>Builds the app's one on and off switch: a track in the accent color with the knob at the end when on; a disabled one is dimmed and
+	/// ignores clicks.</summary>
+	/// <param name="name">What the switch turns on, for screen readers.</param>
+	/// <param name="isOn">Whether it is on.</param>
+	/// <param name="toggle">Flips it.</param>
+	/// <param name="isEnabled">Whether it takes clicks.</param>
+	public Button BuildSwitch( string name, bool isOn, Action toggle, bool isEnabled = true )
+	{
+		const int knob = SwitchHeight - KnobInset * 2;
+		return new Button
+		{
+			Key = "switch",
+			Width = SwitchWidth,
+			Height = SwitchHeight,
+			FlexShrink = 0,
+			Padding = KnobInset,
+			FlexDirection = FlexDirection.Row,
+			JustifyContent = isOn ? JustifyContent.FlexEnd : JustifyContent.FlexStart,
+			BorderRadius = SwitchHeight / 2.0,
+			BackgroundColor = isOn ? Accent : Hover,
+			Opacity = isEnabled ? 1 : 0.4,
+			Focusable = isEnabled,
+			Cursor = isEnabled ? Cursor.Pointer : Cursor.Default,
+			AccessibilityName = $"{name}: {(isOn ? "on" : "off")}",
+			OnClick = isEnabled ? toggle : null,
+			KeyBindings = isEnabled ? [new( Key.Enter, KeyModifiers.None, toggle ), new( Key.Space, KeyModifiers.None, toggle )] : [],
+			FocusStyle = new Style { BorderColor = Text, BorderWidth = BorderWidth },
+			Children = [new Container { Width = knob, Height = knob, BorderRadius = knob / 2.0, BackgroundColor = isOn ? Canvas : Muted }],
+		};
+	}
+
+	/// <summary>Builds the app's one segmented control, with the picked choice raised.</summary>
+	/// <typeparam name="T">The choices' value type.</typeparam>
+	/// <param name="name">What the control picks, for screen readers.</param>
+	/// <param name="choices">Each choice's value and label, in order.</param>
+	/// <param name="picked">The picked value.</param>
+	/// <param name="pick">Picks a value.</param>
+	public Row BuildSegments<T>( string name, IReadOnlyList<(T Value, string Label)> choices, T picked, Action<T> pick )
+	{
+		var segments = new List<Blob>();
+		foreach ( var (value, label) in choices )
+		{
+			var isPicked = EqualityComparer<T>.Default.Equals( value, picked );
+			void Pick() => pick( value );
+			segments.Add( new Button
+			{
+				Key = "segment:" + label,
+				Padding = new Edges( Spacing * 0.75, Spacing * 1.75 ),
+				BorderRadius = Radius,
+				BackgroundColor = isPicked ? Panel : Color.Transparent,
+				BorderColor = isPicked ? Border : Color.Transparent,
+				BorderWidth = BorderWidth,
+				Color = isPicked ? Text : Muted,
+				Focusable = true,
+				Cursor = Cursor.Pointer,
+				AccessibilityName = isPicked ? $"{label}, selected" : label,
+				OnClick = Pick,
+				KeyBindings = [new( Key.Enter, KeyModifiers.None, Pick ), new( Key.Space, KeyModifiers.None, Pick )],
+				HoverStyle = new Style { Color = Text },
+				FocusStyle = new Style { BorderColor = Accent },
+				Children = [new Text { Content = label, FontWeight = isPicked ? 600 : 400 }],
+			} );
+		}
+
+		return new Row
+		{
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = name,
+			AlignSelf = AlignSelf.FlexStart,
+			FlexWrap = FlexWrap.Wrap,
+			Padding = 2,
+			Gap = 2,
+			BackgroundColor = Canvas,
+			BorderColor = Border,
+			BorderWidth = BorderWidth,
+			BorderRadius = Radius + 2,
+			Children = segments,
+		};
+	}
+
 	/// <summary>Defines the chevron view box and default drawn size, in logical pixels.</summary>
 	private const double ChevronBox = 12;
 

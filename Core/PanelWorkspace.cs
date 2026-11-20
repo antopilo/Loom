@@ -89,6 +89,20 @@ public sealed partial class PanelWorkspace
 		return id;
 	}
 
+	/// <summary>Creates a panel of a registered type outside the dock tree, such as for a popup window; the caller owns and releases it.</summary>
+	/// <param name="typeId">The panel type.</param>
+	/// <param name="input">The new panel's input.</param>
+	internal PanelSession CreateDetached( string typeId, object? input )
+	{
+		if ( !_types.TryGetValue( typeId, out var type ) || type.Lifetime.IsCancellationRequested )
+			throw new InvalidOperationException( $"Panel type is not registered: {typeId}" );
+
+		return BuildSession( type, Guid.NewGuid(), input, hostId: ResolveHost( type, null ) );
+	}
+
+	/// <summary>Cancels a detached panel's lifetime and runs its close hook once.</summary>
+	internal void ReleaseDetached( PanelSession session ) => ReleasePanel( session );
+
 	/// <summary>Closes every open panel, shown or hidden, that works on a host, such as when the host is removed.</summary>
 	/// <param name="hostId">The host identifier, compared with <see cref="GetHostId"/>.</param>
 	/// <returns>How many panels closed.</returns>
