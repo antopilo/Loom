@@ -48,7 +48,8 @@ internal static class RemoteRelayChecks
 		      "100.101.102.103",
 		      "fd7a:115c:a1e0::1234:5678"
 		    ],
-		    "Online": true
+		    "Online": true,
+		    "CapMap": { "https": null, "https://tailscale.com/cap/ssh": null }
 		  },
 		  "Health": [],
 		  "MagicDNSSuffix": "tail1234.ts.net",
@@ -220,6 +221,9 @@ internal static class RemoteRelayChecks
 		CoreChecks.Check( running.IsRunning && running.DnsName == "desk.tail1234.ts.net" && running.AuthUrl is null, "A running status gives the MagicDNS name without its trailing dot." );
 		CoreChecks.Check( running.Addresses.SequenceEqual( ["100.101.102.103", "fd7a:115c:a1e0::1234:5678"] ), "A running status lists the PC's tailnet addresses." );
 		CoreChecks.Check( TailscaleCli.DescribeProblem( running ) is null, "A running Tailscale has no problem." );
+		CoreChecks.Check( running.HasHttps && !running.HasFunnel && running.NodeId == "nABCDEF1CNTRL"
+			&& TailscaleCli.BuildFunnelUrl( running.NodeId ) == "https://login.tailscale.com/f/funnel?node=nABCDEF1CNTRL",
+			"A status with HTTPS certificates and no Funnel attribute says so, and the page that allows Funnel names this node." );
 
 		var signedOut = TailscaleCli.ParseStatus( SignedOutStatus );
 		CoreChecks.Check( !signedOut.IsRunning && signedOut.DnsName is null && signedOut.Addresses.Count == 0 && signedOut.AuthUrl == "https://login.tailscale.com/a/1a2b3c4d5e6f", "A signed-out status has no name or addresses and carries the sign-in address." );

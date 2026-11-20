@@ -13,9 +13,6 @@ internal sealed partial class AccessContent
 	/// <summary>Defines Tailscale's download page.</summary>
 	private const string TailscaleDownload = "https://tailscale.com/download";
 
-	/// <summary>Defines the tailnet's DNS settings, where HTTPS certificates are turned on.</summary>
-	private const string TailscaleDnsSettings = "https://login.tailscale.com/admin/dns";
-
 	/// <summary>Lists the ways devices reach this PC, with their labels and what each needs.</summary>
 	private static readonly (string Mode, string Label, string Text)[] ServeChoices =
 	[
@@ -119,7 +116,8 @@ internal sealed partial class AccessContent
 		};
 	}
 
-	/// <summary>Builds what the chosen mode reaches, or for Tailscale and Funnel without an address yet, the next step with its button and Check again.</summary>
+	/// <summary>Builds what the chosen mode reaches, or for Tailscale and Funnel without an address yet, the setup steps with what is done and a button
+	/// for each step left, and Check again.</summary>
 	private IEnumerable<Blob> BuildReach( string chosen, Theme theme )
 	{
 		if ( chosen == "off" || _module.RunningRole != RemoteModule.DaemonRole || _status is not { } status )
@@ -141,13 +139,22 @@ internal sealed partial class AccessContent
 				yield break;
 			}
 
-			var (text, label, url) = DescribeStep( tailscale, error );
-			yield return BuildParagraph( text, theme.Attention, selectable: true );
-			var buttons = new List<Blob>();
-			if ( url is not null )
-				buttons.Add( theme.BuildButton( label, () => _context.Run( () => _context.App.OpenLink( new Uri( url ) ) ) ) );
-			buttons.Add( theme.BuildButton( "Check again", () => ChooseServe( chosen ), isEnabled: !_isBusy ) );
-			yield return new Row { Gap = theme.Spacing, Children = buttons };
+			var steps = ListSteps( tailscale, chosen == "funnel" );
+			foreach ( var (text, isDone, label, url) in steps )
+			{
+				var row = new List<Blob>
+				{
+					new Text { Content = isDone ? "\u2713" : "\u25CB", Color = isDone ? theme.Success : theme.Attention, Width = 16, FlexShrink = 0 },
+					new Text { Content = text, Color = isDone ? theme.Muted : theme.Text, FlexGrow = 1, FlexShrink = 1, TextWrap = TextWrap.Wrap },
+				};
+				if ( !isDone && url is not null )
+					row.Add( theme.BuildButton( label, () => _context.Run( () => _context.App.OpenLink( new Uri( url ) ) ) ) );
+				yield return new Row { Key = "step:" + text, AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = row };
+			}
+			// Once every step is done, what still fails is Tailscale's own answer.
+			if ( error is not null && steps.All( step => step.IsDone ) )
+				yield return BuildParagraph( error, theme.Error, selectable: true );
+			yield return theme.BuildButton( "Check again", () => ChooseServe( chosen ), isEnabled: !_isBusy );
 		}
 		else if ( error is not null )
 			yield return BuildParagraph( error, theme.Error, selectable: true );
@@ -342,21 +349,22 @@ internal sealed partial class AccessContent
 		} );
 	}
 
-	/// <summary>Describes the next step before Tailscale serves this PC, with the button label and page that does it, or no page for a step done on
-	/// this PC itself.</summary>
-	private static (string Text, string Label, string? Url) DescribeStep( TailscaleState tailscale, string? error )
+	/// <summary>Lists the steps before Tailscale serves this PC, in order, each with whether it is done and the button and page that does it: install,
+	/// sign in, HTTPS certificates, and for Funnel, allowing Funnel for this PC. A step after one not done shows as not done.</summary>
+	private static List<(string Text, bool IsDone, string Label, string? Url)> ListSteps( TailscaleState tailscale, bool isFunnel )
 	{
-		if ( !tailscale.IsInstalled )
-			return ("Install Tailscale on this PC and sign in.", "Install Tailscale", TailscaleDownload);
-		if ( tailscale.Status is not { IsRunning: true } )
-			return (tailscale.Status is { } stopped ? TailscaleCli.DescribeProblem( stopped ) ?? "" : tailscale.Problem ?? "Tailscale is not running.", "Sign in", tailscale.Status?.AuthUrl);
-		if ( error is null )
-			return ("Tailscale is ready. Choose Check again.", "", null);
-		// Tailscale names the page that allows Funnel for this PC in its refusal; HTTPS certificates are turned on in the DNS settings.
-		var link = System.Text.RegularExpressions.Regex.Match( error, @"https://\S+" );
-		if ( link.Success )
-			return (error, "Allow Funnel", link.Value.TrimEnd( '.', ',', ')' ));
-		return (error + " Turn on HTTPS certificates for the tailnet, then check again.", "Open DNS settings", TailscaleDnsSettings);
+		var status = tailscale.Status;
+		var isRunning = status is { IsRunning: true };
+		var steps = new List<(string Text, bool IsDone, string Label, string? Url)>
+		{
+			("Install Tailscale on this PC", tailscale.IsInstalled, "Install Tailscale", TailscaleDownload),
+			(isRunning || status is null ? "Sign in to Tailscale" : TailscaleCli.DescribeProblem( status ) ?? "Sign in to Tailscale", tailscale.IsInstalled && isRunning,
+				"Sign in", status?.AuthUrl),
+			("Turn on HTTPS certificates for the tailnet", isRunning && status!.HasHttps, "Open DNS settings", TailscaleCli.DnsSettingsUrl),
+		};
+		if ( isFunnel )
+			steps.Add( ("Allow Funnel for this PC", isRunning && status!.HasFunnel, "Allow Funnel", TailscaleCli.BuildFunnelUrl( status?.NodeId )) );
+		return steps;
 	}
 
 	/// <summary>Reads whether Tailscale is installed on this PC and its state, or why it could not be read.</summary>
