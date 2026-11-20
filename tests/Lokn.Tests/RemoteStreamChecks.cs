@@ -24,7 +24,7 @@ internal static class RemoteStreamChecks
 		await CheckCaptureLimitAsync();
 		await CheckCaptureFailureAsync();
 		await CheckCloseAsync();
-		Console.WriteLine( "PASS remote stream: cap.list, cap.start with frames gated by cap.ack, cap.* with the control scope only, the capture limit, cap.stop, cap.end on capture failure, and cleanup on close." );
+		Console.WriteLine( "PASS remote stream: cap.list, cap.start with at most CaptureSession.MaxInFlight frames waiting for cap.ack, cap.* with the control scope only, the capture limit, cap.stop, cap.end on capture failure, and cleanup on close." );
 	}
 
 	/// <summary>Checks listing, starting, acknowledgement gating, input and stopping for a controlling device.</summary>
@@ -43,10 +43,13 @@ internal static class RemoteStreamChecks
 		await source.StartAsync( Window, new( 60, 0.5, 640 ), CancellationToken.None ).WaitAsync( Patience );
 		var first = await frames.Reader.ReadAsync().AsTask().WaitAsync( Patience );
 		CoreChecks.Check( first.Width == FakeCapturer.Width && first.Height == FakeCapturer.Height && first.Jpeg.Length == 1, "cap.start streams cap.frame with its size and bytes." );
-		CoreChecks.Check( !await ArrivesAsync( frames ), "No frame follows until the client acknowledges." );
+		for ( var i = 1; i < CaptureSession.MaxInFlight; i++ )
+			await frames.Reader.ReadAsync().AsTask().WaitAsync( Patience );
+		CoreChecks.Check( !await ArrivesAsync( frames ), "No frame follows once MaxInFlight frames wait for an acknowledgement." );
 		source.Ack();
-		var second = await frames.Reader.ReadAsync().AsTask().WaitAsync( Patience );
-		CoreChecks.Check( second.Jpeg[0] != first.Jpeg[0], "cap.ack lets the next frame through." );
+		var next = await frames.Reader.ReadAsync().AsTask().WaitAsync( Patience );
+		CoreChecks.Check( next.Jpeg[0] != first.Jpeg[0], "cap.ack lets the next frame through." );
+		CoreChecks.Check( !await ArrivesAsync( frames ), "One cap.ack lets one frame through." );
 
 		source.Input( new( StreamInput.Down, 1, 1, Button: 0 ) );
 		source.Input( new( StreamInput.Up, 1, 1, Button: 0 ) );

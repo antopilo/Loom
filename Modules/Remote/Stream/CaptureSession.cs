@@ -35,12 +35,16 @@ public sealed record StreamFrame( int Width, int Height, byte[] Jpeg );
 
 /// <summary>Captures, encodes and emits frames of one source on a background task, following the <c>cap.frame</c> rules of docs/remote.md.</summary>
 /// <remarks>
-/// A frame is emitted at most <see cref="CaptureOptions.Fps"/> times per second, and only after <see cref="Ack"/> answered the previous one,
-/// so a slow client or link gets fewer frames instead of a backlog. A capture identical to the last emitted frame is skipped.
+/// A frame is emitted at most <see cref="CaptureOptions.Fps"/> times per second, and only while fewer than <see cref="MaxInFlight"/> frames wait for
+/// <see cref="Ack"/>, so the next frame is captured and sent while earlier ones travel, and a slow client or link still gets fewer frames instead of a
+/// backlog. A capture identical to the last emitted frame is skipped.
 /// The frame callback runs on the capture task; it must not block.
 /// </remarks>
 public sealed class CaptureSession : IDisposable
 {
+	/// <summary>Defines how many emitted frames may wait for their acknowledgement at once; more than one keeps the link's round trip out of the frame time.</summary>
+	public const int MaxInFlight = 3;
+
 	/// <summary>Stores the source of images; the session disposes it.</summary>
 	private readonly IWindowCapturer _capturer;
 
@@ -62,8 +66,8 @@ public sealed class CaptureSession : IDisposable
 	/// <summary>Stores the capture task, or null before <see cref="Start"/>.</summary>
 	private Task? _task;
 
-	/// <summary>Completes when the client acknowledges the outstanding frame; null while no frame is outstanding.</summary>
-	private TaskCompletionSource? _pendingAck;
+	/// <summary>Counts the frames that may still be sent before an acknowledgement: <see cref="MaxInFlight"/> less the frames waiting for one.</summary>
+	private readonly SemaphoreSlim _credits = new( MaxInFlight, MaxInFlight );
 
 	/// <summary>Stores the size of the last emitted frame, packed as width in the high and height in the low 32 bits.</summary>
 	private long _frameSize;
@@ -99,9 +103,19 @@ public sealed class CaptureSession : IDisposable
 	/// <summary>Starts the capture task; later calls do nothing.</summary>
 	public void Start() => _task ??= Task.Run( () => RunAsync( _stop.Token ) );
 
-	/// <summary>Acknowledges the outstanding frame, which lets the next one be sent; an acknowledgement with no frame outstanding is ignored.</summary>
+	/// <summary>Acknowledges the oldest outstanding frame, which lets another be sent; an acknowledgement with no frame outstanding is ignored.</summary>
 	/// <remarks>Safe on any thread.</remarks>
-	public void Ack() => Interlocked.Exchange( ref _pendingAck, null )?.TrySetResult();
+	public void Ack()
+	{
+		try
+		{
+			_credits.Release();
+		}
+		catch ( SemaphoreFullException )
+		{
+			// No frame is outstanding.
+		}
+	}
 
 	/// <summary>Stops capturing; the capture task ends at its next wait and releases the capturer.</summary>
 	public void Dispose()
@@ -114,7 +128,7 @@ public sealed class CaptureSession : IDisposable
 			_capturer.Dispose();
 	}
 
-	/// <summary>Captures, skips unchanged images, encodes, emits and waits for the acknowledgement, paced by the frame rate.</summary>
+	/// <summary>Captures, skips unchanged images, waits for a free slot, encodes and emits, paced by the frame rate.</summary>
 	private async Task RunAsync( CancellationToken stop )
 	{
 		var interval = TimeSpan.FromSeconds( 1.0 / _options.Fps );
@@ -123,7 +137,10 @@ public sealed class CaptureSession : IDisposable
 		{
 			while ( !stop.IsCancellationRequested )
 			{
+				// The slot is taken before the capture, so the frame sent is the newest image, not one that waited for the link.
+				await _credits.WaitAsync( stop );
 				var started = Stopwatch.GetTimestamp();
+				var isSent = false;
 				if ( _capturer.Capture( _options.MaxWidth ) is { } frame )
 				{
 					var isChanged = !IsSame( frame, previous );
@@ -132,13 +149,13 @@ public sealed class CaptureSession : IDisposable
 					if ( isChanged )
 					{
 						var jpeg = await _encode( frame, _options.Quality, stop );
-						var ack = new TaskCompletionSource( TaskCreationOptions.RunContinuationsAsynchronously );
-						Volatile.Write( ref _pendingAck, ack );
 						Interlocked.Exchange( ref _frameSize, ((long)frame.Width << 32) | (uint)frame.Height );
 						_emit( new( frame.Width, frame.Height, jpeg ) );
-						await ack.Task.WaitAsync( stop );
+						isSent = true;
 					}
 				}
+				if ( !isSent )
+					_credits.Release();
 
 				var remaining = interval - Stopwatch.GetElapsedTime( started );
 				if ( remaining > TimeSpan.Zero )
