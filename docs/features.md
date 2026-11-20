@@ -49,7 +49,7 @@ switches to Work and **Alt+2** to Personal; the sidebar swipes in from that prof
   pane or splits an occupied pane to the right.
 - Panels have no title bar. Hovering the top of a pane reveals a dotted grip.
 - Drag the grip near an edge of another pane to dock; drop in the center to swap panels.
-- Click the grip for the pane's actions: open a panel, split right or down, close.
+- Right-click the grip (or focus it and press Enter) for the pane's actions: open a panel, split right or down, close.
 - Drag dividers to resize. Focus a divider with Tab and use its arrow keys to resize.
 - Close panes from the grip menu or with **Ctrl+W**. Empty source panes collapse automatically.
 - The titlebar **search** icon, **Ctrl+K**, or **Ctrl+Shift+P** opens **Search**: tasks, projects, chats,

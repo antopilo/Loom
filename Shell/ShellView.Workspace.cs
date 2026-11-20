@@ -132,7 +132,7 @@ internal sealed partial class ShellView
 		};
 	}
 
-	/// <summary>Builds a pane's dotted grip: hidden until its top section is hovered, dragged to dock, clicked for pane actions.</summary>
+	/// <summary>Builds a pane's dotted grip: hidden until its top section is hovered, dragged to dock, right-clicked for pane actions.</summary>
 	private Blob BuildGrip( DockPane pane, ElementHandle body )
 	{
 		var panel = pane.PanelId is { } panelId ? _app.Panels.Panels.FirstOrDefault( item => item.Id == panelId ) : null;
@@ -185,7 +185,12 @@ internal sealed partial class ShellView
 				Opacity = 1,
 				BackgroundColor = Theme.Current.Hover,
 			},
-			OnClick = Open,
+			// A left press starts a drag; the menu opens on a right click, or Enter and Space from the keyboard.
+			OnPointerDown = pointer =>
+			{
+				if ( pointer.Button == PointerButton.Secondary )
+					Open();
+			},
 			KeyBindings =
 			[
 				new( Key.Enter, KeyModifiers.None, Open ),
