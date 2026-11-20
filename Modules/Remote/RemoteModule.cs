@@ -38,6 +38,7 @@ public sealed class RemoteModule : ILoknModule
 		LocalRole, "Remote", value => Roles.Contains( value ) )
 	{
 		Choices = [new( LocalRole, "This Loom" ), new( DaemonRole, "Daemon" )],
+		IsHidden = true,
 	};
 
 	/// <summary>Defines the host's WebSocket port.</summary>
@@ -47,6 +48,7 @@ public sealed class RemoteModule : ILoknModule
 	{
 		Minimum = 1,
 		Maximum = 65535,
+		IsHidden = true,
 	};
 
 	/// <summary>Defines how devices reach the host, or off for the named pipe only; every mode but off is a preview.</summary>
@@ -54,34 +56,46 @@ public sealed class RemoteModule : ILoknModule
 		"remote.network", "Network access", "How other devices reach this PC's chats.",
 		"off", "Remote", value => Networks.Contains( value ) )
 	{
-		Choices = [new( "off", "Off" ), new( "lan", "LAN (Preview)" ), new( "tailscale", "Tailscale (Preview)" ), new( "relay", "Relay (Preview)" ), new( "funnel", "Funnel (Preview)" )],
+		Choices = [new( "off", "Off" ), new( "lan", "This network" ), new( "tailscale", "Tailscale: my devices" ), new( "relay", "Through a relay" ), new( "funnel", "Anywhere: a link" )],
+		IsHidden = true,
 	};
 
 	/// <summary>Defines the relay's address for the relay mode.</summary>
 	public static readonly Setting<string> RelayUrl = new(
 		"remote.relay-url", "Relay", "The relay's https address, for the Relay mode.",
-		"", "Remote" );
+		"", "Remote" )
+	{
+		IsHidden = true,
+	};
 
 	/// <summary>Defines whether the daemon starts when the user signs in.</summary>
 	public static readonly Setting<bool> LoginItem = new(
 		"remote.login-item", "Start the daemon at sign-in", "Keeps chats reachable after sign-in without opening Loom, while chats run in the daemon.",
-		false, "Remote" );
+		false, "Remote" )
+	{
+		IsHidden = true,
+	};
 
 	/// <summary>Defines whether the daemon shows its icon in the notification area while it runs.</summary>
 	public static readonly Setting<bool> Tray = new(
 		"remote.tray", "Show the daemon in the notification area", "An icon near the clock while the daemon runs: open Loom, see its agents, or stop it.",
-		true, "Remote" );
+		true, "Remote" )
+	{
+		IsHidden = true,
+	};
 
 	/// <summary>Defines whether this PC lets the agents of the hosts it paired with use its browser tabs through their browser tools.</summary>
 	public static readonly Setting<bool> LendBrowser = new(
 		"remote.lend-browser", "Let agents on paired hosts use this PC's browser", "While Loom here is linked with a paired host, the host's agents may open, read and use pages in this PC's Browser panels.",
-		true, "Remote" );
+		true, "Remote" )
+	{
+		IsHidden = true,
+	};
 
-	/// <summary>Defines the Settings entry that shows Remote access: Connect a device, the devices, the hosts and Advanced; its value is never set,
-	/// only its editor is used. Its category sorts first in the Remote tab, above the plain remote settings.</summary>
+	/// <summary>Defines the Settings entry that shows Remote access, the Remote tab's only row: where devices connect from, pairing, devices and the
+	/// PCs this one connects to; its value is never set, only its editor is used. The plain remote settings are hidden, since it shows them.</summary>
 	internal static readonly Setting<string> Access = new(
-		"remote.access", "Remote access", "Use this PC's chats from your phone or another PC, and the chats of other PCs here.",
-		"", "Connect" )
+		"remote.access", "Remote access", "", "", "Remote" )
 	{
 		Editor = ( app, scope ) => Cell.Mount<RemoteModule, AccessContent>( "remote-access", app.GetModule<RemoteModule>() ),
 	};

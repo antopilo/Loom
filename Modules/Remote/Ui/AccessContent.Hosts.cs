@@ -3,8 +3,8 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>The hosts part of Remote access: every paired host with its state, Reconnect and Remove, and the field that adds one from its pairing link;
-/// in Advanced, their names.</summary>
+/// <summary>The PCs part of Remote access: every PC this one paired with, with its state, Reconnect and Remove, and the field that adds one from its
+/// pairing link.</summary>
 internal sealed partial class AccessContent
 {
 	/// <summary>Stores whether the pairing link field takes focus when it next shows, as an <see cref="AddHostRequest"/> asks.</summary>
@@ -15,9 +15,6 @@ internal sealed partial class AccessContent
 
 	/// <summary>Stores the host the Remove dialog asks about, or null.</summary>
 	private string? _removing;
-
-	/// <summary>Holds the names being edited, by host id.</summary>
-	private readonly Dictionary<string, string> _nameDrafts = new( StringComparer.Ordinal );
 
 	/// <summary>Builds the hosts part: a row per paired host, the Add field, and the Remove dialog while open.</summary>
 	private IEnumerable<Blob> BuildHosts( Theme theme )
@@ -65,34 +62,12 @@ internal sealed partial class AccessContent
 		};
 	}
 
-	/// <summary>Builds the hosts part of Advanced: each paired host's name, what it allows, build and id.</summary>
-	private IEnumerable<Blob> BuildHostSettings( Theme theme )
-	{
-		if ( _module.Links is not { Count: > 0 } links )
-			yield break;
-
-		yield return BuildSection( "PCs you connect to", theme );
-		foreach ( var link in links )
-		{
-			var hostId = link.Host.Id;
-			var name = link.Host.Name;
-			var draft = _nameDrafts.GetValueOrDefault( hostId ) ?? name;
-			var scope = link.Status != ClientState.Connected ? "" : link.Scopes.Contains( DeviceScopes.Control ) ? "View and control" : "View only until its user allows control";
-			var details = string.Join( " · ", new[] { scope, link.HostVersion is { } version ? "build " + version : "", "host id " + hostId }.Where( part => part.Length > 0 ) );
-			yield return BuildEntry( "host-name:" + hostId, "Name", draft, link.HostName.Length > 0 ? link.HostName : name, text => _nameDrafts[hostId] = text,
-				text => UpdateName( hostId, text ) );
-			if ( _nameDrafts.TryGetValue( hostId, out var edited ) && edited != name )
-				yield return theme.BuildButton( "Save name", () => _context.Run( () => UpdateName( hostId, edited ) ) );
-			yield return BuildParagraph( details, theme.Muted, selectable: true );
-		}
-	}
-
 	/// <summary>Builds the Add field: paste another PC's pairing link and add it; the field takes focus once when the panel opened to add a host.</summary>
 	private Row BuildAddHost( Theme theme )
 	{
 		var isFocused = _isAddFocused;
 		_isAddFocused = false;
-		var entry = BuildEntry( "add-host", "Add a PC", _hostLink, "Paste the link from Connect a device on the other PC", text => _hostLink = text,
+		var entry = BuildEntry( "add-host", "Add a PC", _hostLink, "Paste the link from Pair on the other PC", text => _hostLink = text,
 			_ => UpdateAddHost(), autoFocus: isFocused );
 		return new Row
 		{
@@ -116,7 +91,6 @@ internal sealed partial class AccessContent
 			() => _context.Run( () =>
 			{
 				_removing = null;
-				_nameDrafts.Remove( hostId );
 				_module.RemoveHost( hostId );
 				ShowMessage( $"{name} is removed from this Loom.", false );
 			} ),
@@ -143,20 +117,5 @@ internal sealed partial class AccessContent
 					: $"Paired with {name}. Switch to it in the host switcher above the sidebar to see its chats.", false );
 			} );
 		} );
-	}
-
-	/// <summary>Saves a host's name, or shows why it could not be saved.</summary>
-	private void UpdateName( string hostId, string name )
-	{
-		try
-		{
-			_module.RenameHost( hostId, name );
-			_nameDrafts.Remove( hostId );
-			_version.Value++;
-		}
-		catch ( Exception exception ) when ( exception is IOException or UnauthorizedAccessException or InvalidDataException )
-		{
-			ShowMessage( exception.Message, true );
-		}
 	}
 }

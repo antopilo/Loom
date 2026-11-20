@@ -6,8 +6,8 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>The daemon part of Remote access: its controls, network state and view-only pairing in Advanced, the pairings waiting for an answer, and
-/// the requests behind them.</summary>
+/// <summary>The daemon part of Remote access: the restart offer for an outdated daemon, the pairings waiting for an answer, the QR code, and the
+/// <c>admin.*</c> requests behind the page.</summary>
 internal sealed partial class AccessContent
 {
 	/// <summary>Defines the drawn size of one QR module in logical pixels.</summary>
@@ -19,22 +19,9 @@ internal sealed partial class AccessContent
 	/// <summary>Defines how often the daemon's status refreshes, in ticks.</summary>
 	private const int StatusTicks = 5;
 
-	/// <summary>Defines what the <c>view</c> scope allows, as the pairing and devices sections say it (docs/remote.md, Scopes).</summary>
-	internal const string ViewText = "View: read chats and the store. No files, terminals, processes or window streaming.";
-
 	/// <summary>Defines what the <c>control</c> scope allows, as the pairing and devices sections say it (docs/remote.md, Scopes).</summary>
 	internal const string ControlText = "Control: also send prompts, change the store, and use this PC's files, terminals, processes and windows (stream and input) as you. "
 		+ "Loom's own keys and device list stay off-limits, but a controlling device can run any program, so only allow devices you trust like this PC.";
-
-	/// <summary>Lists the network modes with their labels.</summary>
-	private static readonly (string Mode, string Label)[] NetworkChoices =
-	[
-		("off", "Off"),
-		("lan", "LAN"),
-		("tailscale", "Tailscale"),
-		("relay", "Relay"),
-		("funnel", "Tailscale Funnel"),
-	];
 
 	/// <summary>Holds the QR's dark and light colors: scanners need dark modules on a light ground whatever the theme.</summary>
 	private static readonly (Color Dark, Color Light) QrColors = (Color.Parse( "#000000" ), Color.Parse( "#ffffff" ));
@@ -51,95 +38,18 @@ internal sealed partial class AccessContent
 	/// <summary>Stores whether a status refresh runs.</summary>
 	private bool _isRefreshing;
 
-	/// <summary>Stores whether the view asks to confirm stopping the daemon.</summary>
-	private bool _isConfirmingStop;
-
 	/// <summary>Counts ticks, so the status refreshes every few.</summary>
 	private int _ticks;
 
-	/// <summary>Builds the daemon part of Advanced: its status, start and stop, a restart when it runs another build, its network state and view-only
-	/// pairing; only its status and log while This PC's chats move.</summary>
-	private IEnumerable<Blob> BuildDaemon( Theme theme )
+	/// <summary>Builds the daemon's restart offer when it runs another build of Loom than this window.</summary>
+	private IEnumerable<Blob> BuildOutdated( Theme theme )
 	{
-		if ( _module.Daemon is not { } client )
+		if ( _module.Daemon is not { IsOutdated: true } client )
 			yield break;
 
-		yield return BuildSection( "Daemon", theme );
-		yield return BuildStatusRow( client, theme );
-		yield return BuildParagraph( "Its log, with every error it reports: " + RemoteClient.DaemonLogPath, theme.Muted, selectable: true );
-		// The chats are moving: starting or stopping the daemon now would fight the switch.
-		if ( _module.Switching is { IsWaiting: false } )
-			yield break;
-
-		if ( client.Status == ClientState.Stopped )
-			yield return theme.BuildButton( "Start daemon", () => _context.Run( client.Reconnect ) );
-		else if ( _isConfirmingStop )
-		{
-			yield return BuildParagraph( "Stopping the daemon stops its running agent turns and disconnects every device until it starts again.", theme.Attention );
-			yield return new Row
-			{
-				Gap = theme.Spacing,
-				Children =
-				[
-					theme.BuildButton( "Stop daemon", () => _context.Run( () =>
-					{
-						_isConfirmingStop = false;
-						client.StopDaemon();
-					} ) ),
-					theme.BuildButton( "Cancel", () => _context.Run( () =>
-					{
-						_isConfirmingStop = false;
-						_version.Value++;
-					} ) ),
-				],
-			};
-		}
-		else
-		{
-			yield return theme.BuildButton( "Stop daemon\u2026", () => _context.Run( () =>
-			{
-				_isConfirmingStop = true;
-				_version.Value++;
-			} ) );
-		}
-
-		if ( client.IsOutdated )
-		{
-			yield return BuildParagraph( $"The daemon runs another build of Loom ({client.HostVersion ?? "an older one"}; this window runs {RemoteProtocol.AppVersion}). "
-				+ "Restart it to update; that stops its running agent turns.", theme.Attention );
-			yield return theme.BuildButton( "Restart daemon", () => _context.Run( client.RestartDaemon ) );
-		}
-
-		if ( client.Status != ClientState.Connected || _status is not { } status )
-			yield break;
-
-		yield return BuildParagraph( $"{Frame.ReadString( status, "hostName" )} · host id {Frame.ReadString( status, "hostId" )} · process {Frame.ReadLong( status, "pid" )}",
-			theme.Muted, selectable: true );
-		foreach ( var blob in BuildNetwork( status, theme ) )
-			yield return blob;
-		foreach ( var blob in BuildPairing( client, theme ) )
-			yield return blob;
-	}
-
-	/// <summary>Builds what the network mode, chosen in the Network access setting below, reaches: addresses, web address, relay and the last error.</summary>
-	private IEnumerable<Blob> BuildNetwork( JsonObject status, Theme theme )
-	{
-		if ( Frame.ReadStrings( status, "addresses" ) is { Count: > 0 } addresses )
-			yield return BuildParagraph( "Devices reach this PC at " + string.Join( ", ", addresses ) + ".", theme.Muted, selectable: true );
-		if ( Frame.ReadString( status, "webUrl" ) is { } webUrl )
-			yield return BuildParagraph( "Web client: " + webUrl, theme.Muted, selectable: true );
-		if ( Frame.ReadString( status, "relayStatus" ) is { } relayStatus )
-			yield return BuildParagraph( "Relay: " + relayStatus, theme.Muted );
-		if ( Frame.ReadString( status, "error" ) is { } error )
-			yield return BuildParagraph( error, theme.Error, selectable: true );
-	}
-
-	/// <summary>Builds the view-only pairing in Advanced: a code whose device can only look until the user allows control. The offer shows at the top.</summary>
-	private IEnumerable<Blob> BuildPairing( RemoteClient client, Theme theme )
-	{
-		yield return BuildSection( "Pair with view only", theme );
-		yield return BuildParagraph( ViewText, theme.Muted );
-		yield return theme.BuildButton( "Show a view-only code", () => RunRequest( () => UpdatePairAsync( client, control: false ) ), isEnabled: !_isBusy && _pairing is null );
+		yield return BuildParagraph( $"The daemon runs another build of Loom ({client.HostVersion ?? "an older one"}; this window runs {RemoteProtocol.AppVersion}). "
+			+ "Restart it to update; that stops its running agent turns.", theme.Attention );
+		yield return theme.BuildButton( "Restart daemon", () => _context.Run( client.RestartDaemon ) );
 	}
 
 	/// <summary>Builds the devices that paired with view only and wait for the user's answer, each with Allow control and View only.</summary>
@@ -233,15 +143,15 @@ internal sealed partial class AccessContent
 			if ( pairing.Expires <= DateTimeOffset.UtcNow )
 			{
 				_pairing = null;
-				ShowMessage( "The pairing code expired. Choose Connect a device for a new one.", true );
+				ShowMessage( "The pairing code expired. Pair again for a new one.", true );
 			}
 			else
 				_version.Value++;
 		}
 
-		if ( _isConnecting )
+		if ( _pendingNetwork is not null )
 		{
-			UpdateConnect();
+			UpdateServe();
 			_version.Value++;
 		}
 		if ( ++_ticks % StatusTicks == 0 )
@@ -328,13 +238,11 @@ internal sealed partial class AccessContent
 		}
 	}
 
-	/// <summary>Sends <c>admin.scopes</c> or <c>admin.revoke</c> for a device and shows the device list it answers.</summary>
-	private async Task UpdateDevicesAsync( RemoteClient client, string type, string deviceId, bool? control )
+	/// <summary>Sends <c>admin.revoke</c> for a device, which signs it out at once, and shows the device list it answers.</summary>
+	private async Task RevokeAsync( RemoteClient client, string deviceId )
 	{
-		var frame = Frame.Create( type );
+		var frame = Frame.Create( "admin.revoke" );
 		frame["deviceId"] = deviceId;
-		if ( control is { } isOn )
-			frame["control"] = isOn;
 		var answer = await client.RequestAsync( frame, _context.Lifetime ).ConfigureAwait( false );
 		var devices = answer["devices"] as JsonArray;
 		_context.Post( () =>

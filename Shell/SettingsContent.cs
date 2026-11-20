@@ -96,7 +96,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		var settings = context.App.Settings;
 		var scope = _scope.Value;
 		// The modules built into the shell share one Shell tab, first; each feature module gets its own tab, in title order.
-		var owned = settings.Definitions
+		var owned = settings.Definitions.Where( item => !item.IsHidden )
 			.GroupBy( item => ComputeTab( settings.FindModule( item ) ?? "" ) )
 			.ToDictionary( group => group.Key, group => group.ToArray() );
 		var tabs = context.App.Modules

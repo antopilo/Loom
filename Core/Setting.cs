@@ -78,6 +78,12 @@ public abstract class SettingDefinition
 		get; init;
 	}
 
+	/// <summary>Gets whether the settings editor and Search leave the setting out, because its module's own editor shows it, such as Remote access.</summary>
+	public bool IsHidden
+	{
+		get; init;
+	}
+
 	/// <summary>Gets the values a user picks from, shown as a segmented control; null shows a switch, a number stepper or a text field by kind.</summary>
 	/// <remarks>Each value must be of the setting's type and pass its validation.</remarks>
 	public IReadOnlyList<SettingChoice>? Choices

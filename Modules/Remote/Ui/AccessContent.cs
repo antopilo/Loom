@@ -3,13 +3,12 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>Remote access, shown in Settings › Remote as the editor of <see cref="RemoteModule.Access"/>: one Connect a device button that does the
-/// setup and shows a pairing code, the devices paired with this PC, the hosts this PC paired with, and an Advanced part with the daemon and view-only
-/// pairing. The plain remote settings, such as where the chats run and the network mode, are the rows below it.</summary>
+/// <summary>Remote access, the only row of Settings › Remote and the editor of <see cref="RemoteModule.Access"/>, laid out as Tern's: Serve over, Pair,
+/// Devices, and the PCs this one connects to.</summary>
 /// <remarks>
-/// Connect a device moves This PC's chats to the daemon while Loom runs, showing the agents the move waits for, with Cancel; the view shows the note
-/// Loom leaves when it moved them by itself. In the <c>daemon</c> role it reads the daemon through <c>admin.*</c> requests over the pipe, refreshing every
-/// few seconds while shown. A request made with <see cref="RemoteModule.OpenAccess"/> focuses the pairing link field or pairs with a link at once.
+/// In the <c>daemon</c> role it reads the daemon through <c>admin.*</c> requests over the pipe, refreshing every few seconds while shown, and shows
+/// the note Loom leaves when it moved This PC's chats by itself. A request made with <see cref="RemoteModule.OpenAccess"/> focuses the pairing link
+/// field or pairs with a link at once.
 /// </remarks>
 internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 {
@@ -43,8 +42,8 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 	/// <summary>Stores whether a request runs, which disables the buttons that send one.</summary>
 	private bool _isBusy;
 
-	/// <summary>Builds the notice and result line, Connect a device, the pairings waiting for an answer, the devices, the hosts and Advanced, after
-	/// taking a request <see cref="RemoteModule.OpenAccess"/> made.</summary>
+	/// <summary>Builds the notice and result line, Serve over, Pair, Devices with the pairings waiting for an answer, and the PCs this one connects to,
+	/// after taking a request <see cref="RemoteModule.OpenAccess"/> made.</summary>
 	protected override Blob BuildView( RemoteModule module )
 	{
 		_module = module;
@@ -63,11 +62,11 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 		if ( _message.Length > 0 )
 			children.Add( BuildParagraph( _message, _isError ? theme.Error : theme.Success, selectable: true ) );
 
-		children.AddRange( BuildConnect( theme ) );
-		children.AddRange( BuildPending( theme ) );
+		children.AddRange( BuildServe( theme ) );
+		children.AddRange( BuildPair( theme ) );
 		children.AddRange( BuildDevices( theme ) );
+		children.AddRange( BuildPending( theme ) );
 		children.AddRange( BuildHosts( theme ) );
-		children.AddRange( BuildAdvanced( theme ) );
 		return new Container { Gap = theme.Spacing, Children = children };
 	}
 
@@ -105,18 +104,6 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 		}
 		_version.Value++;
 	}
-
-	/// <summary>Builds a dot in the connection's color and its status line.</summary>
-	private static Row BuildStatusRow( RemoteClient client, Theme theme ) => new()
-	{
-		AlignItems = AlignItems.Center,
-		Gap = theme.Spacing,
-		Children =
-		[
-			BuildDot( RemoteStatusContent.ComputeColor( client.Status, theme ) ),
-			new Text { Content = client.StatusText, Selectable = true, FlexShrink = 1, TextWrap = TextWrap.Wrap, },
-		],
-	};
 
 	/// <summary>Builds a section heading.</summary>
 	private static Text BuildSection( string title, Theme theme ) => new()

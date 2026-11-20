@@ -74,7 +74,7 @@ internal static class ShellSearch
 		} );
 
 	/// <summary>Lists every setting with its category; running one opens Settings at it.</summary>
-	private static IEnumerable<SearchItem> ListSettings( LoknApplication app, ShellModule module ) => app.Settings.Definitions
+	private static IEnumerable<SearchItem> ListSettings( LoknApplication app, ShellModule module ) => app.Settings.Definitions.Where( setting => !setting.IsHidden )
 	.Select( setting => new SearchItem( setting.Id, setting.Title, () => ShellModule.ShowSetting( app, setting ) )
 		{
 			Detail = setting.Category,

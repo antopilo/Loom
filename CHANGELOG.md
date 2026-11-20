@@ -5,12 +5,11 @@ version being packed. Write for users: what changed for them, not how.
 
 ## 0.4.0
 
-- **Remote access lives in Settings.** It is no longer a panel: open Settings › Remote, or click the daemon in the
-  status bar. Connect a device, your devices and the PCs you connect to sit at the top, and the plain remote
-  settings below them; the duplicate switches and the network editor are gone.
-- **Phones need nothing installed.** When Tailscale runs on this PC, Connect a device opens it to phones with
-  Tailscale Funnel: scan the code and Safari or Chrome opens Loom. Until phones can connect, Remote access shows the
-  next step with a button: install Tailscale, sign in, allow Funnel or turn on HTTPS certificates, then **Check again**.
+- **Remote access is one simple page in Settings.** Settings › Remote shows **Serve over** (Off, Tailscale, Anywhere:
+  a link with Tailscale Funnel, a relay, or this network) with what is left to do and a button for each step,
+  **Pair to control…** and **Pair to watch…** with a QR code, your **Devices** with Revoke, and the PCs you connect to.
+  Choosing a way to serve moves your chats to the background daemon by itself. With Funnel, a phone needs nothing
+  installed: scan the code and the browser opens Loom.
 - A code that only a Loom PC can open no longer shows as a QR code.
 
 ## 0.3.1

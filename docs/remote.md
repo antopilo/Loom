@@ -333,8 +333,8 @@ the dialog and marks the notification read in every Loom window. **Allow control
 device list (`admin.scopes`) and revoking also end the wait. Without a Loom attached, the daemon's tray icon
 announces the device instead (Roles). A restarted daemon forgets the waits; the devices stay view-only.
 
-Pre-granted links. **Connect a device** in Remote access sends `admin.pair { control: true }`, and Remote access warns that the
-device gets control of this PC, so the code is for that device only. The device that pairs through that offer is stored with
+Pre-granted links. **Pair to control…** in Remote access sends `admin.pair { control: true }` and warns that the device gets control of this
+PC, so the code is for that device only; **Pair to watch…** pairs with view only. The device that pairs through a control offer is stored with
 `["view","control"]`, its `paired` frame says so, and Loom on this PC hears `admin.paired { deviceId, name,
 control: true }` instead of a question. An answer without `control` comes from an older daemon: the panel
 withdraws the offer (`admin.unpair`) and asks to restart the daemon.
