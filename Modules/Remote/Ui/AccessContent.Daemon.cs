@@ -64,8 +64,11 @@ internal sealed partial class AccessContent
 			var isAnswering = prompts.IsAnswering( device.DeviceId );
 			var allow = theme.BuildButton( "Allow control", () => _context.Run( () => prompts.Answer( device.DeviceId, control: true ) ), isEnabled: !isAnswering );
 			allow.AccessibilityName = $"Allow {device.Name} to control this PC";
-			var keep = theme.BuildButton( "View only", () => _context.Run( () => prompts.Answer( device.DeviceId, control: false ) ), isEnabled: !isAnswering );
-			keep.AccessibilityName = $"Keep {device.Name} view only";
+			var isKnock = device.Code is not null;
+			var keep = isKnock
+				? theme.BuildButton( "Deny", () => _context.Run( () => prompts.Answer( device.DeviceId, control: false, deny: true ) ), isEnabled: !isAnswering )
+				: theme.BuildButton( "View only", () => _context.Run( () => prompts.Answer( device.DeviceId, control: false ) ), isEnabled: !isAnswering );
+			keep.AccessibilityName = isKnock ? $"Deny {device.Name}" : $"Keep {device.Name} view only";
 			yield return new Container
 			{
 				Key = "pending:" + device.DeviceId,
@@ -77,7 +80,8 @@ internal sealed partial class AccessContent
 				Children =
 				[
 					new Text { Content = device.Name, },
-					BuildParagraph( $"Paired {device.Paired.ToLocalTime():g} with view only. Allow it to control this PC?", theme.Muted ),
+					BuildParagraph( isKnock ? $"Wants to connect from this network. Allow it only if it shows the code {device.Code}."
+						: $"Paired {device.Paired.ToLocalTime():g} with view only. Allow it to control this PC?", theme.Muted ),
 					new Row
 					{
 						Gap = theme.Spacing,

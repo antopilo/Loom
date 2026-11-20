@@ -36,7 +36,8 @@ internal readonly record struct NetworkRequest( string Mode, int Port, string Re
 /// <param name="DeviceId">The device's id.</param>
 /// <param name="Name">The name the device gave.</param>
 /// <param name="Paired">When it paired.</param>
-internal sealed record PendingDevice( string DeviceId, string Name, DateTimeOffset Paired );
+/// <param name="Code">For a device on this network that asks to pair without a link, the code both screens show; null for one that paired with a link.</param>
+internal sealed record PendingDevice( string DeviceId, string Name, DateTimeOffset Paired, string? Code = null );
 
 /// <summary>Runs the host role (<c>Loom.exe --host</c>): accepts Loom on this PC over the named pipe and paired devices over WebSocket, the relay or
 /// Tailscale, completes the secure channel, and hands each connection to the host's services (docs/remote.md).</summary>
@@ -132,6 +133,12 @@ public sealed class HostGateway
 	/// <summary>Holds the devices that paired with view only and wait for the user's answer, by id; changed on the UI thread, read under its lock.</summary>
 	/// <remarks>In memory only: a restarted daemon forgets them, and the devices stay view-only, which Remote access can still change.</remarks>
 	private readonly Dictionary<string, PendingDevice> _pending = new( StringComparer.Ordinal );
+
+	/// <summary>Holds the answer each pairing request without a link waits for, by device id: the scopes granted, or null for a refusal.</summary>
+	private readonly Dictionary<string, TaskCompletionSource<IReadOnlyList<string>?>> _knocks = new( StringComparer.Ordinal );
+
+	/// <summary>Holds the devices the user allowed from a pairing request, until they are stored, so storing them asks no second question.</summary>
+	private readonly HashSet<string> _allowedKnocks = new( StringComparer.Ordinal );
 
 	/// <summary>Creates the gateway; <see cref="Start"/> opens its keys, devices and listeners.</summary>
 	/// <param name="app">The host application.</param>
@@ -234,7 +241,7 @@ public sealed class HostGateway
 			pipe.Start();
 			_pipe = pipe;
 		}
-		var discovery = new LanDiscovery( Keys.HostId, () => [.. ListLan( Network )] );
+		var discovery = new LanDiscovery( Keys.HostId, Keys.PublicKeyText, Environment.MachineName, () => [.. ListLan( Network )] );
 		_discovery = discovery.Start() ? discovery : null;
 
 		RequestNetwork( new( settings.Network, settings.Port, settings.RelayUrl ), isForced: true );
@@ -372,23 +379,71 @@ public sealed class HostGateway
 	/// <summary>Forgets the live offer once a device used it; on the handshake's thread.</summary>
 	private void ForgetOffer( PairingOffer offer ) => Interlocked.CompareExchange( ref _liveOffer, null, offer );
 
-	/// <summary>Answers a pending pairing for the user: <paramref name="control"/> grants the device control and closes its connections, so it
-	/// reconnects with it; either way the device stops waiting and Loom on this PC hears <c>admin.pairing.done</c>. On the UI thread.</summary>
+	/// <summary>Answers a pending pairing for the user. A device that paired with a link: <paramref name="control"/> grants it control and closes its
+	/// connections, so it reconnects with it. A device that asked without a link: it is paired with control, view only, or not at all when
+	/// <paramref name="deny"/>. Either way the device stops waiting and Loom on this PC hears <c>admin.pairing.done</c>. On the UI thread.</summary>
 	/// <exception cref="RemoteException">The device does not wait for an answer.</exception>
-	internal void Confirm( string deviceId, bool control )
+	internal void Confirm( string deviceId, bool control, bool deny = false )
 	{
+		TaskCompletionSource<IReadOnlyList<string>?>? knock;
+		lock ( _pending )
+			_knocks.TryGetValue( deviceId, out knock );
+		if ( knock is not null )
+		{
+			if ( !deny )
+			{
+				lock ( _pending )
+					_allowedKnocks.Add( deviceId );
+			}
+			knock.TrySetResult( deny ? null : control ? DeviceScopes.Controlling : DeviceScopes.Paired );
+			ClearPending( deviceId );
+			return;
+		}
+
 		bool isPending;
 		lock ( _pending )
 			isPending = _pending.ContainsKey( deviceId );
 		if ( !isPending || Devices.Find( deviceId ) is null )
 			throw new RemoteException( RemoteErrors.BadRequest, "That device does not wait for an answer." );
 
-		if ( control )
+		if ( deny )
+			Devices.Revoke( deviceId );
+		else if ( control )
 		{
 			Devices.SetScopes( deviceId, DeviceScopes.Controlling );
 			CloseDevice( deviceId );
 		}
 		ClearPending( deviceId );
+	}
+
+	/// <summary>Asks the user about a device on this network that wants to pair without a link: it waits in <see cref="Pending"/> with its code, and Loom
+	/// on this PC hears <c>admin.pairing</c>, until the user answers through <see cref="Confirm"/> or the request ends. On the handshake's thread.</summary>
+	/// <returns>The scopes the user granted, or null for a refusal.</returns>
+	private async Task<IReadOnlyList<string>?> AskKnockAsync( KnockRequest request, CancellationToken cancellationToken )
+	{
+		var answer = new TaskCompletionSource<IReadOnlyList<string>?>( TaskCreationOptions.RunContinuationsAsynchronously );
+		var waiting = new PendingDevice( request.DeviceId, request.Name, DateTimeOffset.UtcNow, request.Code );
+		lock ( _pending )
+		{
+			if ( !_knocks.TryAdd( request.DeviceId, answer ) )
+				return null;
+			_pending[request.DeviceId] = waiting;
+		}
+		_post( () =>
+		{
+			PushLocal( BuildPairingPush( waiting ) );
+			Changed?.Invoke();
+		} );
+		try
+		{
+			return await answer.Task.WaitAsync( cancellationToken ).ConfigureAwait( false );
+		}
+		finally
+		{
+			lock ( _pending )
+				_knocks.Remove( request.DeviceId );
+			_post( () => ClearPending( request.DeviceId ) );
+		}
 	}
 
 	/// <summary>Stops a device waiting for an answer, such as after the user answered, changed its scopes or revoked it, and tells Loom on this PC
@@ -414,6 +469,13 @@ public sealed class HostGateway
 		if ( _stopping.IsCancellationRequested )
 			return;
 
+		// A device the user just allowed from its pairing request needs no second question.
+		bool isAllowed;
+		lock ( _pending )
+			isAllowed = _allowedKnocks.Remove( device.DeviceId );
+		if ( isAllowed )
+			return;
+
 		if ( device.Scopes.Contains( DeviceScopes.Control ) )
 		{
 			var paired = Frame.Create( "admin.paired" );
@@ -426,20 +488,22 @@ public sealed class HostGateway
 
 		lock ( _pending )
 			_pending[device.DeviceId] = new( device.DeviceId, device.Name, device.Paired );
-		PushLocal( BuildPairingPush( device.DeviceId, device.Name, device.Paired ) );
+		PushLocal( BuildPairingPush( new( device.DeviceId, device.Name, device.Paired ) ) );
 		Changed?.Invoke();
 	} );
 
 	/// <summary>Stops a revoked device waiting for an answer; on the thread that revoked it.</summary>
 	private void ForgetRevoked( string deviceId ) => _post( () => ClearPending( deviceId ) );
 
-	/// <summary>Builds an <c>admin.pairing</c> push, or one entry of <c>admin.status</c>'s <c>pending</c>.</summary>
-	internal static JsonObject BuildPairingPush( string deviceId, string name, DateTimeOffset paired )
+	/// <summary>Builds an <c>admin.pairing</c> push, or one entry of <c>admin.status</c>'s <c>pending</c>, with the code of a request without a link.</summary>
+	internal static JsonObject BuildPairingPush( PendingDevice device )
 	{
 		var frame = Frame.Create( "admin.pairing" );
-		frame["deviceId"] = deviceId;
-		frame["name"] = name;
-		frame["paired"] = paired.ToUnixTimeSeconds();
+		frame["deviceId"] = device.DeviceId;
+		frame["name"] = device.Name;
+		frame["paired"] = device.Paired.ToUnixTimeSeconds();
+		if ( device.Code is { } code )
+			frame["code"] = code;
 		return frame;
 	}
 
@@ -766,7 +830,7 @@ public sealed class HostGateway
 	/// <summary>Runs the secure channel's host side on a new WebSocket and, for a paired device that completed it, the connection.</summary>
 	private async Task AcceptWebSocketAsync( WebSocketConnection carrier )
 	{
-		if ( await SecureChannel.AcceptAsync( carrier, Keys, Devices, Offers, _stopping.Token ).ConfigureAwait( false ) is not { } session )
+		if ( await SecureChannel.AcceptAsync( carrier, Keys, Devices, Offers, _stopping.Token, AskKnockAsync ).ConfigureAwait( false ) is not { } session )
 			return;
 
 		var device = session.Device;

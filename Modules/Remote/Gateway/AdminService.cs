@@ -55,7 +55,7 @@ internal sealed class AdminService( HostGateway gateway ) : IHostService
 			} )] ),
 			["pending"] = new JsonArray( [.. gateway.Pending.Select( device =>
 			{
-				var entry = HostGateway.BuildPairingPush( device.DeviceId, device.Name, device.Paired );
+				var entry = HostGateway.BuildPairingPush( device );
 				entry.Remove( "t" );
 				return (JsonNode)entry;
 			} )] ),
@@ -98,13 +98,14 @@ internal sealed class AdminService( HostGateway gateway ) : IHostService
 		return Task.FromResult( answer );
 	}
 
-	/// <summary>Answers <c>admin.confirm { deviceId, control }</c>: the user's answer to a pending pairing; control grants it and reconnects the
-	/// device with it, and either way the device stops waiting. Answers the device list.</summary>
+	/// <summary>Answers <c>admin.confirm { deviceId, control, deny? }</c>: the user's answer to a pending pairing; control grants it and reconnects the
+	/// device with it, deny refuses or removes it, and either way the device stops waiting. Answers the device list.</summary>
 	private async Task<JsonObject> UpdateConfirmAsync( JsonObject frame )
 	{
 		var deviceId = Frame.ReadString( frame, "deviceId" ) ?? throw new RemoteException( RemoteErrors.BadRequest, "admin.confirm needs deviceId." );
 		var control = Frame.ReadBool( frame, "control" ) ?? throw new RemoteException( RemoteErrors.BadRequest, "admin.confirm needs control." );
-		await UiInvoke.RunAsync( gateway.Post, () => gateway.Confirm( deviceId, control ) ).ConfigureAwait( false );
+		var deny = Frame.ReadBool( frame, "deny" ) == true;
+		await UiInvoke.RunAsync( gateway.Post, () => gateway.Confirm( deviceId, control, deny ) ).ConfigureAwait( false );
 		return BuildDevices();
 	}
 

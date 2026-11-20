@@ -763,6 +763,13 @@ the client broadcasts `loom-find:<hostId>` over UDP to port 47391 on each IPv4 n
 answers `{ hostId, addrs }` with its LAN addresses; the client dials those, then the relay. A private address gets
 2 s before the next one. Discovery reveals only addresses: every dial still checks the host's key.
 
+`loom-who` asks every host: each answers `{ hostId, hostKey, name, addrs }` while it listens on the LAN, and an answer whose
+key does not hash to its id is dropped. Remote access lists them under **Nearby on this network**. **Pair** sends a plaintext
+`knock { deviceId, name, deviceKey }`; the host keeps the connection open up to 2 minutes and asks its user like a view-only
+pairing (`admin.pairing` with `code`), showing a six-digit code from SHA-256 of both public keys, which the device shows too, so
+someone between them would show another code. **Allow control** answers `paired { hostId, scopes }` and stores the device;
+**Deny** (`admin.confirm { deny: true }`) answers `err failed`.
+
 ## Tailscale and Funnel
 
 Network modes `tailscale` and `funnel` run `tailscale.exe` (`%ProgramFiles%\Tailscale` or PATH).

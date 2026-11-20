@@ -17,6 +17,13 @@ public sealed record HostSession( PairedDevice Device, SecureConnection Connecti
 /// <param name="Connection">The encrypted connection, after the <c>ready</c> exchange.</param>
 public sealed record DeviceSession( string HostId, IReadOnlyList<string> Scopes, SecureConnection Connection );
 
+/// <summary>A device on the host's network asking to pair without a link, waiting for the host's user to answer.</summary>
+/// <param name="DeviceId">The device's new id.</param>
+/// <param name="Name">The device's name.</param>
+/// <param name="DeviceKey">The device's static public key, base64url SPKI.</param>
+/// <param name="Code">The six-digit code both screens show, from the host's and the device's keys, so the user can tell the request is this device's.</param>
+public sealed record KnockRequest( string DeviceId, string Name, string DeviceKey, string Code );
+
 /// <summary>Runs pairing and the connect handshake of docs/remote.md, Secure channel: plaintext text frames, then 3DH, HKDF-SHA256 and AES-256-GCM.</summary>
 public static class SecureChannel
 {
@@ -28,6 +35,9 @@ public static class SecureChannel
 
 	/// <summary>Bounds the host's handshakes in progress: 64 at once, 8 from one address.</summary>
 	public static ConnectionLimiter Handshakes { get; } = new( 64, 8 );
+
+	/// <summary>How long a pairing request waits for the host's user to answer.</summary>
+	public static readonly TimeSpan KnockTimeout = TimeSpan.FromMinutes( 2 );
 
 	/// <summary>The HKDF info of the device-to-host key.</summary>
 	private static readonly byte[] ClientToHostInfo = Encoding.UTF8.GetBytes( "loom c2h v1" );
@@ -48,7 +58,9 @@ public static class SecureChannel
 	/// <param name="offers">The live pairing offers.</param>
 	/// <param name="cancellationToken">Cancels the handshake.</param>
 	/// <returns>The session, or null when the connection paired a device, was refused or broke.</returns>
-	public static async Task<HostSession?> AcceptAsync( MessageConnection carrier, RemoteKeys host, DeviceStore devices, PairingOffers offers, CancellationToken cancellationToken )
+	/// <param name="knock">Asks the host's user about a <c>knock</c>, answering the scopes granted or null for a refusal; null refuses every knock.</param>
+	public static async Task<HostSession?> AcceptAsync( MessageConnection carrier, RemoteKeys host, DeviceStore devices, PairingOffers offers, CancellationToken cancellationToken,
+		Func<KnockRequest, CancellationToken, Task<IReadOnlyList<string>?>>? knock = null )
 	{
 		var address = carrier.RemoteAddress;
 		if ( !Handshakes.TryEnter( address ) )
@@ -69,6 +81,9 @@ public static class SecureChannel
 			{
 				case "pair":
 					await PairDeviceAsync( carrier, frame!, host, devices, offers ).ConfigureAwait( false );
+					break;
+				case "knock":
+					await KnockDeviceAsync( carrier, frame!, host, devices, knock, cancellationToken ).ConfigureAwait( false );
 					break;
 				case "hello":
 					session = await AcceptHelloAsync( carrier, frame!, first!.Data, host, devices, timeout.Token ).ConfigureAwait( false );
@@ -186,6 +201,106 @@ public static class SecureChannel
 				await carrier.DisposeAsync().ConfigureAwait( false );
 			throw;
 		}
+	}
+
+	/// <summary>Asks a host on this network to pair without a link: sends this device's key and waits until the host's user answers.</summary>
+	/// <param name="carrier">A new connection to the host; it is closed afterwards.</param>
+	/// <param name="device">This device's static keys.</param>
+	/// <param name="deviceId">This device's new id.</param>
+	/// <param name="name">This device's name.</param>
+	/// <param name="hostId">The host's id, as discovery gave it; the answer must name it.</param>
+	/// <param name="cancellationToken">Cancels the request.</param>
+	/// <returns>The scopes the host's user granted.</returns>
+	/// <exception cref="RemoteException">The host's user declined, or the request timed out.</exception>
+	/// <exception cref="IOException">The connection closed before the answer.</exception>
+	public static async Task<IReadOnlyList<string>> KnockAsync( MessageConnection carrier, RemoteKeys device, string deviceId, string name, string hostId,
+		CancellationToken cancellationToken )
+	{
+		try
+		{
+			var knock = Frame.Create( "knock" );
+			knock["deviceId"] = deviceId;
+			knock["name"] = name;
+			knock["deviceKey"] = device.PublicKeyText;
+			await carrier.SendAsync( knock ).ConfigureAwait( false );
+			var answer = await ReceiveAnswerAsync( carrier, "paired", cancellationToken ).ConfigureAwait( false );
+			if ( Frame.ReadString( answer, "hostId" ) != hostId )
+				throw new RemoteException( RemoteErrors.Failed, "Another host answered the pairing request." );
+			return Frame.ReadStrings( answer, "scopes" ) ?? DeviceScopes.Paired;
+		}
+		finally
+		{
+			await carrier.DisposeAsync().ConfigureAwait( false );
+		}
+	}
+
+	/// <summary>Computes the six-digit code a pairing request shows on both screens, from the host's and the device's public keys: someone between them
+	/// would hold other keys, so the codes would differ.</summary>
+	public static string ComputeKnockCode( string hostKey, string deviceKey )
+	{
+		var hash = SHA256.HashData( Encoding.UTF8.GetBytes( hostKey + ":" + deviceKey ) );
+		var number = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian( hash ) % 1_000_000;
+		return number.ToString( "000 000", System.Globalization.CultureInfo.InvariantCulture );
+	}
+
+	/// <summary>Answers a <c>knock</c>: asks the host's user, then stores the device with the scopes granted and answers <c>paired</c>, or refuses.</summary>
+	private static async Task KnockDeviceAsync( MessageConnection carrier, JsonObject frame, RemoteKeys host, DeviceStore devices,
+		Func<KnockRequest, CancellationToken, Task<IReadOnlyList<string>?>>? ask, CancellationToken cancellationToken )
+	{
+		if ( ask is null )
+		{
+			await carrier.SendAsync( Frame.BuildErr( RemoteErrors.Failed, "This host takes pairing links only." ) ).ConfigureAwait( false );
+			return;
+		}
+		if ( Frame.ReadString( frame, "deviceId" ) is not { } deviceId || !Guid.TryParseExact( deviceId, "N", out _ )
+			|| Frame.ReadString( frame, "deviceKey" ) is not { } deviceKey )
+		{
+			await carrier.SendAsync( Frame.BuildErr( RemoteErrors.BadRequest, "The knock frame is incomplete." ) ).ConfigureAwait( false );
+			return;
+		}
+		using ( var key = RemoteKeys.ImportAgreementKey( deviceKey ) )
+		{
+			if ( key is null )
+			{
+				await carrier.SendAsync( Frame.BuildErr( RemoteErrors.BadRequest, "The device key is not a P-256 public key." ) ).ConfigureAwait( false );
+				return;
+			}
+		}
+		if ( devices.Find( deviceId ) is not null )
+		{
+			await carrier.SendAsync( Frame.BuildErr( RemoteErrors.BadRequest, AlreadyPaired ) ).ConfigureAwait( false );
+			return;
+		}
+
+		var name = (Frame.ReadString( frame, "name" ) ?? "").Trim();
+		name = name.Length == 0 ? "Device" : name[..Math.Min( name.Length, MaxNameLength )];
+		using var wait = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken );
+		wait.CancelAfter( KnockTimeout );
+		IReadOnlyList<string>? scopes;
+		try
+		{
+			scopes = await ask( new( deviceId, name, deviceKey, ComputeKnockCode( host.PublicKeyText, deviceKey ) ), wait.Token ).ConfigureAwait( false );
+		}
+		catch ( OperationCanceledException ) when ( !cancellationToken.IsCancellationRequested )
+		{
+			scopes = null;
+		}
+		if ( scopes is not { Count: > 0 } )
+		{
+			await carrier.SendAsync( Frame.BuildErr( RemoteErrors.Failed, "The host's user did not allow this device." ) ).ConfigureAwait( false );
+			return;
+		}
+
+		var device = new PairedDevice { DeviceId = deviceId, Name = name, DeviceKey = deviceKey, Scopes = scopes, Paired = DateTimeOffset.UtcNow };
+		if ( !devices.TryAdd( device ) )
+		{
+			await carrier.SendAsync( Frame.BuildErr( RemoteErrors.BadRequest, AlreadyPaired ) ).ConfigureAwait( false );
+			return;
+		}
+		var paired = Frame.Create( "paired" );
+		paired["hostId"] = host.HostId;
+		paired["scopes"] = Frame.BuildStrings( scopes );
+		await carrier.SendAsync( paired ).ConfigureAwait( false );
 	}
 
 	/// <summary>Checks a <c>pair</c> frame's MAC against the live offers, stores a new device with the <c>view</c> scope, or <c>view</c> and

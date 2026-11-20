@@ -45,6 +45,44 @@ internal static class HostPairing
 		return (new PairedHost( link.HostId, link.HostKey, link.Addrs, link.Relay, deviceId, "", DateTimeOffset.UtcNow ), scopes);
 	}
 
+	/// <summary>Asks a host on this network to pair without a link, under a new device id, and waits until its user answers. The entry is not saved; the
+	/// caller adds it to <see cref="PairedHosts"/>.</summary>
+	/// <param name="dataFolder">The data folder this PC's device key lives in.</param>
+	/// <param name="host">The host, as discovery found it.</param>
+	/// <param name="cancellationToken">Cancels the request.</param>
+	/// <returns>The new entry and the scopes the host's user granted.</returns>
+	/// <exception cref="RemoteException">The host's user declined, or did not answer in time.</exception>
+	/// <exception cref="IOException">No address of the host answered.</exception>
+	public static async Task<(PairedHost Host, IReadOnlyList<string> Scopes)> KnockAsync( string dataFolder, NearbyHost host, CancellationToken cancellationToken )
+	{
+		using var keys = RemoteKeys.LoadOrCreate( ComputeDeviceKeyPath( dataFolder ) );
+		var deviceId = Guid.NewGuid().ToString( "N" );
+		var failures = new List<string>();
+		foreach ( var addr in host.Addrs )
+		{
+			MessageConnection carrier;
+			using ( var connect = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken ) )
+			{
+				connect.CancelAfter( PrivateDialTimeout );
+				try
+				{
+					carrier = await WebSocketDialer.ConnectAsync( WebSocketDialer.BuildHostUri( addr, RemoteModule.Port.DefaultValue ), connect.Token ).ConfigureAwait( false );
+				}
+				catch ( Exception exception ) when ( exception is WebSocketException or IOException or OperationCanceledException or UriFormatException && !cancellationToken.IsCancellationRequested )
+				{
+					failures.Add( $"{addr}: {exception.Message}" );
+					continue;
+				}
+			}
+			// The host's user answers on the host, so the request waits as long as the host lets it.
+			using var answer = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken );
+			answer.CancelAfter( SecureChannel.KnockTimeout + TimeSpan.FromSeconds( 10 ) );
+			var scopes = await SecureChannel.KnockAsync( carrier, keys, deviceId, Environment.MachineName, host.HostId, answer.Token ).ConfigureAwait( false );
+			return (new PairedHost( host.HostId, host.HostKey, host.Addrs, null, deviceId, "", DateTimeOffset.UtcNow ), scopes);
+		}
+		throw new IOException( "The PC did not answer. " + string.Join( "; ", failures ) );
+	}
+
 	/// <summary>Opens a WebSocket to each address and then the relay until <paramref name="run"/> completes on one; a refusal from the host ends the attempts.</summary>
 	/// <returns>What <paramref name="run"/> answered, and the address that answered, or null for the relay.</returns>
 	/// <exception cref="IOException">No address answered.</exception>

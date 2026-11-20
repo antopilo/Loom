@@ -193,6 +193,33 @@ internal static class RemoteChecks
 		await accepted.WaitAsync( Patience );
 		CoreChecks.Check( granted.SequenceEqual( DeviceScopes.Controlling ) && devices.Find( trustedId )?.Scopes.SequenceEqual( DeviceScopes.Controlling ) == true,
 			"A link that grants control pairs the device with view and control, and its paired frame says so." );
+
+		// A device on the host's network asks without a link: the host's user sees the same code the device computes, and allows or denies it.
+		using var nearby = RemoteKeys.Create();
+		var knockId = Guid.NewGuid().ToString( "N" );
+		KnockRequest? asked = null;
+		(hostEnd, deviceEnd) = MemoryConnection.CreatePair();
+		accepted = SecureChannel.AcceptAsync( hostEnd, host, devices, offers, CancellationToken.None, ( request, _ ) =>
+		{
+			asked = request;
+			return Task.FromResult<IReadOnlyList<string>?>( DeviceScopes.Controlling );
+		} );
+		var allowed = await SecureChannel.KnockAsync( deviceEnd, nearby, knockId, "Laptop 2", host.HostId, CancellationToken.None ).WaitAsync( Patience );
+		await accepted.WaitAsync( Patience );
+		CoreChecks.Check( asked is { Name: "Laptop 2" } && asked.Code == SecureChannel.ComputeKnockCode( host.PublicKeyText, nearby.PublicKeyText ) && asked.Code.Length == 7
+			&& allowed.SequenceEqual( DeviceScopes.Controlling ) && devices.Find( knockId )?.Scopes.SequenceEqual( DeviceScopes.Controlling ) == true,
+			"A request without a link shows the host's user the code the device computes, and once allowed pairs the device with the scopes granted." );
+		var deniedId = Guid.NewGuid().ToString( "N" );
+		(hostEnd, deviceEnd) = MemoryConnection.CreatePair();
+		accepted = SecureChannel.AcceptAsync( hostEnd, host, devices, offers, CancellationToken.None, ( _, _ ) => Task.FromResult<IReadOnlyList<string>?>( null ) );
+		var denied = await CaptureAsync( SecureChannel.KnockAsync( deviceEnd, nearby, deniedId, "Stranger", host.HostId, CancellationToken.None ) );
+		await accepted.WaitAsync( Patience );
+		CoreChecks.Check( denied is RemoteException && devices.Find( deniedId ) is null, "A denied request pairs nothing." );
+		(hostEnd, deviceEnd) = MemoryConnection.CreatePair();
+		accepted = SecureChannel.AcceptAsync( hostEnd, host, devices, offers, CancellationToken.None );
+		var unasked = await CaptureAsync( SecureChannel.KnockAsync( deviceEnd, nearby, Guid.NewGuid().ToString( "N" ), "Stranger", host.HostId, CancellationToken.None ) );
+		await accepted.WaitAsync( Patience );
+		CoreChecks.Check( unasked is RemoteException, "A host that takes no requests refuses them." );
 	}
 
 	/// <summary>Checks <c>remote-hosts.json</c>: the former <c>remote-host.json</c> is imported once and deleted, entries are added, replaced keeping

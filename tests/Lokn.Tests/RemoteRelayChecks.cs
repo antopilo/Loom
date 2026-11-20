@@ -170,20 +170,25 @@ internal static class RemoteRelayChecks
 		}
 	}
 
-	/// <summary>Checks that a discovery query finds a host on this PC by its id with the addresses it gives, and that another id finds nothing.</summary>
+	/// <summary>Checks that discovery finds a host on this PC by its id and lists it nearby with its name and addresses, ignores another id, and drops
+	/// answers that are no answer or whose key does not match their host id.</summary>
 	private static async Task CheckDiscoveryAsync()
 	{
-		CoreChecks.Check( LanDiscovery.ReadAnswer( LanDiscovery.BuildAnswer( "a", ["10.0.0.2:47390"] ), "b" ).Count == 0
-			&& LanDiscovery.ReadAnswer( "not json"u8, "a" ).Count == 0, "An answer for another host, or a datagram that is no answer, gives no address." );
-		var hostId = Guid.NewGuid().ToString( "N" );
-		using var host = new LanDiscovery( hostId, () => ["192.168.50.7:47390"] );
+		using var keys = RemoteKeys.Create();
+		var real = new NearbyHost( keys.HostId, keys.PublicKeyText, "DESK", ["192.168.50.7:47390"] );
+		CoreChecks.Check( LanDiscovery.ReadAnswer( LanDiscovery.BuildAnswer( real ) ) is { Name: "DESK" } read && read.HostId == keys.HostId && read.Addrs.SequenceEqual( real.Addrs )
+			&& LanDiscovery.ReadAnswer( LanDiscovery.BuildAnswer( real with { HostId = "forged" } ) ) is null && LanDiscovery.ReadAnswer( "not json"u8 ) is null,
+			"An answer reads back, and one whose key does not hash to its host id, or that is no answer, is dropped." );
+		using var host = new LanDiscovery( keys.HostId, keys.PublicKeyText, "DESK", () => real.Addrs );
 		if ( !host.Start() )
 		{
 			Console.WriteLine( "SKIP LAN discovery round trip: another program holds the discovery port." );
 			return;
 		}
-		var found = await LanDiscovery.FindAsync( hostId, TimeSpan.FromSeconds( 1.5 ), CancellationToken.None );
-		CoreChecks.Check( found.SequenceEqual( ["192.168.50.7:47390"] ), $"A broadcast query finds the host by its id with its addresses ({string.Join( ", ", found )})." );
+		var found = await LanDiscovery.FindAsync( keys.HostId, TimeSpan.FromSeconds( 1.5 ), CancellationToken.None );
+		CoreChecks.Check( found.SequenceEqual( real.Addrs ), $"A broadcast query finds the host by its id with its addresses ({string.Join( ", ", found )})." );
+		var nearby = await LanDiscovery.ListAsync( TimeSpan.FromSeconds( 1.5 ), CancellationToken.None );
+		CoreChecks.Check( nearby.Any( item => item.HostId == keys.HostId && item.Name == "DESK" && item.Addrs.SequenceEqual( real.Addrs ) ), "Listing nearby hosts includes the host with its name." );
 		var other = await LanDiscovery.FindAsync( Guid.NewGuid().ToString( "N" ), TimeSpan.FromSeconds( 0.5 ), CancellationToken.None );
 		CoreChecks.Check( other.Count == 0, "A query for another host id gets no answer." );
 	}

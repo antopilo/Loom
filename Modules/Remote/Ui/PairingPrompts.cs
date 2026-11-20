@@ -84,6 +84,17 @@ internal sealed class PairingPrompts : IDisposable
 		if ( _pending.FirstOrDefault( device => !_answering.Contains( device.DeviceId ) ) is not { } device )
 			return null;
 
+		// A device that asked from this network without a link has no access yet: the user compares its code, then allows it or not.
+		if ( device.Code is { } code )
+		{
+			return new ConfirmDialogInput( _app, $"{device.Name} wants to connect to this PC",
+				$"Check that {device.Name} shows the code {code}. If it does not, choose Deny. " + AccessContent.ControlText, "Allow control",
+				() => Answer( device.DeviceId, control: true ), () => Answer( device.DeviceId, control: false, deny: true ) )
+			{
+				IsDestructive = true,
+				CancelLabel = "Deny",
+			};
+		}
 		return new ConfirmDialogInput( _app, $"Allow {device.Name} to control this PC?", AccessContent.ControlText, "Allow control",
 			() => Answer( device.DeviceId, control: true ), () => Answer( device.DeviceId, control: false ) )
 		{
@@ -92,13 +103,13 @@ internal sealed class PairingPrompts : IDisposable
 		};
 	}
 
-	/// <summary>Follows a pairing notification's link: <c>allow/&lt;deviceId&gt;</c> or <c>view/&lt;deviceId&gt;</c> answers, <c>devices</c> opens Remote
-	/// access on its devices.</summary>
+	/// <summary>Follows a pairing notification's link: <c>allow/&lt;deviceId&gt;</c>, <c>view/&lt;deviceId&gt;</c> or <c>deny/&lt;deviceId&gt;</c> answers,
+	/// <c>devices</c> opens Remote access on its devices.</summary>
 	internal void AnswerLink( string path )
 	{
 		var parts = path.Split( '/', 2 );
-		if ( parts.Length == 2 && parts[1].Length > 0 && parts[0] is "allow" or "view" )
-			Answer( Uri.UnescapeDataString( parts[1] ), parts[0] == "allow" );
+		if ( parts.Length == 2 && parts[1].Length > 0 && parts[0] is "allow" or "view" or "deny" )
+			Answer( Uri.UnescapeDataString( parts[1] ), parts[0] == "allow", parts[0] == "deny" );
 		else if ( path == "devices" )
 			_app.OpenLink( LoknLinks.Create( Source, RemoteModule.RoleRoute ) );
 	}
@@ -106,22 +117,25 @@ internal sealed class PairingPrompts : IDisposable
 	/// <summary>Sends the user's answer for a waiting device with <c>admin.confirm</c>, once; the daemon's <c>admin.pairing.done</c> then dismisses it.</summary>
 	/// <param name="deviceId">The device.</param>
 	/// <param name="control">Whether it may control this PC; false keeps it view only.</param>
-	internal void Answer( string deviceId, bool control )
+	/// <param name="deny">Whether to refuse a device that asked without a link.</param>
+	internal void Answer( string deviceId, bool control, bool deny = false )
 	{
 		if ( _pending.All( device => device.DeviceId != deviceId ) || !_answering.Add( deviceId ) )
 			return;
 
 		_version.Value++;
-		_ = SendAnswerAsync( deviceId, control );
+		_ = SendAnswerAsync( deviceId, control, deny );
 	}
 
 	/// <summary>Sends <c>admin.confirm</c> and dismisses the device once the daemon took the answer or no longer waits for it; a lost connection lets
 	/// the user answer again.</summary>
-	private async Task SendAnswerAsync( string deviceId, bool control )
+	private async Task SendAnswerAsync( string deviceId, bool control, bool deny )
 	{
 		var frame = Frame.Create( "admin.confirm" );
 		frame["deviceId"] = deviceId;
 		frame["control"] = control;
+		if ( deny )
+			frame["deny"] = true;
 		try
 		{
 			await _daemon.RequestAsync( frame, CancellationToken.None ).ConfigureAwait( false );
@@ -154,7 +168,7 @@ internal sealed class PairingPrompts : IDisposable
 		switch ( Frame.ReadType( frame ) )
 		{
 			case "admin.pairing":
-				Add( new( deviceId, name, DateTimeOffset.FromUnixTimeSeconds( Frame.ReadLong( frame, "paired" ) ?? 0 ) ) );
+				Add( new( deviceId, name, DateTimeOffset.FromUnixTimeSeconds( Frame.ReadLong( frame, "paired" ) ?? 0 ), Frame.ReadString( frame, "code" ) ) );
 				break;
 			case "admin.pairing.done":
 				Remove( deviceId );
@@ -199,7 +213,8 @@ internal sealed class PairingPrompts : IDisposable
 
 		var pending = list.OfType<JsonObject>()
 			.Select( entry => Frame.ReadString( entry, "deviceId" ) is { } id
-				? new PendingDevice( id, Frame.ReadString( entry, "name" ) is { Length: > 0 } name ? name : "A device", DateTimeOffset.FromUnixTimeSeconds( Frame.ReadLong( entry, "paired" ) ?? 0 ) )
+				? new PendingDevice( id, Frame.ReadString( entry, "name" ) is { Length: > 0 } name ? name : "A device", DateTimeOffset.FromUnixTimeSeconds( Frame.ReadLong( entry, "paired" ) ?? 0 ),
+					Frame.ReadString( entry, "code" ) )
 				: null )
 			.OfType<PendingDevice>()
 			.ToArray();
@@ -219,16 +234,27 @@ internal sealed class PairingPrompts : IDisposable
 			return;
 
 		_pending.Add( device );
-		var notification = _app.Notifications.Post( new( $"{device.Name} paired with this PC", "It can view your chats. Allow it to control this PC?" )
-		{
-			Source = Source,
-			Link = LoknLinks.Create( "remote", "pairing", "devices" ),
-			Actions =
-			[
-				new( "Allow control", LoknLinks.Create( "remote", "pairing", "allow", device.DeviceId ) ),
-				new( "View only", LoknLinks.Create( "remote", "pairing", "view", device.DeviceId ) ),
-			],
-		} );
+		var notification = _app.Notifications.Post( device.Code is { } code
+			? new( $"{device.Name} wants to connect to this PC", $"Allow it only if it shows the code {code}." )
+			{
+				Source = Source,
+				Link = LoknLinks.Create( "remote", "pairing", "devices" ),
+				Actions =
+				[
+					new( "Allow control", LoknLinks.Create( "remote", "pairing", "allow", device.DeviceId ) ),
+					new( "Deny", LoknLinks.Create( "remote", "pairing", "deny", device.DeviceId ) ),
+				],
+			}
+			: new( $"{device.Name} paired with this PC", "It can view your chats. Allow it to control this PC?" )
+			{
+				Source = Source,
+				Link = LoknLinks.Create( "remote", "pairing", "devices" ),
+				Actions =
+				[
+					new( "Allow control", LoknLinks.Create( "remote", "pairing", "allow", device.DeviceId ) ),
+					new( "View only", LoknLinks.Create( "remote", "pairing", "view", device.DeviceId ) ),
+				],
+			} );
 		_notifications[device.DeviceId] = notification.Id;
 		_version.Value++;
 	}

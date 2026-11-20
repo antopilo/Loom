@@ -438,11 +438,35 @@ public sealed class RemoteModule : ILoknModule
 	/// would otherwise leave the host with a device this PC cannot save.</exception>
 	public async Task<PairedHost> AddHostAsync( string linkText, CancellationToken cancellationToken )
 	{
-		var context = Context;
 		var dataFolder = DataFolder;
 		_ = PairedHosts.Read( dataFolder );
 		var (entry, _) = await (_hooks?.Pair ?? (( text, token ) => HostPairing.PairAsync( dataFolder, text, token )))( linkText, cancellationToken ).ConfigureAwait( false );
-		return await UiInvoke.RunAsync( context.Post, () =>
+		return await SaveHostAsync( entry ).ConfigureAwait( false );
+	}
+
+	/// <summary>Asks a host found on this network to pair without a link and, once its user allows it, saves and links it as <see cref="AddHostAsync"/>
+	/// does.</summary>
+	/// <param name="host">The host, as discovery found it.</param>
+	/// <param name="cancellationToken">Cancels the request.</param>
+	/// <returns>The saved entry.</returns>
+	/// <exception cref="RemoteException">The host's user declined, or did not answer in time.</exception>
+	/// <exception cref="IOException">The host did not answer, or the list could not be written.</exception>
+	/// <exception cref="InvalidDataException">The paired hosts list is damaged, so it is not overwritten.</exception>
+	public async Task<PairedHost> RequestHostAsync( NearbyHost host, CancellationToken cancellationToken )
+	{
+		var dataFolder = DataFolder;
+		_ = PairedHosts.Read( dataFolder );
+		var (entry, _) = await HostPairing.KnockAsync( dataFolder, host, cancellationToken ).ConfigureAwait( false );
+		return await SaveHostAsync( entry ).ConfigureAwait( false );
+	}
+
+	/// <summary>Saves a newly paired host and links it, replacing a link to the same host and keeping its window streams; it becomes the current host
+	/// unless a session of one host is open.</summary>
+	private Task<PairedHost> SaveHostAsync( PairedHost entry )
+	{
+		var context = Context;
+		var dataFolder = DataFolder;
+		return UiInvoke.RunAsync( context.Post, () =>
 		{
 			PairedHosts.Upsert( dataFolder, entry );
 			var saved = PairedHosts.Read( dataFolder ).FirstOrDefault( host => host.HostId == entry.HostId ) ?? entry;
@@ -458,7 +482,7 @@ public sealed class RemoteModule : ILoknModule
 			if ( !context.App.GetModule<ConversationsModule>().IsHostSessionOpen( context.App ) )
 				context.App.Hosts.SetCurrent( saved.HostId );
 			return saved;
-		} ).ConfigureAwait( false );
+		} );
 	}
 
 	/// <summary>Removes a paired host from this Loom: its link stops, its chats and every panel on it close, and its entry leaves

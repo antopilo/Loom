@@ -5,25 +5,35 @@ using System.Text.Json.Nodes;
 
 namespace Lokn.Modules.Remote;
 
-/// <summary>Finds a paired host on the local network when none of its saved addresses answers: the client broadcasts the host's id over UDP, and the
-/// host with that id answers the addresses it listens on (docs/remote.md, Discovery).</summary>
+/// <summary>A Loom host on this network, as its discovery answer describes it.</summary>
+/// <param name="HostId">The host's id.</param>
+/// <param name="HostKey">The host's static public key, base64url SPKI; the host id is its hash, which <see cref="LanDiscovery"/> checks.</param>
+/// <param name="Name">The host's PC name.</param>
+/// <param name="Addrs">The LAN addresses it listens on, as host:port.</param>
+public sealed record NearbyHost( string HostId, string HostKey, string Name, IReadOnlyList<string> Addrs );
+
+/// <summary>Finds Loom hosts on the local network over UDP: a client broadcasts <c>loom-find:&lt;hostId&gt;</c> to find one paired host whose saved
+/// addresses fail, or <c>loom-who</c> to list every host nearby; a host answers with its id, key, name and LAN addresses (docs/remote.md, Discovery).</summary>
 /// <remarks>
-/// Discovery only says where a host is. A spoofed answer gains nothing: the dial that follows still checks the host's key in the secure channel, and a
-/// host answers only with addresses, never with its key or its chats.
+/// A host answers only while it listens on the LAN, so nothing answers while Remote access is off. Discovery only says where a host is: an answer
+/// whose key does not hash to its id is dropped, and every dial that follows checks the host's key in the secure channel.
 /// </remarks>
 public sealed class LanDiscovery : IDisposable
 {
 	/// <summary>Defines the UDP port hosts listen on for discovery queries.</summary>
 	public const int Port = 47391;
 
-	/// <summary>Defines the query's prefix, followed by the host id.</summary>
-	private const string QueryPrefix = "loom-find:";
+	/// <summary>Defines the query for one host, followed by its id.</summary>
+	private const string FindPrefix = "loom-find:";
 
-	/// <summary>Defines how large a datagram discovery reads or sends.</summary>
+	/// <summary>Defines the query every host answers.</summary>
+	private const string WhoQuery = "loom-who";
+
+	/// <summary>Defines how large a datagram discovery reads.</summary>
 	private const int MaxDatagram = 2048;
 
-	/// <summary>Stores the host's id, which queries must name.</summary>
-	private readonly string _hostId;
+	/// <summary>Stores what this host answers, but its addresses.</summary>
+	private readonly (string HostId, string HostKey, string Name) _host;
 
 	/// <summary>Reads the addresses the host listens on now, as host:port.</summary>
 	private readonly Func<IReadOnlyList<string>> _addresses;
@@ -36,14 +46,16 @@ public sealed class LanDiscovery : IDisposable
 
 	/// <summary>Creates the host side; call <see cref="Start"/> to answer queries.</summary>
 	/// <param name="hostId">The host's id.</param>
-	/// <param name="addresses">Reads the addresses the host listens on now; an empty list sends no answer.</param>
-	public LanDiscovery( string hostId, Func<IReadOnlyList<string>> addresses )
+	/// <param name="hostKey">The host's static public key, base64url SPKI.</param>
+	/// <param name="name">The host's PC name.</param>
+	/// <param name="addresses">Reads the LAN addresses the host listens on now; an empty list sends no answer.</param>
+	public LanDiscovery( string hostId, string hostKey, string name, Func<IReadOnlyList<string>> addresses )
 	{
-		_hostId = hostId;
+		_host = (hostId, hostKey, name);
 		_addresses = addresses;
 	}
 
-	/// <summary>Starts answering queries for this host; a port another program holds leaves discovery off, since dialing saved addresses still works.</summary>
+	/// <summary>Starts answering queries; a port another program holds leaves discovery off, since dialing saved addresses still works.</summary>
 	/// <returns>Whether discovery listens.</returns>
 	public bool Start()
 	{
@@ -71,50 +83,66 @@ public sealed class LanDiscovery : IDisposable
 		_stop.Dispose();
 	}
 
-	/// <summary>Builds a query for a host id.</summary>
-	internal static byte[] BuildQuery( string hostId ) => Encoding.UTF8.GetBytes( QueryPrefix + hostId );
-
-	/// <summary>Reads the host id a query names, or null when the datagram is no query.</summary>
-	internal static string? ReadQuery( ReadOnlySpan<byte> datagram )
+	/// <summary>Reports whether a query asks this host: <c>loom-who</c>, or <c>loom-find:</c> with its id.</summary>
+	internal static bool IsAsked( ReadOnlySpan<byte> datagram, string hostId )
 	{
 		var text = Encoding.UTF8.GetString( datagram );
-		return text.StartsWith( QueryPrefix, StringComparison.Ordinal ) && text.Length > QueryPrefix.Length ? text[QueryPrefix.Length..] : null;
+		return text == WhoQuery || text == FindPrefix + hostId;
 	}
 
-	/// <summary>Builds the answer: the host id and its addresses.</summary>
-	internal static byte[] BuildAnswer( string hostId, IReadOnlyList<string> addresses ) =>
-		Encoding.UTF8.GetBytes( new JsonObject { ["hostId"] = hostId, ["addrs"] = Frame.BuildStrings( addresses ) }.ToJsonString() );
+	/// <summary>Builds a host's answer.</summary>
+	internal static byte[] BuildAnswer( NearbyHost host ) => Encoding.UTF8.GetBytes( new JsonObject
+	{
+		["hostId"] = host.HostId,
+		["hostKey"] = host.HostKey,
+		["name"] = host.Name,
+		["addrs"] = Frame.BuildStrings( host.Addrs ),
+	}.ToJsonString() );
 
-	/// <summary>Reads the addresses an answer gives for a host id, or none when the datagram answers for another host or is no answer.</summary>
-	internal static IReadOnlyList<string> ReadAnswer( ReadOnlySpan<byte> datagram, string hostId )
+	/// <summary>Reads an answer, or null for a datagram that is no answer or whose key does not hash to its host id.</summary>
+	internal static NearbyHost? ReadAnswer( ReadOnlySpan<byte> datagram )
 	{
 		try
 		{
-			return JsonNode.Parse( Encoding.UTF8.GetString( datagram ) ) is JsonObject answer && Frame.ReadString( answer, "hostId" ) == hostId
-				? Frame.ReadStrings( answer, "addrs" ) ?? []
-				: [];
+			if ( JsonNode.Parse( Encoding.UTF8.GetString( datagram ) ) is not JsonObject answer
+				|| Frame.ReadString( answer, "hostId" ) is not { Length: > 0 } hostId
+				|| Frame.ReadString( answer, "hostKey" ) is not { Length: > 0 } hostKey
+				|| RemoteKeys.ComputeHostId( System.Buffers.Text.Base64Url.DecodeFromChars( hostKey ) ) != hostId )
+				return null;
+
+			return new( hostId, hostKey, Frame.ReadString( answer, "name" ) ?? "", Frame.ReadStrings( answer, "addrs" ) ?? [] );
 		}
-		catch ( System.Text.Json.JsonException )
+		catch ( Exception exception ) when ( exception is System.Text.Json.JsonException or FormatException )
 		{
-			return [];
+			return null;
 		}
 	}
 
-	/// <summary>Broadcasts a query for a host on every IPv4 network of this PC and gathers the addresses its answers give, until the timeout.</summary>
+	/// <summary>Finds one host by its id and answers the addresses it gave, or none.</summary>
 	/// <param name="hostId">The host to find.</param>
+	/// <param name="timeout">How long to wait for its answer.</param>
+	/// <param name="cancellationToken">Cancels the search.</param>
+	public static async Task<IReadOnlyList<string>> FindAsync( string hostId, TimeSpan timeout, CancellationToken cancellationToken ) =>
+		(await SearchAsync( FindPrefix + hostId, timeout, cancellationToken ).ConfigureAwait( false ))
+			.Where( host => host.HostId == hostId ).SelectMany( host => host.Addrs ).Distinct( StringComparer.Ordinal ).ToArray();
+
+	/// <summary>Lists every host on this network that answers within the timeout, once each.</summary>
 	/// <param name="timeout">How long to wait for answers.</param>
 	/// <param name="cancellationToken">Cancels the search.</param>
-	/// <returns>The addresses the host gave, in the order they came, or none.</returns>
-	public static async Task<IReadOnlyList<string>> FindAsync( string hostId, TimeSpan timeout, CancellationToken cancellationToken )
+	public static Task<IReadOnlyList<NearbyHost>> ListAsync( TimeSpan timeout, CancellationToken cancellationToken ) =>
+		SearchAsync( WhoQuery, timeout, cancellationToken );
+
+	/// <summary>Broadcasts a query on every IPv4 network of this PC and gathers the valid answers until the timeout, one per host.</summary>
+	private static async Task<IReadOnlyList<NearbyHost>> SearchAsync( string query, TimeSpan timeout, CancellationToken cancellationToken )
 	{
 		using var socket = new UdpClient( AddressFamily.InterNetwork ) { EnableBroadcast = true };
 		socket.Client.Bind( new IPEndPoint( IPAddress.Any, 0 ) );
-		var query = BuildQuery( hostId );
+		var bytes = Encoding.UTF8.GetBytes( query );
 		foreach ( var target in ListBroadcastAddresses() )
 		{
 			try
 			{
-				await socket.SendAsync( query, new IPEndPoint( target, Port ), cancellationToken ).ConfigureAwait( false );
+				await socket.SendAsync( bytes, new IPEndPoint( target, Port ), cancellationToken ).ConfigureAwait( false );
 			}
 			catch ( SocketException )
 			{
@@ -122,7 +150,7 @@ public sealed class LanDiscovery : IDisposable
 			}
 		}
 
-		var found = new List<string>();
+		var found = new List<NearbyHost>();
 		using var wait = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken );
 		wait.CancelAfter( timeout );
 		try
@@ -130,11 +158,8 @@ public sealed class LanDiscovery : IDisposable
 			while ( true )
 			{
 				var received = await socket.ReceiveAsync( wait.Token ).ConfigureAwait( false );
-				foreach ( var address in ReadAnswer( received.Buffer, hostId ) )
-				{
-					if ( !found.Contains( address, StringComparer.Ordinal ) )
-						found.Add( address );
-				}
+				if ( received.Buffer.Length <= MaxDatagram && ReadAnswer( received.Buffer ) is { } host && found.All( known => known.HostId != host.HostId ) )
+					found.Add( host );
 			}
 		}
 		catch ( OperationCanceledException ) when ( !cancellationToken.IsCancellationRequested )
@@ -148,7 +173,7 @@ public sealed class LanDiscovery : IDisposable
 		return found;
 	}
 
-	/// <summary>Answers each query naming this host with the addresses it listens on now, to the sender.</summary>
+	/// <summary>Answers each query that asks this host with its id, key, name and the LAN addresses it listens on now, to the sender.</summary>
 	private async Task AnswerAsync( UdpClient socket, CancellationToken stop )
 	{
 		while ( !stop.IsCancellationRequested )
@@ -156,10 +181,11 @@ public sealed class LanDiscovery : IDisposable
 			try
 			{
 				var received = await socket.ReceiveAsync( stop ).ConfigureAwait( false );
-				if ( received.Buffer.Length > MaxDatagram || ReadQuery( received.Buffer ) != _hostId || _addresses() is not { Count: > 0 } addresses )
+				if ( received.Buffer.Length > MaxDatagram || !IsAsked( received.Buffer, _host.HostId ) || _addresses() is not { Count: > 0 } addresses )
 					continue;
 
-				await socket.SendAsync( BuildAnswer( _hostId, addresses ), received.RemoteEndPoint, stop ).ConfigureAwait( false );
+				var answer = BuildAnswer( new( _host.HostId, _host.HostKey, _host.Name, addresses ) );
+				await socket.SendAsync( answer, received.RemoteEndPoint, stop ).ConfigureAwait( false );
 			}
 			catch ( OperationCanceledException )
 			{
