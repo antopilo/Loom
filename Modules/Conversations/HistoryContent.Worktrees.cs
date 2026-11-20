@@ -140,7 +140,8 @@ internal sealed partial class HistoryContent
 	/// per worktree, the main checkout last, each with its menu, removal dialog and + grid.</summary>
 	private void AddProjectChats( ProjectInfo project, IReadOnlyList<ConversationInfo> conversations, IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? actions, List<Blob> children )
 	{
-		var groups = ComputeWorktreeGroups( project, conversations, worktrees );
+		// Worktrees are This PC's alone: a paired host's project lists its chats flat.
+		IReadOnlyList<WorktreeGroup> groups = Host.IsLocal ? ComputeWorktreeGroups( project, conversations, worktrees ) : [];
 		if ( groups.All( group => group.IsMain ) )
 		{
 			for ( var index = 0; index < conversations.Count; index++ )
@@ -154,7 +155,7 @@ internal sealed partial class HistoryContent
 			var id = ComputeWorktreeId( group.Directory );
 			var name = ComputeWorktreeName( group.Directory );
 			if ( !group.IsMain && IsWorktreeGone( group.Directory ) )
-				context.Post( () => module.Store.ReleaseWorktree( group.Directory, mainPath ) );
+				context.Post( () => Local.Store.ReleaseWorktree( group.Directory, mainPath ) );
 			children.Add( BuildWorktreeHeading( project, group, id, name ) );
 			if ( _sidebar.IsMenuOpen( id ) )
 			{
@@ -163,7 +164,7 @@ internal sealed partial class HistoryContent
 			}
 			if ( actions is not null && _removingWorktree.Value.Length > 0 && ConversationStore.IsSameFolder( _removingWorktree.Value, group.Directory ) )
 				children.Add( BuildRemoveWorktree( project, group, name, actions, mainPath ) );
-			if ( _sidebar.BuildStarters( id, name, starter => module.NewTask( context.App, project.Id, starter, group.Directory ) ) is { } starters )
+			if ( _sidebar.BuildStarters( id, name, starter => module.NewTask( context.App, Local, project.Id, starter, group.Directory ) ) is { } starters )
 				children.Add( starters );
 			for ( var index = 0; index < group.Conversations.Count; index++ )
 				children.Add( BuildConversation( group.Conversations[index], index, group.Directory ) );
@@ -189,7 +190,7 @@ internal sealed partial class HistoryContent
 				Padding = new Edges( Theme.Current.Spacing / 2, Theme.Current.Spacing, 0, Theme.Current.Spacing ),
 				AccessibilityName = group.IsMain ? $"Main checkout, {name}" : $"Worktree {name}",
 			},
-			_sidebar.BuildAddButton( id, $"New chat in {name}", () => module.NewConversation( context.App, project.Id, group.Directory ), isRevealed ),
+			_sidebar.BuildAddButton( id, $"New chat in {name}", () => module.NewConversation( context.App, Local, project.Id, group.Directory ), isRevealed ),
 			_sidebar.BuildMoreButton( id, $"{name} options", isRevealed ),
 		] );
 	}
@@ -204,8 +205,8 @@ internal sealed partial class HistoryContent
 	{
 		var entries = new List<MenuEntry>
 		{
-			new MenuAction( "New chat", () => context.Run( () => module.NewConversation( context.App, project.Id, group.Directory ) ) ) { AccessKey = Key.N },
-			new MenuAction( "New task", () => context.Run( () => module.NewTask( context.App, project.Id, worktree: group.Directory ) ) ) { AccessKey = Key.T },
+			new MenuAction( "New chat", () => context.Run( () => module.NewConversation( context.App, Local, project.Id, group.Directory ) ) ) { AccessKey = Key.N },
+			new MenuAction( "New task", () => context.Run( () => module.NewTask( context.App, Local, project.Id, worktree: group.Directory ) ) ) { AccessKey = Key.T },
 			new MenuAction( "Open folder", () => context.Run( () => OpenFolder( group.Directory ) ) ) { AccessKey = Key.O },
 		};
 		if ( FindWorktreeActions() is not null )
@@ -272,7 +273,7 @@ internal sealed partial class HistoryContent
 			return path;
 		}, removed =>
 		{
-			module.Store.ReleaseWorktree( removed, mainPath );
+			Local.Store.ReleaseWorktree( removed, mainPath );
 			_removingWorktree.Value = "";
 		} );
 	}
@@ -374,8 +375,8 @@ internal sealed partial class HistoryContent
 		_ = UpdateWorktreeAsync( () => actions.CreateAsync( project.Directory, branch, start, context.Lifetime ), path =>
 		{
 			_worktreeForm.Value = Guid.Empty;
-			if ( module.Store.ProjectStore.Find( project.Id ) is not null )
-				module.NewConversation( context.App, project.Id, path );
+			if ( Local.Projects.Find( project.Id ) is not null )
+				module.NewConversation( context.App, Local, project.Id, path );
 		} );
 	}
 
@@ -434,7 +435,7 @@ internal sealed partial class HistoryContent
 		var key = NormalizeFolder( directory );
 		_shownWorktrees.Add( key );
 		if ( !_worktreeWatches.TryGetValue( key, out var watch ) && context.App.Modules.Any( info => info.Id == "git" ) )
-			_worktreeWatches[key] = watch = context.App.GetModule<GitModule>().Watch( key );
+			_worktreeWatches[key] = watch = context.App.GetModule<GitModule>().Watch( context.App.Hosts.Local, key );
 		return watch?.State?.Branch ?? FolderName.Compute( key );
 	}
 

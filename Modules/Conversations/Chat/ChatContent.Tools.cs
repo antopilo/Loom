@@ -72,7 +72,7 @@ public sealed partial class ChatContent
 
 		var expanded = _expanded.Contains( key );
 		var diffs = DiffParser.ParseTool( name, arguments, result, store.GetDirectory( conversationId ) );
-		var intent = _intents.GetValueOrDefault( id ) is { Length: > 0 } started ? started : ReadText( block, "intent", ReadText( arguments, "i" ) );
+		var intent = session.Intents.GetValueOrDefault( id ) is { Length: > 0 } started ? started : ReadText( block, "intent", ReadText( arguments, "i" ) );
 		var toggle = BuildDisclosure( intent.Length > 0 ? intent : name, expanded, () => context.Run( () => UpdateExpanded( key ) ),
 			diffs.Count > 0 ? string.Join( ", ", diffs.Select( file => Path.GetFileName( file.Path ) ) ) : ComputeToolTarget( arguments ) );
 		toggle.AccessibilityName = $"{name} · {status}";

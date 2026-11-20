@@ -25,8 +25,8 @@ public sealed record LineMark( int Line, LineChange Change, IReadOnlyList<string
 /// The source does its work off the UI thread; return an empty list for a file it does not cover.
 /// </remarks>
 /// <param name="Name">Names the source, such as <c>git</c>.</param>
-/// <param name="Compute">Computes the marks of the file at the full path.</param>
-public sealed record LineMarkSource( string Name, Func<string, CancellationToken, Task<IReadOnlyList<LineMark>>> Compute )
+/// <param name="Compute">Computes the marks of the file at the full path on the given host: the editor panel's workspace, this PC's or a paired host's.</param>
+public sealed record LineMarkSource( string Name, Func<IWorkspaceHost, string, CancellationToken, Task<IReadOnlyList<LineMark>>> Compute )
 {
 	/// <summary>The extension point the Editor module reads mark sources from.</summary>
 	public const string Point = "editor.marks";

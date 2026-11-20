@@ -1,0 +1,385 @@
+{
+  "Version": 2,
+  "Session": "conversation:836886832893453aa3137e719c953b8d",
+  "Sessions": [
+    {
+      "Key": "home",
+      "Title": "Home",
+      "Current": "93719e29-7256-4651-a98b-f87d0361b2bd",
+      "Items": [
+        {
+          "Id": "93719e29-7256-4651-a98b-f87d0361b2bd",
+          "Name": "Main",
+          "Layout": {
+            "Version": 1,
+            "ActivePaneId": "57817f88-a0a4-4103-ade8-be404ac2713d",
+            "Root": {
+              "Kind": "pane",
+              "Id": "57817f88-a0a4-4103-ade8-be404ac2713d",
+              "PanelId": null,
+              "Axis": 0,
+              "Ratio": 0,
+              "First": null,
+              "Second": null
+            },
+            "Panels": []
+          },
+          "IsPinned": false,
+          "LastUsed": "2026-11-19T21:48:19.7368293+00:00"
+        }
+      ],
+      "LastOpened": "0001-01-01T00:00:00+00:00"
+    },
+    {
+      "Key": "conversation:d898b8293fec445984c743ecdd492344",
+      "Title": "New chat",
+      "Current": "fa468805-106f-4366-9765-98b45ce8a469",
+      "Items": [
+        {
+          "Id": "fa468805-106f-4366-9765-98b45ce8a469",
+          "Name": "Main",
+          "Layout": {
+            "Version": 1,
+            "ActivePaneId": "38e6af92-5bb2-4c86-bfb4-c51fac7a1103",
+            "Root": {
+              "Kind": "pane",
+              "Id": "38e6af92-5bb2-4c86-bfb4-c51fac7a1103",
+              "PanelId": "837a81c5-09eb-4b04-b785-e81e539a0265",
+              "Axis": 0,
+              "Ratio": 0,
+              "First": null,
+              "Second": null
+            },
+            "Panels": [
+              {
+                "Id": "837a81c5-09eb-4b04-b785-e81e539a0265",
+                "TypeId": "conversations.chat",
+                "Title": "Conversation",
+                "State": {
+                  "ConversationId": "d898b829-3fec-4459-84c7-43ecdd492344",
+                  "Profile": 1,
+                  "ContinueTurn": false
+                }
+              }
+            ]
+          },
+          "IsPinned": false,
+          "LastUsed": "2026-11-19T21:48:19.7823179+00:00"
+        }
+      ],
+      "LastOpened": "2026-11-19T21:48:19.7368293+00:00"
+    },
+    {
+      "Key": "conversation:8165feed9a374567bf098af8c6958da7",
+      "Title": "Weekly review",
+      "Current": "7e810b1f-55a6-40e7-864e-db05b5b55b53",
+      "Items": [
+        {
+          "Id": "7e810b1f-55a6-40e7-864e-db05b5b55b53",
+          "Name": "Main",
+          "Layout": {
+            "Version": 1,
+            "ActivePaneId": "2e4778d0-8ccb-480c-aae7-5b22b0e5b45f",
+            "Root": {
+              "Kind": "pane",
+              "Id": "2e4778d0-8ccb-480c-aae7-5b22b0e5b45f",
+              "PanelId": "e450ddc9-5137-493c-801f-303e7a631339",
+              "Axis": 0,
+              "Ratio": 0,
+              "First": null,
+              "Second": null
+            },
+            "Panels": [
+              {
+                "Id": "e450ddc9-5137-493c-801f-303e7a631339",
+                "TypeId": "terminal.shell",
+                "Title": "Terminal",
+                "State": {
+                  "Name": "pwsh -NoLogo",
+                  "Command": "pwsh -NoLogo",
+                  "Directory": "C:\\LoomFixture\\notes"
+                }
+              }
+            ]
+          },
+          "IsPinned": false,
+          "LastUsed": "2026-11-19T21:48:19.793441+00:00"
+        }
+      ],
+      "LastOpened": "2026-11-19T21:48:19.7823179+00:00"
+    },
+    {
+      "Key": "conversation:6f37e84772cf435f8f5db0449d23c009",
+      "Title": "New chat",
+      "Current": "a7041403-4b5a-40df-860d-5a3fe5d2e449",
+      "Items": [
+        {
+          "Id": "a7041403-4b5a-40df-860d-5a3fe5d2e449",
+          "Name": "Main",
+          "Layout": {
+            "Version": 1,
+            "ActivePaneId": "ddc8fc1c-7af1-499a-a2e7-729227964a9c",
+            "Root": {
+              "Kind": "pane",
+              "Id": "ddc8fc1c-7af1-499a-a2e7-729227964a9c",
+              "PanelId": "cbdb1ba4-5c3a-4229-b227-49f03cd3b8ec",
+              "Axis": 0,
+              "Ratio": 0,
+              "First": null,
+              "Second": null
+            },
+            "Panels": [
+              {
+                "Id": "cbdb1ba4-5c3a-4229-b227-49f03cd3b8ec",
+                "TypeId": "conversations.chat",
+                "Title": "Conversation",
+                "State": {
+                  "ConversationId": "6f37e847-72cf-435f-8f5d-b0449d23c009",
+                  "Profile": 1,
+                  "ContinueTurn": false
+                }
+              }
+            ]
+          },
+          "IsPinned": false,
+          "LastUsed": "2026-11-19T21:48:19.7974969+00:00"
+        }
+      ],
+      "LastOpened": "2026-11-19T21:48:19.793441+00:00"
+    },
+    {
+      "Key": "project:adfd3d987b7a43dfb0ce88f6a2c9b5c3",
+      "Title": "Notes",
+      "Current": "4678841e-41ab-4c66-9702-fa99b8b9d378",
+      "Items": [
+        {
+          "Id": "4678841e-41ab-4c66-9702-fa99b8b9d378",
+          "Name": "Main",
+          "Layout": {
+            "Version": 1,
+            "ActivePaneId": "ebab4f38-b2a9-4ce9-a1ec-e7b3288b9b5d",
+            "Root": {
+              "Kind": "split",
+              "Id": "403204fe-fcdc-44bb-a682-60978695524e",
+              "PanelId": null,
+              "Axis": 0,
+              "Ratio": 0.5,
+              "First": {
+                "Kind": "pane",
+                "Id": "eb8a8741-8815-4c05-85cc-bfdbb1531c8b",
+                "PanelId": null,
+                "Axis": 0,
+                "Ratio": 0,
+                "First": null,
+                "Second": null
+              },
+              "Second": {
+                "Kind": "pane",
+                "Id": "ebab4f38-b2a9-4ce9-a1ec-e7b3288b9b5d",
+                "PanelId": "cbdb1ba4-5c3a-4229-b227-49f03cd3b8ec",
+                "Axis": 0,
+                "Ratio": 0,
+                "First": null,
+                "Second": null
+              }
+            },
+            "Panels": [
+              {
+                "Id": "cbdb1ba4-5c3a-4229-b227-49f03cd3b8ec",
+                "TypeId": "conversations.chat",
+                "Title": "Conversation",
+                "State": {
+                  "ConversationId": "6f37e847-72cf-435f-8f5d-b0449d23c009",
+                  "Profile": 1,
+                  "ContinueTurn": false
+                }
+              }
+            ]
+          },
+          "IsPinned": false,
+          "LastUsed": "2026-11-19T21:48:19.8032228+00:00"
+        }
+      ],
+      "LastOpened": "2026-11-19T21:48:19.7974969+00:00"
+    },
+    {
+      "Key": "conversation:836886832893453aa3137e719c953b8d",
+      "Title": "New chat",
+      "Current": "c66384cf-3ccd-4647-920b-6a7b703e1fed",
+      "Items": [
+        {
+          "Id": "9890895e-651a-4c68-be12-483a9fcb0fd7",
+          "Name": "Code",
+          "Layout": {
+            "Version": 1,
+            "ActivePaneId": "95d3148c-2395-437e-8ca5-3588cde1fbc2",
+            "Root": {
+              "Kind": "split",
+              "Id": "9e7af1f8-23ef-4e16-adb4-9e206a71c00e",
+              "PanelId": null,
+              "Axis": 0,
+              "Ratio": 0.5,
+              "First": {
+                "Kind": "split",
+                "Id": "538377ed-5309-41f2-a47b-0eba1254ab42",
+                "PanelId": null,
+                "Axis": 0,
+                "Ratio": 0.24,
+                "First": {
+                  "Kind": "pane",
+                  "Id": "35e14c06-c233-4f52-948d-ad688b60d6a6",
+                  "PanelId": "20f5ef87-5c8a-4227-83db-01f45c95c390",
+                  "Axis": 0,
+                  "Ratio": 0,
+                  "First": null,
+                  "Second": null
+                },
+                "Second": {
+                  "Kind": "pane",
+                  "Id": "dc2d2989-2e77-4ab1-8a98-48abaf4e7898",
+                  "PanelId": "1b6a30e6-2c88-4908-89e3-ba853f8d08e8",
+                  "Axis": 0,
+                  "Ratio": 0,
+                  "First": null,
+                  "Second": null
+                }
+              },
+              "Second": {
+                "Kind": "pane",
+                "Id": "95d3148c-2395-437e-8ca5-3588cde1fbc2",
+                "PanelId": "e6831637-4250-41bf-abe3-832122473aac",
+                "Axis": 0,
+                "Ratio": 0,
+                "First": null,
+                "Second": null
+              }
+            },
+            "Panels": [
+              {
+                "Id": "20f5ef87-5c8a-4227-83db-01f45c95c390",
+                "TypeId": "files.tree",
+                "Title": "Files",
+                "State": {
+                  "Mode": "git.changes",
+                  "States": {}
+                }
+              },
+              {
+                "Id": "1b6a30e6-2c88-4908-89e3-ba853f8d08e8",
+                "TypeId": "conversations.chat",
+                "Title": "Conversation",
+                "State": {
+                  "ConversationId": "83688683-2893-453a-a313-7e719c953b8d",
+                  "Profile": 1,
+                  "ContinueTurn": false
+                }
+              },
+              {
+                "Id": "e6831637-4250-41bf-abe3-832122473aac",
+                "TypeId": "git.panel",
+                "Title": "Git",
+                "State": {
+                  "Directory": "C:\\LoomFixture\\demo-app",
+                  "ReviewAction": null,
+                  "ReviewId": null,
+                  "Focus": null,
+                  "Staged": false
+                }
+              }
+            ]
+          },
+          "IsPinned": false,
+          "LastUsed": "2026-11-19T21:48:19.8171929+00:00"
+        },
+        {
+          "Id": "c66384cf-3ccd-4647-920b-6a7b703e1fed",
+          "Name": "Review",
+          "Layout": {
+            "Version": 1,
+            "ActivePaneId": "95d3148c-2395-437e-8ca5-3588cde1fbc2",
+            "Root": {
+              "Kind": "split",
+              "Id": "9e7af1f8-23ef-4e16-adb4-9e206a71c00e",
+              "PanelId": null,
+              "Axis": 0,
+              "Ratio": 0.5,
+              "First": {
+                "Kind": "split",
+                "Id": "538377ed-5309-41f2-a47b-0eba1254ab42",
+                "PanelId": null,
+                "Axis": 0,
+                "Ratio": 0.24,
+                "First": {
+                  "Kind": "pane",
+                  "Id": "35e14c06-c233-4f52-948d-ad688b60d6a6",
+                  "PanelId": "20f5ef87-5c8a-4227-83db-01f45c95c390",
+                  "Axis": 0,
+                  "Ratio": 0,
+                  "First": null,
+                  "Second": null
+                },
+                "Second": {
+                  "Kind": "pane",
+                  "Id": "dc2d2989-2e77-4ab1-8a98-48abaf4e7898",
+                  "PanelId": "1b6a30e6-2c88-4908-89e3-ba853f8d08e8",
+                  "Axis": 0,
+                  "Ratio": 0,
+                  "First": null,
+                  "Second": null
+                }
+              },
+              "Second": {
+                "Kind": "pane",
+                "Id": "95d3148c-2395-437e-8ca5-3588cde1fbc2",
+                "PanelId": "e6831637-4250-41bf-abe3-832122473aac",
+                "Axis": 0,
+                "Ratio": 0,
+                "First": null,
+                "Second": null
+              }
+            },
+            "Panels": [
+              {
+                "Id": "20f5ef87-5c8a-4227-83db-01f45c95c390",
+                "TypeId": "files.tree",
+                "Title": "Files",
+                "State": {
+                  "Mode": "git.changes",
+                  "States": {}
+                }
+              },
+              {
+                "Id": "1b6a30e6-2c88-4908-89e3-ba853f8d08e8",
+                "TypeId": "conversations.chat",
+                "Title": "Conversation",
+                "State": {
+                  "ConversationId": "83688683-2893-453a-a313-7e719c953b8d",
+                  "Profile": 1,
+                  "ContinueTurn": false
+                }
+              },
+              {
+                "Id": "e6831637-4250-41bf-abe3-832122473aac",
+                "TypeId": "git.panel",
+                "Title": "Git",
+                "State": {
+                  "Directory": "C:\\LoomFixture\\demo-app",
+                  "ReviewAction": null,
+                  "ReviewId": null,
+                  "Focus": null,
+                  "Staged": false
+                }
+              }
+            ]
+          },
+          "IsPinned": false,
+          "LastUsed": "2026-11-19T21:48:19.8171929+00:00"
+        }
+      ],
+      "LastOpened": "2026-11-19T21:48:19.8032228+00:00"
+    }
+  ],
+  "Profiles": {
+    "Personal": "conversation:836886832893453aa3137e719c953b8d"
+  }
+}

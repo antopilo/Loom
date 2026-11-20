@@ -55,19 +55,19 @@ internal static class ChatChecks
 		var store = new ConversationStore();
 		var chat = store.CreateConversation( SettingsProfile.Personal );
 		var context = new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null );
-		var panel = new ChatContent( context, store, chat.Id, module.Service );
-		panel.UpdateFrame( Parse( """{"type":"message_start","messageId":"m1","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]}}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"message_update","messageId":"m1","message":{"role":"assistant","content":[{"type":"text","text":"Hello Lokn"},{"type":"thinking","thinking":"Checking."}]}}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"message_end","messageId":"m1","message":{"role":"assistant","content":[{"type":"text","text":"Hello Lokn!"},{"type":"toolCall","id":"t1","name":"bash","arguments":{"command":"dotnet build"}}]}}""" ) );
+		var panel = BuildChat( context, store, chat.Id, module.Service );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_start","messageId":"m1","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_update","messageId":"m1","message":{"role":"assistant","content":[{"type":"text","text":"Hello Lokn"},{"type":"thinking","thinking":"Checking."}]}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_end","messageId":"m1","message":{"role":"assistant","content":[{"type":"text","text":"Hello Lokn!"},{"type":"toolCall","id":"t1","name":"bash","arguments":{"command":"dotnet build"}}]}}""" ) );
 		var messages = store.GetMessages( chat.Id );
 		CoreChecks.Check( messages.Count == 1 && messages[0].Text == "Hello Lokn!", "Full streaming snapshots replace one stable message rather than duplicating deltas." );
 		CoreChecks.Check( messages[0].RichContent!.Value.GetProperty( "content" )[1].GetProperty( "type" ).GetString() == "toolCall", "Structured tool calls persist with the message." );
-		panel.UpdateFrame( Parse( """{"type":"message_end","messageId":"m2","message":{"role":"user","content":"First line\nSecond line"}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_end","messageId":"m2","message":{"role":"user","content":"First line\nSecond line"}}""" ) );
 		CoreChecks.Check( store.Get( chat.Id ).Title == "First line", "The first user message gives an untitled chat a concise title." );
 		app.Settings.SetActiveProfile( SettingsProfile.Work );
 		var restored = panel.CaptureState()!.Value.Deserialize<ConversationPanelInput>();
 		CoreChecks.Check( restored.Profile == SettingsProfile.Personal && restored.ConversationId == chat.Id, "Restored conversation identity remains pinned after the titlebar profile changes." );
-		panel.UpdateFrame( Parse( """{"type":"notice","source":"omp-transport","level":"error","message":"Backend exited"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"notice","source":"omp-transport","level":"error","message":"Backend exited"}""" ) );
 		CoreChecks.Check( store.GetMessages( chat.Id ).Count == 2, "Transport failures retain already recorded history." );
 		CheckSlashCommands( panel );
 		CheckCommandOutput( panel, store, chat.Id );
@@ -79,7 +79,108 @@ internal static class ChatChecks
 		panel.Closed();
 		app.Shutdown();
 		CheckReloadContinue();
-		Console.WriteLine( "PASS rich Markdown, code/diffs, checklists/tables, streaming identity, rich payload persistence, pinned chat profiles, chat attention, chat folders, and continuing after a reload." );
+		CheckHeadlessTurn();
+		Console.WriteLine( "PASS rich Markdown, code/diffs, checklists/tables, streaming identity, rich payload persistence, pinned chat profiles, chat attention, chat folders, continuing after a reload, and a turn with no panel open." );
+	}
+
+	/// <summary>Builds a chat view over a session of its own, as a panel hosted outside the Conversations module does in focused checks.</summary>
+	internal static ChatContent BuildChat( PanelContext context, ConversationStore store, Guid conversationId, OmpService backend ) =>
+		new( context, store, new ChatSession( context.App, store, conversationId, backend, context.Post ) );
+
+	/// <summary>Checks that a chat session connects to a real (fixture) Omp child and runs a whole turn with no chat panel open.</summary>
+	private static void CheckHeadlessTurn()
+	{
+		var app = new LoknApplication();
+		var queued = new List<Action>();
+		app.BindDispatcher( action =>
+		{
+			lock ( queued )
+				queued.Add( action );
+			return true;
+		} );
+		var omp = new OmpModule();
+		CoreChecks.Check( app.Load( omp ), "Omp loads for the headless turn check." );
+		app.Settings.Set( OmpModule.Executable, SettingsScope.Global, Path.Combine( AppContext.BaseDirectory, "Lokn.Tests.exe" ) );
+		app.Settings.Set( OmpModule.Model, SettingsScope.Global, "fixture/one" );
+		var store = new ConversationStore( new ProjectStore() );
+		var chat = store.CreateConversation( SettingsProfile.Personal );
+		store.SaveBackendSession( chat.Id, Path.Combine( Path.GetTempPath(), "lokn-headless-" + Guid.NewGuid().ToString( "N" ) ) );
+		bool PumpUntil( Func<bool> condition )
+		{
+			var clock = System.Diagnostics.Stopwatch.StartNew();
+			while ( !condition() && clock.Elapsed.TotalSeconds < 30 )
+			{
+				Action[] actions;
+				lock ( queued )
+				{
+					actions = [.. queued];
+					queued.Clear();
+				}
+				foreach ( var action in actions )
+					action();
+				Thread.Sleep( 20 );
+			}
+			return condition();
+		}
+
+		var session = new ChatSession( app, store, chat.Id, omp.Service, app.Post );
+		CoreChecks.Check( session.PanelId is null, "A session created without a panel has no panel attached." );
+		// A view closed before Omp admitted its prompt saved the prompt as the draft.
+		store.SaveDraft( chat.Id, "Run headless" );
+		session.Send( "Run headless", [] );
+		CoreChecks.Check( session.IsBusy, "Sending makes the session work at once." );
+		CoreChecks.Check( PumpUntil( () => session.PendingDialog is not null ), "With no panel open, the session connects, sends the prompt and receives the agent's question." );
+		CoreChecks.Check( store.Get( chat.Id ).Draft is null, "A prompt Omp admitted with no view open no longer comes back as the chat's draft." );
+		session.AnswerDialog( "approval", new { type = "extension_ui_response", id = "approval", confirmed = true } );
+		CoreChecks.Check( PumpUntil( () => !session.IsBusy ), "Answering the question lets the turn settle without a panel." );
+		var messages = store.GetMessages( chat.Id );
+		CoreChecks.Check( messages.Any( message => message.Role == "user" && message.Text == "Run headless" )
+			&& messages.Any( message => message.Role == "assistant" && message.Text.StartsWith( "Streaming complete.", StringComparison.Ordinal ) )
+			&& !store.IsWorking( chat.Id ),
+			"A turn run with no panel open records the user and assistant messages and leaves the chat idle." );
+		session.Dispose();
+
+		// The last panel leaves while an idle connection starts, and a prompt follows at once: the ended startup must not touch the new connection.
+		var racingChat = store.CreateConversation( SettingsProfile.Personal );
+		store.SaveBackendSession( racingChat.Id, Path.Combine( Path.GetTempPath(), "lokn-racing-" + Guid.NewGuid().ToString( "N" ) ) );
+		var racing = new ChatSession( app, store, racingChat.Id, omp.Service, app.Post );
+		var viewer = Guid.NewGuid();
+		racing.Attach( viewer );
+		racing.UpdateConnect();
+		racing.Detach( viewer );
+		CoreChecks.Check( !racing.IsConnectionStarted && racing.Status == "Ready", "Leaving a chat while its idle connection starts ends that connection." );
+		racing.Send( "Run headless", [] );
+		CoreChecks.Check( PumpUntil( () => racing.PendingDialog is not null ) && racing.IsConnected, "A prompt sent right after a connection ended connects afresh and reaches the agent." );
+		racing.AnswerDialog( "approval", new { type = "extension_ui_response", id = "approval", confirmed = true } );
+		CoreChecks.Check( PumpUntil( () => !racing.IsBusy ) && racing.Status == "Ready"
+			&& store.GetMessages( racingChat.Id ).Any( message => message.Role == "assistant" && message.Text.StartsWith( "Streaming complete.", StringComparison.Ordinal ) ),
+			"The ended connection's startup finishing late changes nothing: the new turn completes." );
+		racing.Dispose();
+		CheckDisconnectReset( app, store, omp.Service );
+		app.Shutdown();
+	}
+
+	/// <summary>Checks that a session no panel shows any more forgets what its stopped process reported, so a reopened chat starts clean.</summary>
+	private static void CheckDisconnectReset( LoknApplication app, ConversationStore store, OmpService backend )
+	{
+		var chat = store.CreateConversation( SettingsProfile.Personal );
+		var session = new ChatSession( app, store, chat.Id, backend, app.Post );
+		var first = Guid.NewGuid();
+		session.Attach( first );
+		session.UpdateFrame( Parse( """{"type":"tool_execution_start","toolCallId":"t1","toolName":"bash","intent":"Building"}""" ) );
+		session.UpdateFrame( Parse( """{"type":"auto_compaction_start"}""" ) );
+		session.UpdateFrame( Parse( """{"type":"extension_ui_request","id":"q1","method":"confirm","title":"Proceed?"}""" ) );
+		var changes = 0;
+		session.DialogsChanged += () => changes++;
+		var second = Guid.NewGuid();
+		session.Attach( second );
+		CoreChecks.Check( changes == 1, "A panel attaching to a session with a pending question tells the feed, which answers it in place from then on." );
+		session.Detach( second );
+		session.Detach( first );
+		CoreChecks.Check( session.Status == "Ready" && session.PendingDialog is null && session.Tools.Count == 0 && session.Intents.Count == 0 && !session.IsAutoCompacting
+			&& session.QueuedSteering.Length == 0 && changes >= 3,
+			"Once no panel shows an idle session, its process stops and its status, question, live tools and compaction are forgotten." );
+		session.Dispose();
 	}
 
 	/// <summary>Checks bounded title material, generated title cleanup, and preservation of a name the user chose.</summary>
@@ -113,12 +214,12 @@ internal static class ChatChecks
 			&& !ChatContent.ReadNewTaskAnswer( "SAME" ) && !ChatContent.ReadNewTaskAnswer( "" ) && !ChatContent.ReadNewTaskAnswer( "Not sure, maybe NEW" ),
 			"Only an answer that starts with NEW suggests a new chat; anything unclear sends the prompt here." );
 
-		var apply = typeof( ChatContent ).GetMethod( "UpdateTitleFromAnswer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance )!;
-		apply.Invoke( panel, ["Compacted chat topic"] );
+		var apply = typeof( ChatSession ).GetMethod( "UpdateTitleFromAnswer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance )!;
+		apply.Invoke( panel.Session, ["Compacted chat topic"] );
 		CoreChecks.Check( store.Get( chatId ).Title == "Compacted chat topic" && store.Get( chatId ).IsTitleGenerated, "A generated answer renames the chat." );
 
 		store.UpdateConversation( chatId, "My own name", store.Get( chatId ).ProjectId );
-		apply.Invoke( panel, ["Another generated title"] );
+		apply.Invoke( panel.Session, ["Another generated title"] );
 		CoreChecks.Check( store.Get( chatId ).Title == "My own name", "A name the user chose survives later generated titles." );
 	}
 
@@ -141,7 +242,7 @@ internal static class ChatChecks
 		var store = new ConversationStore( new ProjectStore() );
 		var chat = store.CreateConversation( SettingsProfile.Personal );
 		store.SaveBackendSession( chat.Id, Path.Combine( Path.GetTempPath(), "lokn-continue-" + Guid.NewGuid().ToString( "N" ) ) );
-		ConversationsModule Build() => new( store, ( context, history, id ) => new ChatContent( context, history, id, omp.Service ) );
+		ConversationsModule Build() => new( store, ConversationsModule.BuildChat );
 		CoreChecks.Check( ProjectChecks.LoadProjects( app, store ) && app.Load( Build() ), "Conversations loads for the reload check." );
 		bool PumpUntil( Func<bool> condition )
 		{
@@ -162,20 +263,20 @@ internal static class ChatChecks
 		}
 
 		var panelId = app.Panels.Open( ConversationsModule.ChatPanelType, input: new ConversationPanelInput( chat.Id, chat.Profile ) );
-		var panel = ((ConversationPanel)app.Panels.Sessions.Single( session => session.Info.Id == panelId ).Content!).Chat!;
+		var panel = ((ConversationPanel)app.Panels.Sessions.Single( session => session.Info.Id == panelId ).Content!).View!;
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-		typeof( ChatContent ).GetMethod( "UpdateConnect", flags )!.Invoke( panel, null );
-		var modelField = typeof( ChatContent ).GetField( "_connectedModel", flags )!;
-		CoreChecks.Check( PumpUntil( () => modelField.GetValue( panel ) is "fixture/one" ), "The first chat connects to its Omp child before the reload." );
-		CoreChecks.Check( typeof( ChatContent ).GetField( "_effort", flags )!.GetValue( panel ) is "low", "Economy mode starts a new chat at low reasoning effort." );
+		panel.Session.UpdateConnect();
+		var modelField = typeof( ChatSession ).GetField( "_connectedModel", flags )!;
+		CoreChecks.Check( PumpUntil( () => modelField.GetValue( panel.Session ) is "fixture/one" ), "The first chat connects to its Omp child before the reload." );
+		CoreChecks.Check( typeof( ChatSession ).GetField( "_effort", flags )!.GetValue( panel.Session ) is "low", "Economy mode starts a new chat at low reasoning effort." );
 
 		// The meter reads the context's use from get_state and the compaction point from the profile's settings.
 		var meter = typeof( ChatContent ).GetMethod( "BuildContextMeter", flags )!;
-		CoreChecks.Check( PumpUntil( () => typeof( ChatContent ).GetField( "_compaction", flags )!.GetValue( panel ) is not null )
-			&& typeof( ChatContent ).GetField( "_contextTokens", flags )!.GetValue( panel ) is 84000L && typeof( ChatContent ).GetField( "_contextWindow", flags )!.GetValue( panel ) is 200000L
+		CoreChecks.Check( PumpUntil( () => typeof( ChatSession ).GetField( "_compaction", flags )!.GetValue( panel.Session ) is not null )
+			&& typeof( ChatSession ).GetField( "_contextTokens", flags )!.GetValue( panel.Session ) is 84000L && typeof( ChatSession ).GetField( "_contextWindow", flags )!.GetValue( panel.Session ) is 200000L
 			&& meter.Invoke( panel, null ) is not null,
 			"A connected chat shows its context use against the model's window." );
-		var settings = (OmpCompaction)typeof( ChatContent ).GetField( "_compaction", flags )!.GetValue( panel )!;
+		var settings = (OmpCompaction)typeof( ChatSession ).GetField( "_compaction", flags )!.GetValue( panel.Session )!;
 		CoreChecks.Check( settings.ComputeThreshold( 200_000, "fixture/one" ) == 150_000 && settings.ComputeThreshold( 200_000, "fixture/two" ) == 80_000
 			&& settings.ComputeThreshold( 200_000, "other/model" ) == 160_000,
 			"The compaction mark follows the profile's threshold and its per-model fixed triggers and window caps." );
@@ -191,7 +292,7 @@ internal static class ChatChecks
 			&& costDetails.Any( line => line.Contains( "Auxiliary calls 2", StringComparison.Ordinal ) )
 			&& costDetails.Any( line => line.Contains( "Start a new chat", StringComparison.Ordinal ) ),
 			"The token and cost panel reports model rates, auxiliary calls, and economy guidance." );
-		panel.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		CoreChecks.Check( !panel.CaptureState()!.Value.Deserialize<ConversationPanelInput>().ContinueTurn, "Saving the layout outside a reload never asks a working chat to continue." );
 
 		CoreChecks.Check( app.Reload( Build() ), "Conversations reloads while its chat is working." );
@@ -199,39 +300,39 @@ internal static class ChatChecks
 			"The reopened chat waits for the old child to exit, reconnects, and asks the agent to continue the turn the reload stopped." );
 
 		// The model picker's main action asks the connected child for the model and shows it once Omp accepts.
-		var reopened = app.Panels.Sessions.Select( session => session.Content ).OfType<ConversationPanel>().Single().Chat!;
+		var reopened = app.Panels.Sessions.Select( session => session.Content ).OfType<ConversationPanel>().Single().View!;
 		typeof( ChatContent ).GetMethod( "UpdateModel", flags )!.Invoke( reopened, [new OmpModelInfo( "fixture", "two", "Fixture Two" )] );
-		CoreChecks.Check( PumpUntil( () => modelField.GetValue( reopened ) is "fixture/two" ), "Choosing a model for a chat switches its session and shows the new model." );
+		CoreChecks.Check( PumpUntil( () => modelField.GetValue( reopened.Session ) is "fixture/two" ), "Choosing a model for a chat switches its session and shows the new model." );
 
 		// A panel whose agent is working keeps running hidden; another conversation opens in a new panel in its pane.
 		var conversations = app.GetModule<ConversationsModule>();
 		var working = app.Panels.ActivePanelId!.Value;
-		reopened.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
+		reopened.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		var other = store.CreateConversation( SettingsProfile.Personal );
-		var otherPanel = conversations.OpenConversation( app, other.Id );
+		var otherPanel = conversations.OpenConversation( app, ChatRef.Local( other.Id ) );
 		CoreChecks.Check( otherPanel != working && app.Panels.Panes.Count == 1 && !app.Panels.IsShown( working ) && app.Panels.Panels.Any( panel => panel.Id == working ),
 			"Opening a conversation while the shown chat works opens it in a new panel in the same pane and keeps the working one, hidden." );
-		CoreChecks.Check( conversations.OpenConversation( app, chat.Id ) == working && app.Panels.IsShown( working ) && app.Panels.Panes.Count == 1,
+		CoreChecks.Check( conversations.OpenConversation( app, ChatRef.Local( chat.Id ) ) == working && app.Panels.IsShown( working ) && app.Panels.Panes.Count == 1,
 			"Opening the working conversation again brings its panel back into the pane." );
 
 		// Clearing is refused mid-turn, then empties the chat in place once the turn ends, from the palette or /clear.
-		var statusField = typeof( ChatContent ).GetField( "_status", flags )!;
-		reopened.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
+		var statusField = typeof( ChatSession ).GetField( "_status", flags )!;
+		reopened.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		CoreChecks.Check( !app.Commands.CanExecute( "conversations.clear" ), "A working chat cannot be cleared from the palette." );
-		reopened.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
+		reopened.Session.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
 		CoreChecks.Check( store.GetMessages( chat.Id ).Count > 0 && app.Commands.CanExecute( "conversations.clear" ), "An idle chat with history can be cleared." );
 		_ = app.Commands.ExecuteAsync( "conversations.clear" );
-		CoreChecks.Check( PumpUntil( () => statusField.GetValue( reopened ) is "Cleared" ) && store.GetMessages( chat.Id ).Count == 0, "Clearing starts a new Omp session and empties the transcript." );
-		CoreChecks.Check( app.Panels.Sessions.Any( session => session.Content is ConversationPanel { Chat: var shown } && shown == reopened ) && store.Get( chat.Id ).Id == chat.Id, "The chat panel and its conversation stay." );
+		CoreChecks.Check( PumpUntil( () => statusField.GetValue( reopened.Session ) is "Cleared" ) && store.GetMessages( chat.Id ).Count == 0, "Clearing starts a new Omp session and empties the transcript." );
+		CoreChecks.Check( app.Panels.Sessions.Any( session => session.Content is ConversationPanel { View: var shown } && shown == reopened ) && store.Get( chat.Id ).Id == chat.Id, "The chat panel and its conversation stay." );
 		CoreChecks.Check( PumpUntil( () => store.Get( chat.Id ).Title == "Fixture small title" ) && store.Get( chat.Id ).IsTitleGenerated,
 			"After its first turn, the chat asks Omp's small-model role for a title from bounded prompts and applies it." );
-		var sentField = typeof( ChatContent ).GetField( "_sentCommand", flags )!;
-		sentField.SetValue( reopened, "/rename 🪟 PANEL: Mine" );
-		reopened.UpdateFrame( Parse( """{"type":"session_info_update","title":"🪟 PANEL: Mine","sessionId":"fixture"}""" ) );
+		var sentField = typeof( ChatSession ).GetField( "_sentCommand", flags )!;
+		sentField.SetValue( reopened.Session, "/rename 🪟 PANEL: Mine" );
+		reopened.Session.UpdateFrame( Parse( """{"type":"session_info_update","title":"🪟 PANEL: Mine","sessionId":"fixture"}""" ) );
 		CoreChecks.Check( store.Get( chat.Id ) is { Title: "🪟 PANEL: Mine", IsTitleChosen: true }, "A title the user gives with /rename <title> counts as chosen." );
-		sentField.SetValue( reopened, "/model fixture/one" );
-		reopened.UpdateFrame( Parse( """{"type":"session_info_update","title":"Stale name","sessionId":"fixture"}""" ) );
-		reopened.UpdateFrame( Parse( """{"type":"auto_compaction_end","result":{}}""" ) );
+		sentField.SetValue( reopened.Session, "/model fixture/one" );
+		reopened.Session.UpdateFrame( Parse( """{"type":"session_info_update","title":"Stale name","sessionId":"fixture"}""" ) );
+		reopened.Session.UpdateFrame( Parse( """{"type":"auto_compaction_end","result":{}}""" ) );
 		CoreChecks.Check( store.Get( chat.Id ).Title == "🪟 PANEL: Mine" && !store.SetAutomaticTitle( chat.Id, "Compacted summary", isGenerated: true ),
 			"Neither the name Omp echoes after another command nor a compaction's summary replaces a title the user chose." );
 		CoreChecks.Check( ChatContent.ComputeCommandMatches( [ChatContent.ClearCommand], "cl" ).Single().Name == "clear", "/clear is offered among the slash commands." );
@@ -239,12 +340,12 @@ internal static class ChatChecks
 		// While the agent works, Enter queues for after the turn and Ctrl+Enter steers; the switch beside Send swaps them. Each message
 		// shows in the prompt box at once, Omp's queue_update keeps the list, and a queued message can be steered now or taken back.
 		var composer = (TextEditorController)typeof( ChatContent ).GetField( "_composer", flags )!.GetValue( reopened )!;
-		var steeringField = typeof( ChatContent ).GetField( "_queuedSteering", flags )!;
-		var followUpsField = typeof( ChatContent ).GetField( "_queuedFollowUps", flags )!;
-		string[] Steering() => (string[])steeringField.GetValue( reopened )!;
-		string[] FollowUps() => (string[])followUpsField.GetValue( reopened )!;
+		var steeringField = typeof( ChatSession ).GetField( "_queuedSteering", flags )!;
+		var followUpsField = typeof( ChatSession ).GetField( "_queuedFollowUps", flags )!;
+		string[] Steering() => (string[])steeringField.GetValue( reopened.Session )!;
+		string[] FollowUps() => (string[])followUpsField.GetValue( reopened.Session )!;
 		void Type( string text ) => composer.Document.Apply( new TextChange( new TextRange( 0, composer.Document.Length ), text ) );
-		reopened.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
+		reopened.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		Type( "Run the tests after this" );
 		reopened.UpdateSend();
 		CoreChecks.Check( FollowUps() is ["Run the tests after this"] && composer.Document.Length == 0
@@ -258,24 +359,24 @@ internal static class ChatChecks
 		Type( "Also check Linux" );
 		reopened.UpdateSend();
 		CoreChecks.Check( PumpUntil( () => Steering() is [_, "Also check Linux"] ), "With the switch on Steer, Enter steers." );
-		typeof( ChatContent ).GetMethod( "UpdatePromote", flags )!.Invoke( reopened, ["Run the tests after this"] );
+		reopened.Session.UpdatePromote( "Run the tests after this" );
 		CoreChecks.Check( PumpUntil( () => FollowUps() is [] && Steering() is [_, _, "Run the tests after this"] ),
 			"Steer now moves a queued message to the steering queue." );
-		typeof( ChatContent ).GetMethod( "UpdateUnqueue", flags )!.Invoke( reopened, ["Use the new API", true] );
+		reopened.Session.UpdateUnqueue( "Use the new API", true );
 		CoreChecks.Check( PumpUntil( () => Steering() is { Length: 2 } && composer.Document.GetText() == "Use the new API" ),
 			"Taking a message back removes it from Omp's queue and returns it to the empty prompt." );
-		reopened.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
+		reopened.Session.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
 		CoreChecks.Check( Steering() is [] && typeof( ChatContent ).GetMethod( "BuildQueue", flags )!.Invoke( reopened, null ) is null,
 			"The waiting list empties when the turn ends." );
 		Type( "" );
 		typeof( ChatContent ).GetField( "_isSteerMode", flags )!.SetValue( reopened, false );
 
 		// A question the agent waits on is offered to the notification feed and to its notification's banner, which answer it in place, and leaves once answered.
-		reopened.UpdateFrame( Parse( """{"type":"extension_ui_request","id":"pick","method":"select","title":"Which branch?","options":["main","dev"]}""" ) );
+		reopened.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","id":"pick","method":"select","title":"Which branch?","options":["main","dev"]}""" ) );
 		CoreChecks.Check( NotificationPromptSource.ListAll( app ) is [{ PanelId: var waiting } prompt] && waiting == working
 			&& prompt.Build( "feed" ) is not null && prompt.Build( "banner" ) is not null,
 			"A chat waiting on a question offers it through the notification prompts, for the feed and its panel's banner." );
-		reopened.UpdateFrame( Parse( """{"type":"extension_ui_request","id":"cancel-pick","method":"cancel","targetId":"pick"}""" ) );
+		reopened.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","id":"cancel-pick","method":"cancel","targetId":"pick"}""" ) );
 		CoreChecks.Check( NotificationPromptSource.ListAll( app ).Count == 0,
 			"A question the agent withdraws, or the user answers, leaves the feed and the banner." );
 		app.Shutdown();
@@ -286,11 +387,11 @@ internal static class ChatChecks
 	{
 		var store = new ConversationStore();
 		var chat = store.CreateConversation( SettingsProfile.Personal );
-		var panel = new ChatContent( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
+		var panel = BuildChat( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
 		var folder = Path.Combine( Path.GetTempPath(), "lokn-chat-folder" );
-		panel.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		CoreChecks.Check( !panel.UpdateDirectory( folder ) && store.Get( chat.Id ).Directory is null, "A working chat keeps its folder." );
-		panel.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
 		CoreChecks.Check( panel.UpdateDirectory( folder ) && store.GetDirectory( chat.Id ) == folder, "An idle chat outside projects moves to the chosen folder." );
 		panel.Closed();
 	}
@@ -302,33 +403,33 @@ internal static class ChatChecks
 		var chat = store.CreateConversation( SettingsProfile.Personal );
 		store.UpdateConversation( chat.Id, "Fix the build", null );
 		CoreChecks.Check( app.Load( new FixtureModule( "attention", builder => builder.Panel( "chat", "Chat",
-			context => new ChatContent( context, store, chat.Id, module.Service ) ) ) ), "A workspace-hosted chat registers for attention checks." );
+			context => BuildChat( context, store, chat.Id, module.Service ) ) ) ), "A workspace-hosted chat registers for attention checks." );
 		var panelId = app.Panels.Open( "attention.chat" );
 		app.Panels.SplitActive( SplitAxis.Horizontal );
 		var panel = (ChatContent)app.Panels.Sessions.Single( session => session.Info.Id == panelId ).Content!;
-		panel.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		CoreChecks.Check( app.Panels.GetAttention( panelId ) is null, "A working chat does not ask for the user." );
-		panel.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"select","id":"d1","title":"Pick a branch","options":["main"]}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"select","id":"d1","title":"Pick a branch","options":["main"]}""" ) );
 		CoreChecks.Check( app.Panels.GetAttention( panelId ) == new PanelAttention( "Fix the build", "Pick a branch" ), "A tool question asks for the user with its title." );
 		app.Panels.Activate( panelId );
-		panel.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
 		CoreChecks.Check( app.Panels.GetAttention( panelId )?.Message == "Finished and waiting for you", "A finished turn asks for the user again." );
-		panel.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"cancel","targetId":"d1"}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"cancel","targetId":"d1"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		CoreChecks.Check( app.Panels.GetAttention( panelId ) is null, "A chat working on alone withdraws its request." );
 
 		CoreChecks.Check( panel.ComputeWorkingLabel() == "Working", "A turn with no assistant output yet is working." );
-		panel.UpdateFrame( Parse( """{"type":"message_update","messageId":"w1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Hmm"}]}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_update","messageId":"w1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Hmm"}]}}""" ) );
 		CoreChecks.Check( panel.ComputeWorkingLabel() == "Thinking", "Streaming reasoning shows as thinking." );
-		panel.UpdateFrame( Parse( """{"type":"message_update","messageId":"w1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Hmm"},{"type":"toolCall","id":"w-t1","name":"read","arguments":{"path":"a.cs"}},{"type":"toolCall","id":"w-t2","name":"bash","arguments":{"command":"dotnet build"}}]}}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"tool_execution_start","toolCallId":"w-t1","toolName":"read","args":{},"intent":"Reading the build script"}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"tool_execution_update","toolCallId":"w-t1","toolName":"read","args":{},"partialResult":{}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_update","messageId":"w1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Hmm"},{"type":"toolCall","id":"w-t1","name":"read","arguments":{"path":"a.cs"}},{"type":"toolCall","id":"w-t2","name":"bash","arguments":{"command":"dotnet build"}}]}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"tool_execution_start","toolCallId":"w-t1","toolName":"read","args":{},"intent":"Reading the build script"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"tool_execution_update","toolCallId":"w-t1","toolName":"read","args":{},"partialResult":{}}""" ) );
 		CoreChecks.Check( panel.ComputeWorkingLabel() == "Reading the build script", "A running tool shows the intent it started with, after progress frames." );
-		panel.UpdateFrame( Parse( """{"type":"tool_execution_end","toolCallId":"w-t1","toolName":"read","result":{"content":[]}}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"tool_execution_start","toolCallId":"w-t2","toolName":"bash","args":{}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"tool_execution_end","toolCallId":"w-t1","toolName":"read","result":{"content":[]}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"tool_execution_start","toolCallId":"w-t2","toolName":"bash","args":{}}""" ) );
 		CoreChecks.Check( panel.ComputeWorkingLabel() == "Running bash", "A running tool without an intent names itself; finished tools no longer show." );
-		panel.UpdateFrame( Parse( """{"type":"tool_execution_end","toolCallId":"w-t2","toolName":"bash","result":{"content":[]}}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"message_update","messageId":"w2","message":{"role":"assistant","content":[{"type":"text","text":"Done"}]}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"tool_execution_end","toolCallId":"w-t2","toolName":"bash","result":{"content":[]}}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_update","messageId":"w2","message":{"role":"assistant","content":[{"type":"text","text":"Done"}]}}""" ) );
 		CoreChecks.Check( panel.ComputeWorkingLabel() == "Writing", "Streaming prose shows as writing." );
 		CoreChecks.Check( WorkingIndicator.FormatElapsed( TimeSpan.FromSeconds( 9.7 ) ) == "9s" && WorkingIndicator.FormatElapsed( TimeSpan.FromSeconds( 125 ) ) == "2m 05s", "Elapsed time reads in seconds, then minutes." );
 		app.Unload( "attention" );
@@ -348,7 +449,7 @@ internal static class ChatChecks
 		Add( "toolResult", """{"toolCallId":"b2","toolName":"bash","isError":true,"content":[{"type":"text","text":"failed"}]}""" );
 		Add( "assistant", """{"content":[{"type":"text","text":"Found it."},{"type":"toolCall","id":"r2","name":"read","arguments":{"path":"B.cs"}}]}""" );
 		Add( "assistant", """{"content":[{"type":"toolCall","id":"t1","name":"todo","arguments":{"op":"done","task":["Inspect"]}},{"type":"toolCall","id":"r3","name":"read","arguments":{"path":"C.cs"}}]}""" );
-		var panel = new ChatContent( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
+		var panel = BuildChat( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
 		var rows = (List<TranscriptRow>)typeof( ChatContent ).GetMethod( "ComputeRows", flags )!.Invoke( panel, [store.GetMessages( chat.Id )] )!;
 		CoreChecks.Check( rows.Select( row => row.IsActivity ).SequenceEqual( [false, true, false, true, false, true] ) && rows[1].Parts.Length == 2 && rows[3].Parts.Length == 1,
@@ -452,7 +553,7 @@ internal static class ChatChecks
 		Add( "user", """{"content":[{"type":"text","text":"Show me"}]}""" );
 		Add( "assistant", """{"content":[{"type":"toolCall","id":"s1","name":"screenshot","arguments":{}}]}""" );
 		Add( "toolResult", $$"""{"toolCallId":"s1","toolName":"screenshot","content":[{"type":"text","text":"Captured"},{"type":"image","mimeType":"image/png","data":"{{Pixel}}"}]}""" );
-		var panel = new ChatContent( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
+		var panel = BuildChat( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
 		var rows = (List<TranscriptRow>)typeof( ChatContent ).GetMethod( "ComputeRows", flags )!.Invoke( panel, [store.GetMessages( chat.Id )] )!;
 		var activity = (Blob)typeof( ChatContent ).GetMethod( "BuildActivity", flags )!.Invoke( panel, [rows.Single( row => row.IsActivity )] )!;
@@ -563,8 +664,8 @@ internal static class ChatChecks
 	private static void CheckSlashCommands( ChatContent panel )
 	{
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-		panel.UpdateFrame( Parse( """{"type":"available_commands_update","commands":[{"name":"model","source":"builtin","aliases":["models"],"description":"Show current model selection"},{"name":"mcp","source":"builtin","description":"Manage MCP servers","input":{"hint":"<subcommand>"}},{"name":"compact","source":"builtin","description":"Compact the conversation\nKeeps recent turns.","input":{"hint":"[soft|remote] [focus]"}},{"source":"builtin"}]}""" ) );
-		var commands = (SlashCommand[])typeof( ChatContent ).GetField( "_commands", flags )!.GetValue( panel )!;
+		panel.Session.UpdateFrame( Parse( """{"type":"available_commands_update","commands":[{"name":"model","source":"builtin","aliases":["models"],"description":"Show current model selection"},{"name":"mcp","source":"builtin","description":"Manage MCP servers","input":{"hint":"<subcommand>"}},{"name":"compact","source":"builtin","description":"Compact the conversation\nKeeps recent turns.","input":{"hint":"[soft|remote] [focus]"}},{"source":"builtin"}]}""" ) );
+		var commands = (SlashCommand[])typeof( ChatSession ).GetField( "_commands", flags )!.GetValue( panel.Session )!;
 		CoreChecks.Check( commands.Select( command => command.Name ).SequenceEqual( ["model", "mcp", "compact"] ) && commands[0].Aliases.Single() == "models" && commands[1] is { NeedsArgument: true, Hint: "<subcommand>" } && !commands[2].NeedsArgument,
 			"Omp's command catalog keeps its order, aliases and argument hints, and skips nameless entries." );
 		CoreChecks.Check( ChatContent.ComputeCommandQuery( "/mo" ) == "mo" && ChatContent.ComputeCommandQuery( "/" ) == "" && ChatContent.ComputeCommandQuery( "/compact now" ) is null && ChatContent.ComputeCommandQuery( "see /model" ) is null,
@@ -576,7 +677,7 @@ internal static class ChatChecks
 		composer.Document.Apply( new TextChange( new TextRange( 0, composer.Document.Length ), "/mc" ) );
 		typeof( ChatContent ).GetMethod( "UpdatePromptChange", flags )!.Invoke( panel, null );
 		typeof( ChatContent ).GetMethod( "UpdateEnter", flags )!.Invoke( panel, null );
-		CoreChecks.Check( composer.Document.GetText() == "/mcp " && typeof( ChatContent ).GetField( "_isBusy", flags )!.GetValue( panel ) is false,
+		CoreChecks.Check( composer.Document.GetText() == "/mcp " && typeof( ChatSession ).GetField( "_isBusy", flags )!.GetValue( panel.Session ) is false,
 			"Enter completes a command that needs an argument, leaving room to type it, instead of sending it." );
 		composer.Document.Apply( new TextChange( new TextRange( 0, composer.Document.Length ), "" ) );
 	}
@@ -585,28 +686,28 @@ internal static class ChatChecks
 	private static void CheckCommandOutput( ChatContent panel, ConversationStore store, Guid conversationId )
 	{
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-		var sent = typeof( ChatContent ).GetField( "_sentCommand", flags )!;
+		var sent = typeof( ChatSession ).GetField( "_sentCommand", flags )!;
 		var before = store.GetMessages( conversationId ).Count;
-		panel.UpdateFrame( Parse( """{"type":"command_output","text":"Title: Lokn"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"command_output","text":"Title: Lokn"}""" ) );
 		CoreChecks.Check( store.GetMessages( conversationId ).Count == before, "Command output with no command sent stays out of the transcript." );
-		sent.SetValue( panel, "/usage" );
-		panel.UpdateFrame( Parse( """{"type":"command_output","text":"Usage\n  [\u001b[1m\u001b[38;5;39m·\u001b[22m\u001b[39m]\n  resets in 14d\n"}""" ) );
+		sent.SetValue( panel.Session, "/usage" );
+		panel.Session.UpdateFrame( Parse( """{"type":"command_output","text":"Usage\n  [\u001b[1m\u001b[38;5;39m·\u001b[22m\u001b[39m]\n  resets in 14d\n"}""" ) );
 		var output = store.GetMessages( conversationId )[^1];
 		CoreChecks.Check( output is { Role: ChatContent.CommandRole, Text: "Usage\n  [·]\n  resets in 14d" } && output.RichContent!.Value.GetProperty( "command" ).GetString() == "/usage",
 			"A command's output joins the transcript under the command, without terminal colors, and keeps its lines." );
-		var status = typeof( ChatContent ).GetField( "_status", flags )!;
-		panel.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"notify","id":"n1","message":"Model set to sol"}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"setWidget","id":"w1","widgetKey":"autoresearch"}""" ) );
-		CoreChecks.Check( status.GetValue( panel ) is "Model set to sol", "A command's notice stays in the status line when a widget update follows it." );
-		sent.SetValue( panel, "/compact" );
-		panel.UpdateFrame( Parse( """{"type":"manual_compaction_start"}""" ) );
-		CoreChecks.Check( panel.IsBusy && status.GetValue( panel ) is "Compacting…" && store.IsWorking( conversationId ), "A manual compaction shows the chat as working, in the panel and the sidebar, until it ends." );
-		panel.UpdateFrame( Parse( """{"type":"manual_compaction_end","aborted":false,"skipped":true,"errorMessage":"Nothing to compact (session too small)"}""" ) );
-		panel.UpdateFrame( Parse( """{"type":"command_output","text":"Compaction failed: Nothing to compact (session too small)"}""" ) );
-		CoreChecks.Check( !panel.IsBusy && !store.IsWorking( conversationId ) && status.GetValue( panel ) is "Nothing to compact (session too small)"
+		var status = typeof( ChatSession ).GetField( "_status", flags )!;
+		panel.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"notify","id":"n1","message":"Model set to sol"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"setWidget","id":"w1","widgetKey":"autoresearch"}""" ) );
+		CoreChecks.Check( status.GetValue( panel.Session ) is "Model set to sol", "A command's notice stays in the status line when a widget update follows it." );
+		sent.SetValue( panel.Session, "/compact" );
+		panel.Session.UpdateFrame( Parse( """{"type":"manual_compaction_start"}""" ) );
+		CoreChecks.Check( panel.IsBusy && status.GetValue( panel.Session ) is "Compacting…" && store.IsWorking( conversationId ), "A manual compaction shows the chat as working, in the panel and the sidebar, until it ends." );
+		panel.Session.UpdateFrame( Parse( """{"type":"manual_compaction_end","aborted":false,"skipped":true,"errorMessage":"Nothing to compact (session too small)"}""" ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"command_output","text":"Compaction failed: Nothing to compact (session too small)"}""" ) );
+		CoreChecks.Check( !panel.IsBusy && !store.IsWorking( conversationId ) && status.GetValue( panel.Session ) is "Nothing to compact (session too small)"
 			&& store.GetMessages( conversationId )[^1] is { Role: ChatContent.CommandRole, Text: "Compaction failed: Nothing to compact (session too small)" },
 			"Output a command prints after Omp admits it, as /compact does, still shows." );
-		sent.SetValue( panel, null );
+		sent.SetValue( panel.Session, null );
 	}
 
 	/// <summary>Runs git in a test repository with a fixed author, failing the check when git fails.</summary>
@@ -634,4 +735,11 @@ internal static class ChatChecks
 		using var document = JsonDocument.Parse( json );
 		return document.RootElement.Clone();
 	}
+}
+
+/// <summary>Reaches the local engine behind a chat view's session in focused checks.</summary>
+internal static class ChatSessionCheckExtensions
+{
+	/// <summary>Feeds one Omp frame to the local session behind a view, as its process would.</summary>
+	internal static void UpdateFrame( this IChatSession session, JsonElement frame ) => ((ChatSession)session).UpdateFrame( frame );
 }

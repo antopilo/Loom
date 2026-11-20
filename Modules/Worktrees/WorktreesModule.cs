@@ -47,7 +47,7 @@ public sealed class WorktreesModule : ILoknModule
 	{
 		_setup.Load();
 		builder
-			.Panel( "list", "Worktrees", context => new WorktreesContent( context, _store ?? context.App.GetModule<ConversationsModule>().Store, _setup, MarkChanged ) )
+			.Panel( "list", "Worktrees", context => new WorktreesContent( context, _store ?? context.App.GetModule<ConversationsModule>().Hosts.Local.Store, _setup, MarkChanged ), onHost: true )
 			.Contribute( WorktreeActions.Point, new WorktreeActions( ListAsync, CreateAsync, RemoveAsync, OpenManager, () => _version.Value ) )
 			.ToolAsync( "enter",
 				"Moves your chat into a git worktree of its repository, so you work on a branch in parallel with other chats without touching the main checkout. Call it before changing any file whenever the user asks you to work in a worktree, on a separate branch in parallel, or alongside other agents. It creates the worktree beside the repository (<repository>.worktrees/<branch>) with the repository's Lokn worktree setup, or reuses the worktree that already has the branch, and Lokn's sidebar lists the chat under it. Pass main: true instead to move back to the main checkout.",
@@ -102,20 +102,21 @@ public sealed class WorktreesModule : ILoknModule
 		MarkChanged();
 	}
 
-	/// <summary>Shows the Worktrees panel on the repository holding a folder, reusing an open one.</summary>
+	/// <summary>Shows the Worktrees panel on the repository holding a folder of this PC, reusing an open one on this PC.</summary>
 	private static void OpenManager( LoknApplication app, string directory )
 	{
-		if ( app.Panels.FindContent<WorktreesContent>() is { } open )
+		if ( app.Panels.FindContent<WorktreesContent>() is { } open && app.Panels.GetHostId( open.Id ) == LoknHost.LocalId )
 		{
 			open.Content.ShowRepository( directory );
 			app.Panels.Activate( open.Id );
 			return;
 		}
 
-		app.Panels.Open( "worktrees.list", input: directory );
+		app.Panels.Open( "worktrees.list", input: directory, hostId: LoknHost.LocalId );
 	}
 
 	/// <summary>Moves the calling agent's chat into the worktree of a branch, creating it with the repository's setup when no worktree has the branch, or back to the main checkout.</summary>
+	/// <remarks>Only a chat on this PC can: worktrees work on its disk.</remarks>
 	private async Task<AgentToolResult> EnterAsync( AgentToolContext context, JsonElement arguments )
 	{
 		var branch = arguments.TryGetProperty( "branch", out var named ) && named.ValueKind == JsonValueKind.String ? named.GetString()!.Trim() : "";
@@ -125,10 +126,13 @@ public sealed class WorktreesModule : ILoknModule
 			throw new ArgumentException( "Pass either a branch or main: true." );
 
 		var conversations = context.App.GetModule<ConversationsModule>();
-		if ( context.Caller is not { } caller || conversations.FindConversation( caller ) is not { } conversation )
+		if ( conversations.FindConversation( context ) is not { } chat )
 			throw new InvalidOperationException( "Only the agent of a chat can move its chat into a worktree." );
+		if ( !chat.Host.IsLocal )
+			throw new InvalidOperationException( "Worktrees work on this PC only." );
 
-		var store = _store ?? conversations.Store;
+		var conversation = chat.Conversation;
+		var store = _store ?? chat.Host.Store;
 		var previous = store.GetDirectory( conversation.Id );
 		var worktrees = await GitWorktrees.ListAsync( previous, context.Cancellation );
 		var mainPath = worktrees[0].Path;

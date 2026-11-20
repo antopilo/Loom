@@ -142,14 +142,14 @@ internal sealed partial class GitFileView
 		{
 			var text = GitPatch.BuildHunkPatch( patch, hunk );
 			if ( _target is { Staged: true } )
-				children.Add( BuildAction( "Unstage hunk", $"Unstage change {index + 1}", () => RunHunk( index, "Unstaging", token => GitRepository.UnstageHunkAsync( root, text, token ) ) ) );
+				children.Add( BuildAction( "Unstage hunk", $"Unstage change {index + 1}", () => RunHunk( index, "Unstaging", token => GitRepository.UnstageHunkAsync( _context.Workspace, root, text, token ) ) ) );
 			else
 			{
 				var key = "hunk:" + index;
 				children.Add( _confirm == key
-					? BuildAction( "Discard?", $"Confirm discarding change {index + 1}", () => RunHunk( index, "Discarding", token => GitRepository.DiscardHunkAsync( root, text, token ) ), theme.Error, strong: true )
+					? BuildAction( "Discard?", $"Confirm discarding change {index + 1}", () => RunHunk( index, "Discarding", token => GitRepository.DiscardHunkAsync( _context.Workspace, root, text, token ) ), theme.Error, strong: true )
 					: BuildAction( "Discard", $"Discard change {index + 1}", () => Confirm( key ), theme.Error ) );
-				children.Add( BuildAction( "Stage hunk", $"Stage change {index + 1}", () => RunHunk( index, "Staging", token => GitRepository.StageHunkAsync( root, text, token ) ), theme.Accent, strong: true ) );
+				children.Add( BuildAction( "Stage hunk", $"Stage change {index + 1}", () => RunHunk( index, "Staging", token => GitRepository.StageHunkAsync( _context.Workspace, root, text, token ) ), theme.Accent, strong: true ) );
 			}
 		}
 

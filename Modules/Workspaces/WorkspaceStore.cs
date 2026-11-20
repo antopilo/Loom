@@ -52,8 +52,8 @@ internal sealed class WorkspaceStore( string path )
 	/// <summary>Defines the longest workspace name.</summary>
 	internal const int NameLimit = 40;
 
-	/// <summary>Gets the per-user workspaces file.</summary>
-	internal static string DefaultPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "workspaces.json" );
+	/// <summary>Gets the per-user workspaces file, under the process's data folder.</summary>
+	internal static string DefaultPath => LoknPaths.Combine( "workspaces.json" );
 
 	/// <summary>Rebuilds the views that read the workspaces when they change.</summary>
 	private readonly State<int> _version = new( 0 );

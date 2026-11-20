@@ -15,21 +15,24 @@ public sealed partial class PanelWorkspace
 	/// <param name="typeId">The panel type to open.</param>
 	/// <param name="besidePanelId">The panel it belongs beside, such as the chat whose agent asked for it.</param>
 	/// <param name="input">The new panel's input.</param>
+	/// <param name="hostId">The host a panel of a host-bound type works on, or null for the host of <paramref name="besidePanelId"/>, else the current
+	/// host; ignored for other types.</param>
 	/// <returns>The new panel's identifier. Without an open <paramref name="besidePanelId"/>, the panel opens in the active pane.</returns>
-	public Guid OpenBeside( string typeId, Guid besidePanelId, object? input = null )
+	public Guid OpenBeside( string typeId, Guid besidePanelId, object? input = null, string? hostId = null )
 	{
 		besidePanelId = ResolvePanelId( besidePanelId );
+		hostId ??= GetHostId( besidePanelId );
 		if ( !_sessions.ContainsKey( besidePanelId ) )
-			return Open( typeId, null, input );
+			return Open( typeId, null, input, hostId );
 
 		if ( Panes.FirstOrDefault( pane => pane.PanelId == besidePanelId ) is { } shown )
-			return Open( typeId, shown.Id, input );
+			return Open( typeId, shown.Id, input, hostId );
 
 		if ( !_types.TryGetValue( typeId, out var type ) || type.Lifetime.IsCancellationRequested )
 			throw new InvalidOperationException( $"Panel type is not registered: {typeId}" );
 
 		var id = Guid.NewGuid();
-		_sessions.Add( id, BuildSession( type, id, input ) );
+		_sessions.Add( id, BuildSession( type, id, input, hostId: ResolveHost( type, hostId ) ) );
 		_waiting[id] = besidePanelId;
 		_app.MarkChanged();
 		return id;
@@ -42,6 +45,15 @@ public sealed partial class PanelWorkspace
 	/// <summary>Gets the settings profile an open panel works in, or null when it follows the active profile or is not open.</summary>
 	public SettingsProfile? GetProfile( Guid panelId ) =>
 		_sessions.TryGetValue( ResolvePanelId( panelId ), out var session ) ? session.Content?.Profile : null;
+
+	/// <summary>Gets the host an open panel works on now: its content's <see cref="PanelContent.HostId"/>, else the host it opened on.</summary>
+	/// <returns>The host identifier, or null for a panel that is not open or whose type is not host-bound.</returns>
+	public string? GetHostId( Guid panelId ) =>
+		_sessions.TryGetValue( ResolvePanelId( panelId ), out var session ) ? session.Content?.HostId ?? session.HostId : null;
+
+	/// <summary>Gets the host an open panel works on now, a <see cref="LoknHostState.Removed"/> placeholder for one no longer paired.</summary>
+	/// <returns>The host, or null for a panel that is not open or whose type is not host-bound.</returns>
+	public LoknHost? GetHost( Guid panelId ) => GetHostId( panelId ) is { } hostId ? _app.Hosts.Get( hostId ) : null;
 
 	/// <summary>Shows every waiting panel whose source is now on screen, in a split beside it, without moving the focus.</summary>
 	/// <remarks>Forgets waits that ended otherwise: the panel was shown, such as by the user, or closed.</remarks>

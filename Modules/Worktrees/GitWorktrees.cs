@@ -1,3 +1,4 @@
+using Lokn.Core;
 using static Lokn.Modules.Git.GitProcess;
 
 namespace Lokn.Modules.Worktrees;
@@ -24,8 +25,12 @@ public sealed record WorktreeInfo( string Path, string? Branch, string Head, boo
 internal sealed record BranchInfo( string Reference, string Name, string LocalName, bool IsRemote, string Upstream, string Track, DateTimeOffset Date, string Subject, string? WorktreePath );
 
 /// <summary>Lists, creates, removes, and measures a repository's working trees and branches through the git command line.</summary>
+/// <remarks>Worktrees work on this PC only: their folder links, junctions and native builds use its disk directly, so git runs on it too.</remarks>
 internal static class GitWorktrees
 {
+	/// <summary>Gets the host every worktree command runs on: this PC's workspace (<c>app.Hosts.Local.Workspace</c>), whichever host is current.</summary>
+	internal static IWorkspaceHost Workspace => LocalWorkspaceHost.Shared;
+
 	/// <summary>Defines the suffix of the sibling directory that holds a repository's created working trees.</summary>
 	private const string ContainerSuffix = ".worktrees";
 
@@ -44,7 +49,7 @@ internal static class GitWorktrees
 	/// <summary>Lists the working trees of the repository containing a directory, main working tree first.</summary>
 	internal static async Task<IReadOnlyList<WorktreeInfo>> ListAsync( string repository, CancellationToken cancellationToken )
 	{
-		var output = await RunAsync( repository, cancellationToken, "worktree", "list", "--porcelain" ).ConfigureAwait( false );
+		var output = await RunAsync( Workspace, repository, cancellationToken, "worktree", "list", "--porcelain" ).ConfigureAwait( false );
 		return Parse( output );
 	}
 
@@ -77,24 +82,24 @@ internal static class GitWorktrees
 			arguments.Add( startPoint );
 
 		// A remote-only branch name makes git create the local branch tracking it.
-		await RunAsync( repository, cancellationToken, [.. arguments] ).ConfigureAwait( false );
+		await RunAsync( Workspace, repository, cancellationToken, [.. arguments] ).ConfigureAwait( false );
 		if ( !isSparse )
 			return path;
 
 		try
 		{
 			// The sparse patterns must be in place before the first checkout writes any file.
-			await RunAsync( path, cancellationToken, ["sparse-checkout", "set", "--cone", "--", .. directories] ).ConfigureAwait( false );
-			await RunAsync( path, cancellationToken, "checkout" ).ConfigureAwait( false );
+			await RunAsync( Workspace, path, cancellationToken, ["sparse-checkout", "set", "--cone", "--", .. directories] ).ConfigureAwait( false );
+			await RunAsync( Workspace, path, cancellationToken, "checkout" ).ConfigureAwait( false );
 		}
 		catch ( Exception error )
 		{
 			// Nothing in the new directory is the user's yet, so a failed or cancelled checkout leaves no half-made working tree behind.
 			try
 			{
-				await RunAsync( repository, CancellationToken.None, "worktree", "remove", "--force", "--", path ).ConfigureAwait( false );
+				await RunAsync( Workspace, repository, CancellationToken.None, "worktree", "remove", "--force", "--", path ).ConfigureAwait( false );
 				if ( !isLocal )
-					await RunAsync( repository, CancellationToken.None, "branch", "-D", "--", branch ).ConfigureAwait( false );
+					await RunAsync( Workspace, repository, CancellationToken.None, "branch", "-D", "--", branch ).ConfigureAwait( false );
 			}
 			catch ( InvalidOperationException cleanup )
 			{
@@ -111,7 +116,7 @@ internal static class GitWorktrees
 	private static async Task<(bool IsLocal, bool IsRemote)> FindBranchAsync( string repository, string branch, CancellationToken cancellationToken )
 	{
 		// for-each-ref also matches branches below a same-named folder, so compare the exact references.
-		var references = (await RunAsync( repository, cancellationToken, "for-each-ref", "--format=%(refname)", BranchPrefix + branch, RemotePrefix + "*/" + branch ).ConfigureAwait( false ))
+		var references = (await RunAsync( Workspace, repository, cancellationToken, "for-each-ref", "--format=%(refname)", BranchPrefix + branch, RemotePrefix + "*/" + branch ).ConfigureAwait( false ))
 			.Split( '\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries );
 		return (references.Contains( BranchPrefix + branch ), references.Any( reference => IsRemoteBranch( reference, branch ) ));
 	}
@@ -129,7 +134,7 @@ internal static class GitWorktrees
 	/// <summary>Lists local branches and the remote branches no local branch shares a name with, newest commit first.</summary>
 	internal static async Task<IReadOnlyList<BranchInfo>> ListBranchesAsync( string repository, CancellationToken cancellationToken )
 	{
-		var output = await RunAsync( repository, cancellationToken, "for-each-ref", "--sort=-committerdate",
+		var output = await RunAsync( Workspace, repository, cancellationToken, "for-each-ref", "--sort=-committerdate",
 			"--format=%(refname)%00%(upstream:short)%00%(upstream:track,nobracket)%00%(committerdate:unix)%00%(subject)%00%(worktreepath)",
 			"refs/heads", "refs/remotes" ).ConfigureAwait( false );
 		return ParseBranches( output );
@@ -171,27 +176,27 @@ internal static class GitWorktrees
 	/// <summary>Deletes a local branch; git refuses when its commits are not merged into its upstream or HEAD.</summary>
 	internal static Task DeleteBranchAsync( string repository, string branch, CancellationToken cancellationToken )
 	{
-		return RunAsync( repository, cancellationToken, "branch", "-d", "--", branch );
+		return RunAsync( Workspace, repository, cancellationToken, "branch", "-d", "--", branch );
 	}
 
 	/// <summary>Fetches every remote and prunes remote branches that no longer exist.</summary>
 	internal static Task FetchAsync( string repository, CancellationToken cancellationToken )
 	{
-		return RunAsync( repository, cancellationToken, "fetch", "--all", "--prune" );
+		return RunAsync( Workspace, repository, cancellationToken, "fetch", "--all", "--prune" );
 	}
 
 	/// <summary>Lists the index entries below a repository-relative directory as forward-slash paths relative to the repository root.</summary>
 	/// <remarks>Entries a sparse checkout leaves out of the working tree are included, since they are still git's files.</remarks>
 	internal static async Task<HashSet<string>> ListTrackedAsync( string checkout, string directory, CancellationToken cancellationToken )
 	{
-		var output = await RunAsync( checkout, cancellationToken, "ls-files", "-z", "--", directory ).ConfigureAwait( false );
+		var output = await RunAsync( Workspace, checkout, cancellationToken, "ls-files", "-z", "--", directory ).ConfigureAwait( false );
 		return output.Split( '\0', StringSplitOptions.RemoveEmptyEntries ).ToHashSet( StringComparer.OrdinalIgnoreCase );
 	}
 
 	/// <summary>Reports whether git ignores a path; it need not exist yet.</summary>
 	internal static async Task<bool> IsIgnoredAsync( string checkout, string path, CancellationToken cancellationToken )
 	{
-		var result = await RunProcessAsync( checkout, null, cancellationToken, "check-ignore", "-q", "--", path ).ConfigureAwait( false );
+		var result = await RunProcessAsync( Workspace, checkout, null, cancellationToken, "check-ignore", "-q", "--", path ).ConfigureAwait( false );
 		return result.ExitCode switch
 		{
 			0 => true,
@@ -203,7 +208,7 @@ internal static class GitWorktrees
 	/// <summary>Reads the directories a sparse working tree checks out, or an empty list for a full checkout.</summary>
 	internal static async Task<IReadOnlyList<string>> ReadSparseDirectoriesAsync( string path, CancellationToken cancellationToken )
 	{
-		var setting = await RunProcessAsync( path, null, cancellationToken, "config", "--type=bool", "--get", "core.sparseCheckout" ).ConfigureAwait( false );
+		var setting = await RunProcessAsync( Workspace, path, null, cancellationToken, "config", "--type=bool", "--get", "core.sparseCheckout" ).ConfigureAwait( false );
 		if ( setting.ExitCode == MissingKeyExitCode )
 			return [];
 		if ( setting.ExitCode != 0 )
@@ -211,7 +216,7 @@ internal static class GitWorktrees
 		if ( setting.Output.Trim() != "true" )
 			return [];
 
-		var output = await RunAsync( path, cancellationToken, "sparse-checkout", "list" ).ConfigureAwait( false );
+		var output = await RunAsync( Workspace, path, cancellationToken, "sparse-checkout", "list" ).ConfigureAwait( false );
 		return output.Split( '\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries );
 	}
 
@@ -230,7 +235,7 @@ internal static class GitWorktrees
 	/// <remarks>Git deletes through folder links, so callers remove a working tree's links first; see <see cref="WorktreeSharing.RemoveAsync"/>.</remarks>
 	internal static Task RemoveAsync( string repository, string path, CancellationToken cancellationToken )
 	{
-		return RunAsync( repository, cancellationToken, "worktree", "remove", "--", path );
+		return RunAsync( Workspace, repository, cancellationToken, "worktree", "remove", "--", path );
 	}
 
 	/// <summary>Computes the bytes of every file below a directory, or zero when the directory is gone.</summary>

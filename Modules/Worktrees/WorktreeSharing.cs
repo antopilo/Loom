@@ -163,7 +163,7 @@ internal static class WorktreeSharing
 		if ( !await HasOwnBuildAsync( checkout, setup, cancellationToken ).ConfigureAwait( false ) )
 			throw new InvalidOperationException( $"{setup.NativeOutput} has no native build to record." );
 
-		var head = (await GitProcess.RunAsync( checkout, cancellationToken, "rev-parse", "HEAD" ).ConfigureAwait( false )).Trim();
+		var head = (await GitProcess.RunAsync( GitWorktrees.Workspace, checkout, cancellationToken, "rev-parse", "HEAD" ).ConfigureAwait( false )).Trim();
 		var fingerprint = (await NativeBuilds.ComputeFingerprintsAsync( checkout, [head], setup.NativeInputs, cancellationToken ).ConfigureAwait( false ))[head];
 		var files = NativeBuilds.ReadFiles( Path.Combine( checkout, setup.NativeOutput ) );
 		if ( await NativeBuilds.VerifyBuiltFromAsync( checkout, setup.NativeInputs, fingerprint, files, cancellationToken ).ConfigureAwait( false ) is { } problem )
@@ -180,7 +180,7 @@ internal static class WorktreeSharing
 		if ( await NativeBuilds.HasChangesAsync( worktree, setup.NativeInputs, cancellationToken ).ConfigureAwait( false ) )
 			throw new InvalidOperationException( "Native sources have uncommitted changes, so no recorded build matches them." );
 
-		var head = (await GitProcess.RunAsync( worktree, cancellationToken, "rev-parse", "HEAD" ).ConfigureAwait( false )).Trim();
+		var head = (await GitProcess.RunAsync( GitWorktrees.Workspace, worktree, cancellationToken, "rev-parse", "HEAD" ).ConfigureAwait( false )).Trim();
 		var fingerprint = (await NativeBuilds.ComputeFingerprintsAsync( worktree, [head], setup.NativeInputs, cancellationToken ).ConfigureAwait( false ))[head];
 		var key = WorktreeSetupStore.Normalize( worktree );
 		var source = snapshot.Builds
@@ -292,7 +292,7 @@ internal static class WorktreeSharing
 	/// <remarks>Git would refuse a working tree with changes, so that is checked before any link is touched, and the links come back if git still refuses.</remarks>
 	internal static async Task RemoveAsync( string repository, string worktree, CancellationToken cancellationToken )
 	{
-		var changes = await GitProcess.RunAsync( worktree, cancellationToken, "status", "--porcelain" ).ConfigureAwait( false );
+		var changes = await GitProcess.RunAsync( GitWorktrees.Workspace, worktree, cancellationToken, "status", "--porcelain" ).ConfigureAwait( false );
 		if ( changes.Trim().Length > 0 )
 		{
 			var first = changes.ReplaceLineEndings( "\n" ).Split( '\n', StringSplitOptions.RemoveEmptyEntries ).Take( 3 );

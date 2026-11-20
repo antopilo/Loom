@@ -14,8 +14,9 @@ internal static class AgentToolChecks
 	internal static async Task RunAsync()
 	{
 		await CheckRegistryAsync();
+		await CheckHostAsync();
 		await CheckWorkspaceAsync();
-		Console.WriteLine( "PASS agent tool registration, failures as results, module removal, and workspace state, open, move, focus, close and command tools." );
+		Console.WriteLine( "PASS agent tool registration, failures as results, module removal, the calling host, and workspace state, open, move, focus, close and command tools." );
 	}
 
 	/// <summary>Runs the host-tool protocol against a synthetic Omp child.</summary>
@@ -48,6 +49,18 @@ internal static class AgentToolChecks
 		app.ClearError();
 		app.Unload( "my.tools" );
 		CoreChecks.Check( app.Tools.Items.Count == 0 && changes == 2, "Unloading a module removes its tools and reports the change." );
+		app.Shutdown();
+	}
+
+	/// <summary>Checks that a tool sees the host whose agent called it, and none for This PC.</summary>
+	private static async Task CheckHostAsync()
+	{
+		var app = new LoknApplication();
+		app.Load( new FixtureModule( "hosted", builder => builder
+			.Tool( "where", "Names the calling host.", """{ "type": "object" }""", ( context, _ ) => new( context.Host ?? "this PC" ) ) ) );
+		var remote = await app.Tools.InvokeAsync( "hosted_where", default, null, CancellationToken.None, host: "desk" );
+		var local = await app.Tools.InvokeAsync( "hosted_where", default, null, CancellationToken.None );
+		CoreChecks.Check( remote.Text == "desk" && local.Text == "this PC", "A tool sees the paired host whose agent called it, and no host for This PC's agents." );
 		app.Shutdown();
 	}
 
@@ -153,7 +166,7 @@ internal static class AgentToolChecks
 		try
 		{
 			await session.StartAsync( timeout.Token );
-			using var bridge = new OmpToolBridge( session, app, caller, SettingsProfile.Work, action =>
+			using var bridge = new OmpToolBridge( session, app, () => caller, SettingsProfile.Work, action =>
 			{
 				action();
 				return true;

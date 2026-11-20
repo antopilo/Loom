@@ -64,32 +64,34 @@ internal static class OmpSetupChecks
 			Transparent = true,
 			Background = Theme.Current.Canvas,
 			Foreground = Theme.Current.Text,
-			Root = new ShellView( app ),
+			Root = new ShellView( app ) { AppliesNativeWindowHooks = false },
 			AccessibilityAdapter = semantics,
 		};
 		app.BindDispatcher( window.Post );
 		app.Commands.BindDispatcher( operation => window.InvokeAsync( operation ) );
 		window.Open();
-		PumpUntil( window, () => HasText( semantics, "Omp 1.2.3" ) );
+		PumpUntil( window, semantics, () => HasText( semantics, "Omp 1.2.3" ), "Setup shows the detected Omp." );
 		CoreChecks.Check( HasText( semantics, "fixture · 2 models" ) && HasText( semantics, "this account's Omp default" ), "Work shows its signed-in account and the model Omp starts it with." );
 		CoreChecks.Check( HasText( semantics, "Not signed in" ) && HasText( semantics, "sign in to choose one" ), "Personal says it is not signed in and has no model." );
 		var capture = Array.IndexOf( args, "--capture" );
 		if ( capture >= 0 && capture + 1 < args.Length )
 			NativeChecks.BuildCapture( window, args[capture + 1], "omp-setup" );
 
-		UpdateClick( window, semantics, FindIn( semantics, "Personal", "Account", "Change" ) );
-		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Use team for Personal" ) );
+		Click( window, semantics, FindIn( semantics, "Personal", "Account", "Change" ) );
+		PumpUntil( window, semantics, () => HasButton( semantics, "Use team for Personal" ), "Change on Personal's account lists the other accounts." );
 		Click( window, semantics, AccessibilityRole.Button, "Use team for Personal" );
-		CoreChecks.Check( app.Settings.Get( OmpModule.ProfileName, SettingsScope.Personal ) == "team" && !app.Settings.HasValue( OmpModule.ProfileName, SettingsScope.Work ), "Choosing an account saves it for that profile only." );
-		PumpUntil( window, () => !Nodes( semantics ).Any( node => node.Name == "Use team for Personal" ) );
+		PumpUntil( window, semantics, () => app.Settings.Get( OmpModule.ProfileName, SettingsScope.Personal ) == "team" && !HasButton( semantics, "Use team for Personal" ),
+			"Choosing an account saves it and closes the list." );
+		CoreChecks.Check( !app.Settings.HasValue( OmpModule.ProfileName, SettingsScope.Work ), "Choosing an account saves it for that profile only." );
 
-		UpdateClick( window, semantics, FindIn( semantics, "Work", "Model", "Change" ) );
-		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Select fixture/two" ) );
+		Click( window, semantics, FindIn( semantics, "Work", "Model", "Change" ) );
+		PumpUntil( window, semantics, () => HasButton( semantics, "Select fixture/two" ), "Change on Work's model lists the models." );
 		Click( window, semantics, AccessibilityRole.Button, "Select fixture/two" );
-		CoreChecks.Check( app.Settings.Get( OmpModule.Model, SettingsScope.Work ) == "fixture/two" && app.Settings.Get( OmpModule.Model, SettingsScope.Personal ) == "", "Choosing a model saves it for that profile only." );
-		PumpUntil( window, () => HasText( semantics, "chosen in Lokn" ) );
-		UpdateClick( window, semantics, FindIn( semantics, "Work", "Model", "Use Omp's default" ) );
-		PumpUntil( window, () => !HasText( semantics, "chosen in Lokn" ) );
+		PumpUntil( window, semantics, () => app.Settings.Get( OmpModule.Model, SettingsScope.Work ) == "fixture/two" && HasText( semantics, "chosen in Lokn" ),
+			"Choosing a model saves it and shows it as chosen in Lokn." );
+		CoreChecks.Check( app.Settings.Get( OmpModule.Model, SettingsScope.Personal ) == "", "Choosing a model saves it for that profile only." );
+		Click( window, semantics, FindIn( semantics, "Work", "Model", "Use Omp's default" ) );
+		PumpUntil( window, semantics, () => !HasText( semantics, "chosen in Lokn" ), "Use Omp's default resets the model." );
 		CoreChecks.Check( app.LastError is null, "Setup interactions remain contained and successful." );
 		window.RequestClose();
 		Pump( window );
@@ -127,7 +129,7 @@ internal static class OmpSetupChecks
 			Transparent = true,
 			Background = Theme.Current.Canvas,
 			Foreground = Theme.Current.Text,
-			Root = new ShellView( app ),
+			Root = new ShellView( app ) { AppliesNativeWindowHooks = false },
 			AccessibilityAdapter = semantics,
 		};
 		app.BindDispatcher( window.Post );
@@ -137,52 +139,48 @@ internal static class OmpSetupChecks
 		try
 		{
 			// Personal is signed out and Omp's default profile is signed in: one click adopts it.
-			PumpUntil( window, () => HasText( semantics, "Your Omp account \"default\" is signed in" ) );
+			PumpUntil( window, semantics, () => HasText( semantics, "Your Omp account \"default\" is signed in" ), "Get started offers the signed-in default account." );
 			Capture( window, captures, "1-adopt" );
 			Click( window, semantics, AccessibilityRole.Button, "Sign in" );
-			PumpUntil( window, () => app.Settings.Get( OmpModule.ProfileName, SettingsScope.Personal ) == "default" && HasText( semantics, "Loom is ready." ) );
+			PumpUntil( window, semantics, () => app.Settings.Get( OmpModule.ProfileName, SettingsScope.Personal ) == "default" && HasText( semantics, "Loom is ready." ),
+				"Sign in adopts the signed-in default account and Get started reports ready." );
 			Capture( window, captures, "2-ready" );
-			CoreChecks.Check( true, "Sign in adopts the signed-in default account and Get started reports ready." );
 
 			// Now every profile is signed out until the fixture login writes the marker.
 			app.Settings.Reset( OmpModule.ProfileName, SettingsScope.Personal );
 			app.Settings.Reset( OmpModule.ProfileName, SettingsScope.Work );
 			Environment.SetEnvironmentVariable( OmpUiFixture.SignInVariable, marker );
 			Click( window, semantics, AccessibilityRole.Button, "Check again" );
-			PumpUntil( window, () => HasText( semantics, "Not signed in" ) && !HasText( semantics, "Loom is ready." ) );
+			PumpUntil( window, semantics, () => HasText( semantics, "Not signed in" ) && !HasText( semantics, "Loom is ready." ), "Check again finds every account signed out." );
 			Capture( window, captures, "3-signed-out" );
 			Click( window, semantics, AccessibilityRole.Button, "Sign in" );
-			PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Connect Fixture" ) );
+			PumpUntil( window, semantics, () => HasButton( semantics, "Connect Fixture" ), "Sign in lists the providers." );
 			Capture( window, captures, "4-providers" );
 
 			// The browser provider names its page, signs in, and Get started checks again on its own.
 			Click( window, semantics, AccessibilityRole.Button, "Connect Fixture" );
-			PumpUntil( window, () => HasText( semantics, "Signed in to Fixture" ) );
-			PumpUntil( window, () => HasText( semantics, "Loom is ready." ) );
+			PumpUntil( window, semantics, () => HasText( semantics, "Signed in to Fixture" ), "The browser provider signs in." );
+			PumpUntil( window, semantics, () => HasText( semantics, "Loom is ready." ), "An in-app sign-in completes Get started's fix, which checks again and reports ready." );
 			Capture( window, captures, "5-signed-in" );
-			CoreChecks.Check( true, "An in-app sign-in completes Get started's fix, which checks again and reports ready." );
-			var signedInPage = Nodes( semantics ).First( node => node.Role == AccessibilityRole.Group && node.Name == "Omp sign-in" );
-			UpdateClick( window, semantics, Flatten( signedInPage ).First( node => node.Role == AccessibilityRole.Button && node.Name == "Close" ) );
-			PumpUntil( window, () => !app.Panels.Panels.Any( panel => panel.TypeId == "omp.accounts" ) );
+			Click( window, semantics, Flatten( FindSignInPage( semantics ) ).First( node => node.Role == AccessibilityRole.Button && node.Name == "Close" ) );
+			PumpUntil( window, semantics, () => !app.Panels.Panels.Any( panel => panel.TypeId == "omp.accounts" ), "Close closes the sign-in page." );
 
 			// Signed out again: a provider that needs a key fails in RPC, and omp login runs in a Loom terminal instead.
 			File.Delete( marker );
 			Click( window, semantics, AccessibilityRole.Button, "Check again" );
-			PumpUntil( window, () => HasText( semantics, "Not signed in" ) && !HasText( semantics, "Loom is ready." ) );
+			PumpUntil( window, semantics, () => HasText( semantics, "Not signed in" ) && !HasText( semantics, "Loom is ready." ), "Check again finds the account signed out again." );
 			Click( window, semantics, AccessibilityRole.Button, "Sign in" );
-			PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Connect Keyed" ) );
+			PumpUntil( window, semantics, () => HasButton( semantics, "Connect Keyed" ), "Sign in lists the key provider." );
 			Click( window, semantics, AccessibilityRole.Button, "Connect Keyed" );
-			PumpUntil( window, () => HasText( semantics, "asks for a secret" ) && Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Sign in in terminal" ) );
+			PumpUntil( window, semantics, () => HasText( semantics, "asks for a secret" ) && HasButton( semantics, "Sign in in terminal" ),
+				"A key provider's sign-in offers the terminal." );
 			Capture( window, captures, "6-needs-terminal" );
-			UpdateClick( window, semantics, Nodes( semantics ).First( node => node.Role == AccessibilityRole.Button && node.Name == "Sign in in terminal" ) );
+			Click( window, semantics, Nodes( semantics ).First( node => node.Role == AccessibilityRole.Button && node.Name == "Sign in in terminal" ) );
 			// The terminal runs the fixture's omp login, which signs in and exits; a terminal whose command succeeds closes itself.
-			PumpUntil( window, () => File.Exists( marker ) );
-			CoreChecks.Check( true, "A key provider's sign-in runs omp login in a Loom terminal." );
-			var page = Nodes( semantics ).First( node => node.Role == AccessibilityRole.Group && node.Name == "Omp sign-in" );
-			UpdateClick( window, semantics, Flatten( page ).First( node => node.Role == AccessibilityRole.Button && node.Name == "Check again" ) );
-			PumpUntil( window, () => HasText( semantics, "Loom is ready." ) );
+			PumpUntil( window, semantics, () => File.Exists( marker ), "A key provider's sign-in runs omp login in a Loom terminal." );
+			Click( window, semantics, Flatten( FindSignInPage( semantics ) ).First( node => node.Role == AccessibilityRole.Button && node.Name == "Check again" ) );
+			PumpUntil( window, semantics, () => HasText( semantics, "Loom is ready." ), "Checking again after the terminal sign-in completes Get started's fix." );
 			Capture( window, captures, "7-ready" );
-			CoreChecks.Check( true, "Checking again after the terminal sign-in completes Get started's fix." );
 			CoreChecks.Check( app.LastError is null, $"Sign-in interactions report no error: {app.LastError}" );
 		}
 		finally
@@ -194,6 +192,10 @@ internal static class OmpSetupChecks
 
 		Console.WriteLine( "PASS native sign-in: adopting the signed-in default account, the in-app provider sign-in that completes Get started, and the terminal fallback for key providers." );
 	}
+
+	/// <summary>Finds the sign-in page's group.</summary>
+	private static AccessibilityNode FindSignInPage( SemanticAdapter semantics ) =>
+		Nodes( semantics ).First( node => node.Role == AccessibilityRole.Group && node.Name == "Omp sign-in" );
 
 	/// <summary>Finds a button inside one field of one profile card.</summary>
 	private static AccessibilityNode FindIn( SemanticAdapter semantics, string card, string field, string button )
@@ -220,42 +222,30 @@ internal static class OmpSetupChecks
 	/// <summary>Checks rendered semantic text for an operation result.</summary>
 	private static bool HasText( SemanticAdapter semantics, string text ) => Nodes( semantics ).Any( node => (node.Value ?? node.Name ?? "").Contains( text, StringComparison.Ordinal ) );
 
-	/// <summary>Replaces one configuration field through native text input.</summary>
-	private static void UpdateText( Window window, SemanticAdapter semantics, string name, string value )
-	{
-		Click( window, semantics, AccessibilityRole.TextInput, name );
-		window.PlatformInput.KeyPress( Key.A, KeyModifiers.Primary );
-		window.PlatformInput.KeyRelease( Key.A );
-		window.PlatformInput.CommitText( value );
-		Pump( window );
-	}
+	/// <summary>Reports whether a button with the name shows.</summary>
+	private static bool HasButton( SemanticAdapter semantics, string name ) => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == name );
 
-	/// <summary>Finds and clicks a control after scrolling it into view.</summary>
+	/// <summary>Finds the one control with the role and name, and clicks it through native pointer input.</summary>
 	private static void Click( Window window, SemanticAdapter semantics, AccessibilityRole role, string name ) =>
-		UpdateClick( window, semantics, Nodes( semantics ).Single( node => node.Role == role && node.Name == name ) );
+		Click( window, semantics, Nodes( semantics ).Single( node => node.Role == role && node.Name == name ) );
 
-	/// <summary>Brings one visible semantic control into view and activates it, as assistive technology does.</summary>
-	/// <remarks>Synthetic pointer input misses controls in this shell window, so the checks press buttons through accessibility.</remarks>
-	private static void UpdateClick( Window window, SemanticAdapter semantics, AccessibilityNode node )
-	{
-		var id = node.Id;
-		window.PerformAccessibilityAction( id, new( AccessibilityAction.ScrollIntoView ) );
-		Pump( window );
-		var current = Nodes( semantics ).Single( node => node.Id == id );
-		var bounds = current.VisibleBounds ?? current.Bounds;
-		CoreChecks.Check( bounds.Width > 0 && bounds.Height > 0, $"{node.Name} is visible." );
-		window.PerformAccessibilityAction( id, new( AccessibilityAction.Activate ) );
-		Pump( window );
-	}
+	/// <summary>Clicks a control, followed by its identifier, through native pointer input after focusing it in code (<see cref="UiInput"/>), so the click
+	/// lands even when the window lost the system focus.</summary>
+	private static void Click( Window window, SemanticAdapter semantics, AccessibilityNode node ) =>
+		UiInput.Click( window, () => Nodes( semantics ).FirstOrDefault( candidate => candidate.Id == node.Id ), () => Pump( window ), node.Name ?? node.Role.ToString() );
 
-	/// <summary>Waits for local CLI/RPC completion while servicing the native window.</summary>
-	private static void PumpUntil( Window window, Func<bool> predicate )
+	/// <summary>Pumps until the state an action changes holds, failing with what was expected and what shows after 20 seconds, as local CLI and RPC
+	/// work completes.</summary>
+	private static void PumpUntil( Window window, SemanticAdapter semantics, Func<bool> predicate, string what )
 	{
 		var timer = System.Diagnostics.Stopwatch.StartNew();
 		while ( !predicate() )
 		{
 			if ( timer.Elapsed > TimeSpan.FromSeconds( 20 ) )
-				throw new TimeoutException( "Omp setup did not reach the expected state." );
+			{
+				var shown = string.Join( " | ", Nodes( semantics ).Select( node => node.Value ?? node.Name ).Where( text => text is { Length: > 0 } ).Distinct() );
+				CoreChecks.Check( false, $"{what} (timed out; showing: {shown[..Math.Min( shown.Length, 3000 )]})" );
+			}
 			Pump( window );
 		}
 		Pump( window );

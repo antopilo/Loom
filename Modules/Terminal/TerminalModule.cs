@@ -48,7 +48,7 @@ public sealed class TerminalModule : ILoknModule, ITerminalLauncher
 			.Setting( Shell )
 			.Setting( FontSize )
 			.Setting( Scrollback )
-			.Panel( "shell", "Terminal", context => new TerminalContent( context ), "\uE756" )
+			.Panel( "shell", "Terminal", context => new TerminalContent( context ), "\uE756", onHost: true )
 			// Notifications from a terminal panel show its icon; without the Notifications module this is unused.
 			.Contribute( NotificationKind.Point, new NotificationKind( "terminal", "\uE756" ) )
 			.Contribute( TaskStarter.Point, new TaskStarter( "Terminal", "\uE756", 10, app => app.Panels.Open( "terminal.shell" ) ) );
@@ -63,10 +63,10 @@ public sealed class TerminalModule : ILoknModule, ITerminalLauncher
 	/// <summary>Keeps the application so launched terminals can open.</summary>
 	public void Start( ModuleContext context ) => _app = context.App;
 
-	/// <summary>Opens a terminal panel running a command line.</summary>
+	/// <summary>Opens a terminal panel running a command line on this PC, such as Omp's sign-in, whichever host is current.</summary>
 	public void Run( string title, string commandLine )
 	{
 		var app = _app ?? throw new InvalidOperationException( "The Terminal module has not started." );
-		app.Panels.Open( "terminal.shell", input: new ShellProfile( title, commandLine ) );
+		app.Panels.Open( "terminal.shell", input: new ShellProfile( title, commandLine ), hostId: LoknHost.LocalId );
 	}
 }

@@ -38,37 +38,6 @@ public sealed partial class ChatContent
 	/// <summary>Reports whether the check found the prompt in the composer to be a new task, which shows the suggestion card.</summary>
 	private bool _isNewTaskSuggested;
 
-	/// <summary>Gets whether the prompt about to be sent is checked first: the setting is on, the chat is long enough, and the prompt is text, not a command.</summary>
-	private bool ComputeTaskCheckDue( string text )
-	{
-		var conversation = store.Get( conversationId );
-		if ( conversation.IsTaskCheckOff || conversation.Profile != context.App.Settings.ActiveProfile
-			|| !context.App.Settings.Get( NewTaskCheck, ComputeScope( conversation.Profile ) )
-			|| string.IsNullOrWhiteSpace( text ) || text.TrimStart().StartsWith( '/' ) )
-			return false;
-
-		var messages = store.GetMessages( conversationId );
-		return messages.Count( message => message.Role == "user" && message.Text.Length > 0 ) >= TaskCheckMinPrompts
-			&& ComputeContextShare( conversation, messages ) >= TaskCheckShare;
-	}
-
-	/// <summary>Gets the share of the context window the chat uses, estimated from its saved text before Omp reports it, or zero when the window is unknown.</summary>
-	private double ComputeContextShare( ConversationInfo conversation, IReadOnlyList<ConversationMessage> messages )
-	{
-		var window = _contextWindow;
-		if ( window <= 0 )
-		{
-			var model = _connectedModel.Length > 0 ? _connectedModel : context.App.Settings.Get( OmpModule.Model, ComputeScope( conversation.Profile ) );
-			window = backend.GetCachedModels( conversation.Profile )?.FirstOrDefault( item => item.Selector == model )?.ContextWindow ?? 0;
-		}
-		if ( window <= 0 )
-			return 0;
-
-		// About four characters make a token; the estimate stands in until Omp measures the context after the next reply.
-		var tokens = _contextTokens ?? messages.Sum( message => (long)message.Text.Length ) / 4;
-		return (double)tokens / window;
-	}
-
 	/// <summary>Builds what the small model reads: the chat's first and latest prompts, then the new one, each bounded.</summary>
 	internal static string BuildTaskCheckMaterial( IReadOnlyList<ConversationMessage> messages, string prompt ) =>
 		BuildTitleMaterial( messages ) + "\n\nNew prompt:\n" + TrimTitlePrompt( prompt );
@@ -80,31 +49,17 @@ public sealed partial class ChatContent
 	/// <summary>Starts the check for the prompt in the composer; the prompt is sent, or the suggestion shown, when it ends.</summary>
 	private void UpdateTaskCheck( string text )
 	{
-		var conversation = store.Get( conversationId );
-		var material = BuildTaskCheckMaterial( store.GetMessages( conversationId ), text );
 		var cancel = CancellationTokenSource.CreateLinkedTokenSource( context.Lifetime );
 		cancel.CancelAfter( TimeSpan.FromSeconds( TaskCheckSeconds ) );
 		_taskCheck = cancel;
-		_auxiliaryCallCount++;
-		_status = "Checking whether this is a new task…";
-		MarkChanged();
-		_ = UpdateTaskCheckAsync( cancel, conversation.Profile, material );
+		_ = UpdateTaskCheckAsync( cancel, text );
+		session.UpdateStatus( "Checking whether this is a new task…" );
 	}
 
-	/// <summary>Asks the small model off the UI thread; a failure or timeout counts as the same task.</summary>
-	private async Task UpdateTaskCheckAsync( CancellationTokenSource cancel, SettingsProfile profile, string material )
+	/// <summary>Asks the session's small model off the UI thread; a failure or timeout counts as the same task.</summary>
+	private async Task UpdateTaskCheckAsync( CancellationTokenSource cancel, string text )
 	{
-		var isNew = false;
-		try
-		{
-			var answer = await backend.AskSmallAsync( profile, TaskCheckQuestion, material, cancel.Token ).ConfigureAwait( false );
-			isNew = ReadNewTaskAnswer( answer );
-		}
-		catch ( Exception error ) when ( error is not OutOfMemoryException )
-		{
-			// The check is a convenience: without an answer the prompt goes to this chat.
-		}
-
+		var isNew = await session.CheckNewTaskAsync( text, cancel.Token ).ConfigureAwait( false );
 		context.Post( () => UpdateTaskChecked( cancel, isNew ) );
 	}
 
@@ -116,7 +71,7 @@ public sealed partial class ChatContent
 			return;
 
 		_taskCheck = null;
-		_status = "Ready";
+		session.UpdateStatus( "Ready" );
 		if ( !isNew )
 		{
 			UpdateSendHere();
@@ -136,8 +91,7 @@ public sealed partial class ChatContent
 
 		cancel.Cancel();
 		_taskCheck = null;
-		_status = "Ready";
-		MarkChanged();
+		session.UpdateStatus( "Ready" );
 		return true;
 	}
 
@@ -154,8 +108,7 @@ public sealed partial class ChatContent
 		var conversation = store.Get( conversationId );
 		if ( conversation.Profile != context.App.Settings.ActiveProfile )
 		{
-			_status = $"Switch to the {conversation.Profile} profile to start a new chat from this one.";
-			MarkChanged();
+			session.UpdateStatus( $"Switch to the {conversation.Profile} profile to start a new chat from this one." );
 			return;
 		}
 
@@ -165,7 +118,8 @@ public sealed partial class ChatContent
 		_composer.Document.Apply( new TextChange( new TextRange( 0, _composer.Document.Length ), "" ) );
 		_attachments.Clear();
 		store.SaveDraft( conversationId, "" );
-		var id = context.App.GetModule<ConversationsModule>().StartConversation( context.App, prompt, conversation.ProjectId );
+		var conversations = context.App.GetModule<ConversationsModule>();
+		var id = conversations.StartConversation( context.App, conversations.Hosts.Find( context.HostId ) ?? conversations.Hosts.Local, prompt, conversation.ProjectId ).ConversationId;
 		if ( conversation.ProjectId is null && conversation.Directory is { } folder )
 			store.SetDirectory( id, folder );
 	}

@@ -111,6 +111,7 @@ if ( args.Contains( "--hotload-only" ) )
 if ( args.Contains( "--updates-only" ) )
 {
 	UpdateChecks.Run();
+	await UpgradeChecks.RunAsync();
 	return;
 }
 
@@ -129,17 +130,20 @@ var worktreeChecks = args.Contains( "--worktrees-only" );
 var terminalChecks = args.Contains( "--terminal-only" );
 var browserChecks = args.Contains( "--browser-only" );
 var gitChecks = args.Contains( "--git-only" );
-var focused = featureChecks || layoutChecks || conversationChecks || ompChecks || chatChecks || worktreeChecks || terminalChecks || browserChecks || gitChecks;
+var remoteChecks = args.Contains( "--remote-only" );
+var focused = featureChecks || layoutChecks || conversationChecks || ompChecks || chatChecks || worktreeChecks || terminalChecks || browserChecks || gitChecks || remoteChecks;
 
 if ( !focused )
 {
 	if ( !args.Contains( "--settings-only" ) )
 	{
 		await CoreChecks.RunAsync();
+		await WorkspaceHostChecks.RunAsync();
 		SearchChecks.Run();
 		await AgentToolChecks.RunAsync();
 		HotloadChecks.Run();
 		UpdateChecks.Run();
+		await UpgradeChecks.RunAsync();
 		CommunityChecks.Run();
 		ThemeChecks.Run();
 	}
@@ -160,6 +164,7 @@ else
 		ConversationChecks.Run();
 		ProjectChecks.Run();
 		SearchChecks.RunFeatures();
+		MultiHostChatChecks.Run();
 	}
 	if ( featureChecks || ompChecks )
 	{
@@ -167,17 +172,51 @@ else
 		await AgentToolChecks.RunBridgeAsync();
 	}
 	if ( featureChecks || chatChecks )
+	{
 		ChatChecks.Run();
+		ChatRemoteChecks.Run();
+	}
 	if ( featureChecks || worktreeChecks )
 		await WorktreeChecks.RunAsync();
 	if ( featureChecks || terminalChecks )
 		await TerminalChecks.RunAsync();
 	if ( featureChecks || browserChecks )
 		BrowserChecks.Run();
+	// The remote suite runs the browser protocol checks too; the browser suite runs them on its own.
+	if ( browserChecks && !remoteChecks )
+		RemoteBrowserChecks.Run();
 	if ( featureChecks || gitChecks )
 		await GitChecks.RunAsync();
+	if ( featureChecks || remoteChecks )
+	{
+		await RemoteChecks.RunAsync();
+		RelayChecks.Run();
+		StreamChecks.Run();
+		await RemoteStreamChecks.RunAsync();
+		await RemoteWorkspaceChecks.RunAsync();
+		await RemoteRelayChecks.RunAsync();
+		await RemoteWebChecks.RunAsync();
+		await RemoteGatewayChecks.RunAsync();
+		RemoteToolChecks.Run();
+		RemoteBrowserChecks.Run();
+		HostTrayChecks.Run();
+		await HandoverChecks.RunAsync();
+	}
 	if ( args.Contains( "--ui" ) )
-		FeatureUiChecks.Run( args );
+	{
+		// WebView2 needs a single-threaded apartment, which the async main's thread is not; the window checks share one such thread, Goo's UI thread.
+		UiThread.Run( () =>
+		{
+			FeatureUiChecks.Run( args );
+			if ( featureChecks || remoteChecks )
+			{
+				RemoteUiChecks.Run();
+				HostTrayChecks.RunDaemonIcon();
+			}
+			if ( featureChecks || remoteChecks || browserChecks )
+				BrowserUiChecks.Run();
+		} );
+	}
 }
 
 Console.WriteLine( "All requested Lokn checks passed." );

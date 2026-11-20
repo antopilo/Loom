@@ -137,10 +137,13 @@ internal static class ProjectChecks
 
 		var project = module.Store.Create( app.Settings.ActiveProfile, "Notes", Path.Combine( directory, "notes" ) );
 		app.Panels.Open( "workspaces.grid" );
-		module.OpenProject( app, project.Id );
+		module.OpenProject( app, project );
 		CoreChecks.Check( workspaces.CurrentSession == ProjectsModule.SessionKey( project.Id ) && ProjectsModule.ReadSession( workspaces.CurrentSession ) == project.Id
 			&& app.Panels.Panes is [{ PanelId: null }] && module.FindCurrentProject( app ) == project.Id,
 			"Opening a project opens its own Workspaces session, first as one empty pane." );
+		CoreChecks.Check( ProjectsModule.SessionKey( project.Id, LoknHost.LocalId ) == ProjectsModule.SessionKey( project.Id ) && ProjectsModule.SessionKey( project.Id ) == $"project:{project.Id:N}"
+			&& ProjectsModule.SessionKey( project.Id, "h1" ) == $"project:{project.Id:N}@h1" && ProjectsModule.ReadSession( ProjectsModule.SessionKey( project.Id, "h1" ) ) is null,
+			"A paired host's project key is qualified with the host, This PC's stays as it was, and only This PC's keys read as Projects' own." );
 
 		// The project's group holds its heading row and its one task at the same level; the tasks outside projects follow under Tasks.
 		var task = workspaces.Tasks( ProjectsModule.SessionKey( project.Id ) ).Single();

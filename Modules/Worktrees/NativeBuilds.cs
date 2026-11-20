@@ -37,7 +37,7 @@ internal static class NativeBuilds
 		}
 
 		// One process answers every revision and path: each request line gets one "<id> <type> <size>" or "<name> missing" line.
-		var output = await GitProcess.RunAsync( repository, request.ToString(), cancellationToken, "cat-file", "--batch-check" ).ConfigureAwait( false );
+		var output = await GitProcess.RunAsync( GitWorktrees.Workspace, repository, request.ToString(), cancellationToken, "cat-file", "--batch-check" ).ConfigureAwait( false );
 		var lines = output.ReplaceLineEndings( "\n" ).Split( '\n', StringSplitOptions.RemoveEmptyEntries );
 		if ( lines.Length != distinct.Length * paths.Length )
 			throw new InvalidOperationException( "git cat-file returned an unexpected number of lines while reading native sources." );
@@ -61,7 +61,7 @@ internal static class NativeBuilds
 	/// <summary>Reports whether a checkout has uncommitted or untracked changes under its native input paths.</summary>
 	internal static async Task<bool> HasChangesAsync( string checkout, IReadOnlyList<string> inputs, CancellationToken cancellationToken )
 	{
-		var output = await GitProcess.RunAsync( checkout, cancellationToken, ["status", "--porcelain", "--", .. inputs] ).ConfigureAwait( false );
+		var output = await GitProcess.RunAsync( GitWorktrees.Workspace, checkout, cancellationToken, ["status", "--porcelain", "--", .. inputs] ).ConfigureAwait( false );
 		return output.Trim().Length > 0;
 	}
 
@@ -105,7 +105,7 @@ internal static class NativeBuilds
 			return "The native output folder is empty. Build native first.";
 
 		var built = new DateTimeOffset( files.Max( file => file.WriteTicks ), TimeSpan.Zero );
-		var reflog = ParseReflog( await GitProcess.RunAsync( checkout, cancellationToken, "log", "-g", "--date=unix", "--format=%H %gd", "HEAD" ).ConfigureAwait( false ) );
+		var reflog = ParseReflog( await GitProcess.RunAsync( GitWorktrees.Workspace, checkout, cancellationToken, "log", "-g", "--date=unix", "--format=%H %gd", "HEAD" ).ConfigureAwait( false ) );
 
 		// The entries after the build, and the last one before it: the commit HEAD was on when it built. Reflog times have
 		// whole seconds, so an entry in the build's own second counts as after it; the one before must be strictly earlier.

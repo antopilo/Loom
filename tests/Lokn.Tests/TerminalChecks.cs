@@ -1,5 +1,6 @@
 using Goo;
 using Lokn.Core;
+using Lokn.Modules.Files;
 using Lokn.Modules.Terminal;
 
 namespace Lokn.Tests;
@@ -21,7 +22,8 @@ internal static class TerminalChecks
 		CheckEncoding();
 		CheckModule();
 		await CheckPseudoConsoleAsync();
-		Console.WriteLine( "PASS terminal emulation, input encoding, registration, and a real pseudoconsole shell round trip." );
+		await CheckPairedHostPanelsAsync();
+		Console.WriteLine( "PASS terminal emulation, input encoding, registration, a real pseudoconsole shell round trip, and Terminal and Files panels on a paired host working through that host." );
 	}
 
 	/// <summary>Verifies wrapping, pending wraps, cursor addressing, wide and combining characters, line drawing and split sequences.</summary>
@@ -166,6 +168,234 @@ internal static class TerminalChecks
 		CoreChecks.Check( commands.Contains( "terminal.open.shell" ) && app.Panels.Types.Any( type => type.Id == "terminal.shell" ), "The terminal panel and its open command are registered." );
 		CoreChecks.Check( ShellProfile.Detect().Any( profile => profile.Name == "Command Prompt" ) && commands.Contains( "terminal.new-command-prompt" ), "Installed shells get their own command." );
 		CoreChecks.Check( ShellProfile.Resolve( " nu -l " ) == new ShellProfile( "nu -l", "nu -l" ), "A configured command line is run as given." );
+
+		var (file, arguments) = new ShellProfile( "Test", "\"C:\\Program Files\\x\\sh.exe\" -c \"a \\\"b\\\" c\" d\\e \"\" \"f\"\"g\" h\\\\\"i j\"" ).Split();
+		CoreChecks.Check( file == "C:\\Program Files\\x\\sh.exe" && arguments.SequenceEqual( ["-c", "a \"b\" c", "d\\e", "", "f\"g", "h\\i j"] ), "A command line splits into the program and its arguments by Windows' rules." );
+		CoreChecks.Check( new ShellProfile( "Test", "cmd.exe /d /k prompt $g" ).Split() is ("cmd.exe", ["/d", "/k", "prompt", "$g"]), "A plain command line splits at spaces." );
+		foreach ( var line in new[] { "cmd.exe /d /k prompt $g", "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -NoLogo", "\"C:\\Program Files\\x\\sh.exe\" -c \"a \\\"b\\\" c\" d\\e \"\"" } )
+		{
+			var (program, parts) = new ShellProfile( "Test", line ).Split();
+			CoreChecks.Check( LocalWorkspaceHost.BuildCommandLine( program, parts ) == line, $"Joining a split command line gives it back: {line}" );
+		}
+	}
+
+	/// <summary>Opens Terminal and Files panels on a fake paired host: the shell's pseudoterminal opens on that host with nothing of This PC's, neither a shell
+	/// path detected here nor a folder of this disk, and the tree lists and watches through it only the folder of a session on that host, while a palette
+	/// terminal opened on this PC stays on this PC; Omp's sign-in terminal always opens on this PC.</summary>
+	private static async Task CheckPairedHostPanelsAsync()
+	{
+		var app = new LoknApplication();
+		var queued = new List<Action>();
+		app.BindDispatcher( action =>
+		{
+			lock ( queued )
+				queued.Add( action );
+			return true;
+		} );
+		try
+		{
+			var terminal = new TerminalModule();
+			var working = new WorkingFolderFixture { Current = Environment.CurrentDirectory };
+			CoreChecks.Check( app.Load( terminal ) && app.Load( new FilesModule() ) && app.Load( new FixtureModule( "folders", builder => builder.Service<IWorkingFolder>( working ) ) ),
+				"Terminal, Files and a working folder load for the paired host check." );
+			var host = app.Hosts.Add( "paired-host-id-0000000", "Paired" );
+			var disk = new RecordingHost();
+			host.SetWorkspace( disk );
+
+			async Task StartShellAsync( ShellProfile? profile, string expected, string what )
+			{
+				var id = app.Panels.Open( "terminal.shell", input: profile, hostId: host.Id );
+				var shell = app.Panels.Sessions.Single( session => session.Info.Id == id ).Content!;
+				typeof( TerminalContent ).GetMethod( "Start", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance )!.Invoke( shell, null );
+				await WaitForAsync( () =>
+				{
+					Pump( queued );
+					return disk.Count( expected ) > 0;
+				}, what );
+			}
+
+			// This PC is current, so its working folder is This PC's and stays here.
+			var shellId = app.Panels.Open( "terminal.shell", input: new ShellProfile( "Test", "cmd.exe /d" ), hostId: host.Id );
+			CoreChecks.Check( app.Panels.GetHostId( shellId ) == host.Id && app.Panels.GetHost( shellId ) == host, "A Terminal panel opened on a host is bound to it." );
+			app.Panels.Close( shellId );
+			await StartShellAsync( new ShellProfile( "Test", "cmd.exe /d" ), "pty cmd.exe in (host default)",
+				"The shell's pseudoterminal opens on the panel's host, with the program and its arguments, in the host's own default folder rather than This PC's working folder." );
+			await StartShellAsync( null, "pty powershell.exe in (host default)", "A paired host's terminal with the shell setting blank runs Windows PowerShell by name, not a shell This PC found." );
+			var detected = ShellProfile.Detect().First( profile => profile.Name == "Command Prompt" );
+			await StartShellAsync( detected, "pty cmd.exe in (host default)", "A shell detected on This PC opens on a paired host by its program's name." );
+			CoreChecks.Check( disk.Count( "pty cmd.exe in" ) == 2 && !disk.Any( call => call.StartsWith( "pty ", StringComparison.Ordinal ) && call.Contains( ":\\", StringComparison.Ordinal ) ),
+				$"No path of This PC's, its shells' or its folders, reaches the paired host's terminals ({string.Join( " | ", disk.Calls )})." );
+
+			var treeId = app.Panels.Open( "files.tree", hostId: host.Id );
+			var tree = app.Panels.Sessions.Single( session => session.Info.Id == treeId ).Content!;
+			CoreChecks.Check( tree.Build() is Blob && ((IFileTreeView)tree).Root.Length == 0 && disk.Count( "list " ) == 0 && disk.Count( "watch " ) == 0,
+				"A Files tree on a paired host shows no folder while This PC's session is open, and lists nothing there." );
+			app.Hosts.SetCurrent( host.Id );
+			await WaitForAsync( () =>
+			{
+				Pump( queued );
+				tree.Build();
+				return disk.Count( $"list {working.Current}" ) > 0 && disk.Count( $"watch {working.Current}" ) > 0;
+			}, "Once a session on the paired host is open, the Files tree lists and watches its folder through that host." );
+			app.Hosts.SetCurrent( null );
+
+			var localId = app.Panels.Open( "terminal.shell", input: new ShellProfile( "Test", "cmd.exe /d" ) );
+			Guid[] before = [.. app.Panels.Panels.Select( panel => panel.Id )];
+			terminal.Run( "Sign-in", "cmd.exe /d" );
+			var signIn = app.Panels.Panels.Select( panel => panel.Id ).Except( before ).Single();
+			CoreChecks.Check( app.Panels.GetHostId( localId ) == LoknHost.LocalId && app.Panels.GetHostId( signIn ) == LoknHost.LocalId,
+				"A terminal opened without a host opens on the current host, This PC, and a launched command line always runs on this PC." );
+			CoreChecks.Check( app.LastError is null, $"Panels on a paired host run without errors. {app.LastError}" );
+		}
+		finally
+		{
+			app.Shutdown();
+		}
+
+		static void Pump( List<Action> queued )
+		{
+			Action[] actions;
+			lock ( queued )
+			{
+				actions = [.. queued];
+				queued.Clear();
+			}
+			foreach ( var action in actions )
+				action();
+		}
+	}
+
+	/// <summary>A working folder the check sets, as the Projects module publishes the open session's.</summary>
+	private sealed class WorkingFolderFixture : IWorkingFolder
+	{
+		/// <summary>Gets or sets the folder.</summary>
+		public string? Current
+		{
+			get; set;
+		}
+	}
+
+	/// <summary>Stands for a paired host: records every call, answers reads from this PC's disk, and opens a pseudoterminal that does nothing.</summary>
+	private sealed class RecordingHost : IWorkspaceHost
+	{
+		/// <summary>Stores the calls, such as <c>list C:\folder</c> or <c>pty cmd.exe in C:\folder</c>.</summary>
+		private readonly List<string> _calls = [];
+
+		/// <summary>Gets a copy of the calls so far.</summary>
+		internal IReadOnlyList<string> Calls
+		{
+			get
+			{
+				lock ( _calls )
+					return [.. _calls];
+			}
+		}
+
+		/// <summary>Counts the calls that start with a prefix.</summary>
+		internal int Count( string prefix )
+		{
+			lock ( _calls )
+				return _calls.Count( call => call.StartsWith( prefix, StringComparison.Ordinal ) );
+		}
+
+		/// <summary>Reports whether a call matches.</summary>
+		internal bool Any( Func<string, bool> match ) => Calls.Any( match );
+
+		/// <summary>Records a call.</summary>
+		private void Record( string call )
+		{
+			lock ( _calls )
+				_calls.Add( call );
+		}
+
+		/// <summary>Records a program run and fails it, as nothing runs here.</summary>
+		public Task<WorkspaceProcessResult> RunAsync( string file, IReadOnlyList<string> arguments, string directory, string? input, IReadOnlyDictionary<string, string>? environment, CancellationToken cancellationToken )
+		{
+			Record( $"run {file}" );
+			return Task.FromException<WorkspaceProcessResult>( new IOException( "Nothing runs on the fake host." ) );
+		}
+
+		/// <summary>Records and describes a path on this PC.</summary>
+		public Task<WorkspaceStat> StatAsync( string path, CancellationToken cancellationToken )
+		{
+			Record( $"stat {path}" );
+			return LocalWorkspaceHost.Shared.StatAsync( path, cancellationToken );
+		}
+
+		/// <summary>Records and lists a folder on this PC.</summary>
+		public Task<IReadOnlyList<WorkspaceEntry>> ListAsync( string path, CancellationToken cancellationToken )
+		{
+			Record( $"list {path}" );
+			return LocalWorkspaceHost.Shared.ListAsync( path, cancellationToken );
+		}
+
+		/// <summary>Records and reads a file on this PC.</summary>
+		public Task<byte[]> ReadAsync( string path, CancellationToken cancellationToken )
+		{
+			Record( $"read {path}" );
+			return LocalWorkspaceHost.Shared.ReadAsync( path, cancellationToken );
+		}
+
+		/// <summary>Records a write and drops it.</summary>
+		public Task WriteAsync( string path, ReadOnlyMemory<byte> data, CancellationToken cancellationToken )
+		{
+			Record( $"write {path}" );
+			return Task.CompletedTask;
+		}
+
+		/// <summary>Records a deletion and drops it.</summary>
+		public Task DeleteAsync( string path, CancellationToken cancellationToken )
+		{
+			Record( $"delete {path}" );
+			return Task.CompletedTask;
+		}
+
+		/// <summary>Records a move and drops it.</summary>
+		public Task MoveAsync( string path, string to, CancellationToken cancellationToken )
+		{
+			Record( $"move {path}" );
+			return Task.CompletedTask;
+		}
+
+		/// <summary>Records a new folder and drops it.</summary>
+		public Task CreateDirectoryAsync( string path, CancellationToken cancellationToken )
+		{
+			Record( $"mkdir {path}" );
+			return Task.CompletedTask;
+		}
+
+		/// <summary>Records a watch that never reports.</summary>
+		public IDisposable Watch( string path, bool recursive, Action<string, WorkspaceChange> changed )
+		{
+			Record( $"watch {path}" );
+			return new Pty();
+		}
+
+		/// <summary>Records a pseudoterminal that does nothing.</summary>
+		public IWorkspacePty OpenPty( string file, IReadOnlyList<string> arguments, string? directory, int columns, int rows, IReadOnlyDictionary<string, string>? environment, Action<string> output, Action<int> exited )
+		{
+			Record( $"pty {file} in {directory ?? "(host default)"}" );
+			return new Pty();
+		}
+
+		/// <summary>A pseudoterminal, and a watch, that ignore everything.</summary>
+		private sealed class Pty : IWorkspacePty
+		{
+			/// <summary>Ignores input.</summary>
+			public void Write( string text )
+			{
+			}
+
+			/// <summary>Ignores a resize.</summary>
+			public void Resize( int columns, int rows )
+			{
+			}
+
+			/// <summary>Ignores the end.</summary>
+			public void Dispose()
+			{
+			}
+		}
 	}
 
 	/// <summary>Runs Command Prompt in a real pseudoconsole: types a command, reads its echo through the emulator, and exits.</summary>
@@ -175,7 +405,7 @@ internal static class TerminalChecks
 		var output = new System.Text.StringBuilder();
 		var exited = new TaskCompletionSource<int>( TaskCreationOptions.RunContinuationsAsynchronously );
 		var directory = Path.GetTempPath();
-		using var session = ShellSession.Start( "cmd.exe /d /k prompt $g", directory, terminal.Columns, terminal.Rows, text =>
+		using var session = LocalWorkspaceHost.Shared.OpenPty( "cmd.exe", ["/d", "/k", "prompt", "$g"], directory, terminal.Columns, terminal.Rows, null, text =>
 		{
 			lock ( output )
 				output.Append( text );
@@ -197,7 +427,7 @@ internal static class TerminalChecks
 		var failed = false;
 		try
 		{
-			ShellSession.Start( "lokn-no-such-shell.exe", null, 80, 24, _ => { }, _ => { } ).Dispose();
+			LocalWorkspaceHost.Shared.OpenPty( "lokn-no-such-shell.exe", [], null, 80, 24, null, _ => { }, _ => { } ).Dispose();
 		}
 		catch ( System.ComponentModel.Win32Exception )
 		{
@@ -205,6 +435,33 @@ internal static class TerminalChecks
 		}
 
 		CoreChecks.Check( failed, "A missing shell fails to start with a Windows error." );
+
+		// cmd reads its own command line: a quoted script path with spaces inside quotes would not survive splitting and joining again.
+		var folder = Path.Combine( Path.GetTempPath(), "lokn raw " + Guid.NewGuid().ToString( "N" ) );
+		Directory.CreateDirectory( folder );
+		try
+		{
+			var script = Path.Combine( folder, "say.bat" );
+			File.WriteAllText( script, "@echo lokn-raw-%1-check\r\n" );
+			var line = $"cmd.exe /d /c \"\"{script}\" kept\"";
+			var (program, parts) = new ShellProfile( "Test", line ).Split();
+			CoreChecks.Check( LocalWorkspaceHost.BuildCommandLine( program, parts ) != line, "Splitting and joining a cmd line with nested quotes changes it, so the raw line matters." );
+			var raw = new System.Text.StringBuilder();
+			var rawExit = new TaskCompletionSource<int>( TaskCreationOptions.RunContinuationsAsynchronously );
+			using ( LocalWorkspaceHost.Shared.OpenPty( line, folder, 80, 24, null, text =>
+			{
+				lock ( raw )
+					raw.Append( text );
+			}, rawExit.SetResult ) )
+			{
+				await WaitForAsync( () => ReadOutput( raw ).Contains( "lokn-raw-kept-check" ), "A shell command line reaches its program as written, so cmd runs a quoted script path with spaces." );
+				await rawExit.Task.WaitAsync( TimeSpan.FromSeconds( ShellTimeoutSeconds ) );
+			}
+		}
+		finally
+		{
+			Directory.Delete( folder, recursive: true );
+		}
 	}
 
 	/// <summary>Polls a condition until it holds or the shell timeout passes.</summary>

@@ -115,9 +115,6 @@ public sealed partial class ChatContent
 			OnPointerDown = BuildMessageMenuOpener( part ),
 			Children = body,
 		};
-		// Only the bubble whose menu is open carries the menu's anchor.
-		if ( menu is not null )
-			bubble.Handle = _messageMenuHandle;
 		if ( !isUser )
 			return bubble;
 

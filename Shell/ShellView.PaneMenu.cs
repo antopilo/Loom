@@ -34,7 +34,7 @@ internal sealed partial class ShellView
 			return null;
 
 		var panel = pane.PanelId is { } panelId ? _app.Panels.Panels.FirstOrDefault( item => item.Id == panelId ) : null;
-		return Mount<ContextMenuInput, ContextMenu>( "pane-menu", new( _menuAnchor, $"{panel?.Title ?? "Empty pane"} options",
+		return Mount<ContextMenuInput, ContextMenu>( "pane-menu", new( _menuAnchor, $"{(panel is null ? "Empty pane" : ComputePanelLabel( panel ))} options",
 		[
 			new MenuAction( "Open a panel…", () => RunPaneAction( pane, null, () => UpdatePalette( "Open ", ActionsType ) ) ) { AccessKey = Key.O },
 			BuildPaneMenuAction( pane, "Split right", "shell.split-right" ),

@@ -24,15 +24,14 @@ public sealed partial class ChatContent
 		var picker = Cell.Mount<OmpModelPickerInput, OmpModelPicker>( "model-picker", new(
 			backend,
 			profile,
-			_connectedModel,
+			session.ConnectedModel,
 			context.App.Settings.Get( OmpModule.Model, scope ),
 			"Use for this chat",
 			model => context.Run( () => UpdateModel( model ) ),
 			model => context.Run( () =>
 			{
 				context.App.Settings.Set( OmpModule.Model, scope, model.Selector );
-				_status = $"New {profile} chats start with {model.Name}.";
-				MarkChanged();
+				session.UpdateStatus( $"New {profile} chats start with {model.Name}." );
 			} ),
 			() => context.Run( () =>
 			{
@@ -70,43 +69,9 @@ public sealed partial class ChatContent
 	private void UpdateModel( OmpModelInfo model )
 	{
 		UpdatePicking( false );
-		_status = $"Switching to {model.Name}…";
-		MarkChanged();
-		_ = UpdateModelAsync( EnsureConnection(), model );
-	}
-
-	/// <summary>Asks Omp to use a model for this session, which it records with the session so a reconnect keeps it.</summary>
-	private async Task UpdateModelAsync( Task<OmpSession> connection, OmpModelInfo model )
-	{
-		try
-		{
-			var session = await connection;
-			await session.RequestAsync( "set_model", new
-			{
-				provider = model.Provider,
-				modelId = model.Id,
-			}, context.Lifetime );
-			context.Post( () =>
-			{
-				_connectedModel = model.Selector;
-				_modelInfo = model;
-				UpdateContextRequest();
-				if ( _session is { } connected )
-					_ = UpdateEffortsAsync( connected );
-				_status = $"Using {model.Name}";
-				MarkChanged();
-			} );
-		}
-		catch ( Exception error ) when ( error is not OperationCanceledException )
-		{
-			context.Post( () =>
-			{
-				_status = "Could not switch model: " + error.Message;
-				MarkChanged();
-			} );
-		}
+		session.UpdateModel( model );
 	}
 
 	/// <summary>Gets the settings layer of an account profile.</summary>
-	private static SettingsScope ComputeScope( SettingsProfile profile ) => profile == SettingsProfile.Work ? SettingsScope.Work : SettingsScope.Personal;
+	internal static SettingsScope ComputeScope( SettingsProfile profile ) => profile == SettingsProfile.Work ? SettingsScope.Work : SettingsScope.Personal;
 }

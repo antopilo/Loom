@@ -29,7 +29,7 @@ public sealed partial class PanelWorkspace
 			foreach ( var session in sessions )
 			{
 				var pane = FindPanelPane( Root, session.Info.Id );
-				suspended.Add( new( session.Info.Id, pane?.Id, session.Info.TypeId, CaptureState( session ) ) );
+				suspended.Add( new( session.Info.Id, pane?.Id, session.Info.TypeId, CaptureState( session ), session.HostId ) );
 
 				_sessions.Remove( session.Info.Id );
 				if ( pane is not null )
@@ -73,9 +73,9 @@ public sealed partial class PanelWorkspace
 					continue;
 			}
 
-			// The shell retains views by panel id, so a fresh id mounts the replacement content; saved layouts follow the rename.
+			// The shell retains views by panel id, so a fresh id mounts the replacement content; saved layouts follow the rename. The panel stays on its host.
 			var id = Guid.NewGuid();
-			_sessions.Add( id, BuildSession( type, id, input: null, panel.State ) );
+			_sessions.Add( id, BuildSession( type, id, input: null, panel.State, hostId: RestoreHost( type, panel.HostId ) ) );
 			_renamed[panel.PanelId] = id;
 			if ( pane is not null )
 				Root = Replace( Root, pane.Id, pane with
@@ -107,4 +107,5 @@ public sealed partial class PanelWorkspace
 /// <param name="PaneId">The pane kept empty for the replacement panel, or null for a panel the layout hid.</param>
 /// <param name="TypeId">The fully qualified panel type identifier.</param>
 /// <param name="State">The feature-owned JSON captured before the panel closed.</param>
-internal readonly record struct SuspendedPanel( Guid PanelId, Guid? PaneId, string TypeId, JsonElement? State );
+/// <param name="HostId">The host the panel worked on, or null for a type that is not host-bound.</param>
+internal readonly record struct SuspendedPanel( Guid PanelId, Guid? PaneId, string TypeId, JsonElement? State, string? HostId = null );

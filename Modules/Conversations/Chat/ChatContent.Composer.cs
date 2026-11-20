@@ -117,32 +117,38 @@ public sealed partial class ChatContent
 	private Blob BuildComposer( ConversationInfo conversation, Blob? todo )
 	{
 		var scope = conversation.Profile == SettingsProfile.Work ? SettingsScope.Work : SettingsScope.Personal;
-		var model = _connectedModel.Length > 0 ? _connectedModel : context.App.Settings.Get( OmpModule.Model, scope );
+		var model = session.ConnectedModel.Length > 0 ? session.ConnectedModel : context.App.Settings.Get( OmpModule.Model, scope );
 		var configure = BuildRailButton( model.Length > 0 ? backend.GetModelName( conversation.Profile, model ) : "Choose model", () => context.Run( () => UpdatePicking( true ) ) );
 		configure.Key = "conversation-model";
 		configure.AccessibilityName = "Switch model";
-		var isReady = _status == "Ready";
+		var status = session.Status;
+		var isBusy = session.IsBusy;
+		var isReady = status == "Ready";
 		var working = BuildWorking();
 		// The chat's folder and git state lead the rail; the status takes the free middle and the model stays at the right.
 		var rail = BuildFolderRail( conversation );
 		// The working indicator above the prompt tells the phase while it shows; a new status cross-fades over the last.
-		rail.Add( Cell.Mount<RollingTextInput, RollingText>( "conversation-status", new( isReady || working is not null ? "" : _status, ViewStyle.SmallSize, _isBusy ? Theme.Current.Accent : Theme.Current.Muted )
+		rail.Add( Cell.Mount<RollingTextInput, RollingText>( "conversation-status", new( isReady || working is not null ? "" : status, ViewStyle.SmallSize, isBusy ? Theme.Current.Accent : Theme.Current.Muted )
 		{
 			FontFamily = ViewStyle.FontFamily,
 			MaxLines = 3,
 			Grow = true,
 		} ) );
 		rail.Add( BuildUsage( conversation ) );
-		var agents = BuildRailButton( "Agents", () => context.Run( UpdateOpenAgents ) );
-		agents.Key = "conversation-agents";
-		agents.AccessibilityName = "Open Omp Agent Hub";
-		rail.Add( agents );
+		// The Agent Hub opens over the chat's own Omp process, which a chat running in a host keeps there.
+		if ( !session.IsRemote )
+		{
+			var agents = BuildRailButton( "Agents", () => context.Run( UpdateOpenAgents ) );
+			agents.Key = "conversation-agents";
+			agents.AccessibilityName = "Open Omp Agent Hub";
+			rail.Add( agents );
+		}
 		if ( BuildEffort() is { } effort )
 			rail.Add( effort );
 		rail.Add( configure );
-		if ( _session is null && !_isBusy )
+		if ( !session.IsConnected && !isBusy )
 		{
-			var connect = BuildRailButton( "Connect", () => context.Run( UpdateConnect ) );
+			var connect = BuildRailButton( "Connect", () => context.Run( session.UpdateConnect ) );
 			connect.Key = "conversation-connect";
 			connect.Color = Theme.Current.Text;
 			rail.Add( connect );
@@ -158,7 +164,7 @@ public sealed partial class ChatContent
 			Key = "conversation-prompt-row",
 			AlignItems = AlignItems.FlexEnd,
 			Gap = Theme.Current.Spacing,
-			Children = _isBusy && _session is not null
+			Children = isBusy && session.IsConnected
 				? [BuildAttachButton(), BuildPrompt(), BuildSendMode(), BuildSubmit()]
 				: [BuildAttachButton(), BuildPrompt(), BuildSubmit()],
 		} );
@@ -221,17 +227,16 @@ public sealed partial class ChatContent
 	/// <summary>Opens the native Agent Hub, connecting the chat first when necessary.</summary>
 	private void UpdateOpenAgents()
 	{
-		if ( _session is { } session )
+		if ( session.Connected is { } connected )
 		{
-			OmpModule.OpenAgentHub( context.App, session, context.Id );
+			OmpModule.OpenAgentHub( context.App, connected, context.Id );
 			return;
 		}
 
 		if ( _isOpeningAgents )
 			return;
 		_isOpeningAgents = true;
-		_status = "Connecting Agent Hub…";
-		MarkChanged();
+		session.UpdateStatus( "Connecting Agent Hub…" );
 		_ = UpdateOpenAgentsAsync();
 	}
 
@@ -240,11 +245,11 @@ public sealed partial class ChatContent
 	{
 		try
 		{
-			var session = await EnsureConnection().ConfigureAwait( false );
+			var connected = await session.EnsureConnection().ConfigureAwait( false );
 			context.Post( () =>
 			{
 				_isOpeningAgents = false;
-				OmpModule.OpenAgentHub( context.App, session, context.Id );
+				OmpModule.OpenAgentHub( context.App, connected, context.Id );
 			} );
 		}
 		catch ( Exception error ) when ( error is not OperationCanceledException )
@@ -252,8 +257,7 @@ public sealed partial class ChatContent
 			context.Post( () =>
 			{
 				_isOpeningAgents = false;
-				_status = error.Message;
-				MarkChanged();
+				session.UpdateStatus( error.Message );
 			} );
 		}
 	}
@@ -284,8 +288,9 @@ public sealed partial class ChatContent
 	{
 		if ( _usageReport is null )
 			return _isUsageBusy ? "Usage…" : "Usage";
-		var separator = _connectedModel.IndexOf( '/' );
-		var provider = separator > 0 ? _connectedModel[..separator] : "";
+		var model = session.ConnectedModel;
+		var separator = model.IndexOf( '/' );
+		var provider = separator > 0 ? model[..separator] : "";
 		OmpUsageLimit? mostUsed = null;
 		foreach ( var account in _usageReport.Accounts )
 		{
@@ -471,8 +476,8 @@ public sealed partial class ChatContent
 			// While the agent works, Enter queues the message for after the turn or steers it, as the switch beside Send says, and Ctrl+Enter does the other; a question that takes typed text takes it from here.
 			// Kept short: the prompt is one line beside its buttons, and a long hint was cut off in narrow chats.
 			Placeholder = ComposerAnswerKey() is not null ? "Type your answer…"
-				: _isBusy && _isSteerMode ? "Steer… (Ctrl+Enter queues)"
-				: _isBusy ? "Queue a message… (Ctrl+Enter steers)" : "Message Omp…",
+				: session.IsBusy && _isSteerMode ? "Steer… (Ctrl+Enter queues)"
+				: session.IsBusy ? "Queue a message… (Ctrl+Enter steers)" : "Message Omp…",
 			PlaceholderColor = Theme.Current.Muted,
 			CaretColor = Color.Transparent,
 			FontFamily = ViewStyle.FontFamily,
@@ -546,7 +551,8 @@ public sealed partial class ChatContent
 	{
 		_promptHasText = _composer.Document.Length > 0;
 		var hasDraft = _promptHasText || _attachments.Count > 0;
-		var input = new SubmitInput( (_isBusy && !hasDraft) || _taskCheck is not null, hasDraft, !_isBusy || _session is not null,
+		var isBusy = session.IsBusy;
+		var input = new SubmitInput( (isBusy && !hasDraft) || _taskCheck is not null, hasDraft, !isBusy || session.IsConnected,
 			() => context.Run( UpdateSend ), () => context.Run( UpdateStop ) );
 		return Cell.Mount<SubmitInput, SubmitButton>( "conversation-submit", input );
 	}

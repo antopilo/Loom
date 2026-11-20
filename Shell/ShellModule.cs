@@ -31,6 +31,7 @@ internal sealed class ShellModule : ILoknModule
 			.Setting( ShellSettings.ShowSidebar )
 			.Setting( ShellSettings.SidebarWidth )
 			.Setting( ShellSettings.ProfileIcon )
+			.Setting( DataBackups.Backups )
 			.PanelOnly( "settings", "Settings", context => new SettingsContent( context ) )
 			.Command( "open.settings", "Open Settings", context => OpenSettings( context.App ) )
 			.Command( "split-right", "Shell: split right", context => context.App.Panels.SplitActive( SplitAxis.Horizontal ),

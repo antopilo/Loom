@@ -32,8 +32,8 @@ public sealed class GitModule : ILoknModule
 	/// <summary>Defines the glyph of the Git panel a new task can start with, a branch.</summary>
 	private const string BranchGlyph = "\uF003";
 
-	/// <summary>Stores one shared reader per watched folder, keyed by its full path.</summary>
-	private readonly Dictionary<string, GitSource> _sources = new( StringComparer.OrdinalIgnoreCase );
+	/// <summary>Stores one shared reader per watched folder on each host, keyed by the host's id and the folder's full path.</summary>
+	private readonly Dictionary<(string Host, string Directory), GitSource> _sources = new( new SourceKeyComparer() );
 
 	/// <summary>Tracks open Git panels so opening a repository's Git panel again reuses the one showing it.</summary>
 	private readonly Dictionary<Guid, GitContent> _panels = [];
@@ -57,7 +57,7 @@ public sealed class GitModule : ILoknModule
 		.Setting( Avatars )
 		.ExtensionPoint<GitAction>( "actions" )
 		.ExtensionPoint<GitMessageWriter>( "messages" )
-		.Panel( "panel", "Git", BuildPanel, "\uF003" )
+		.Panel( "panel", "Git", BuildPanel, "\uF003", onHost: true )
 		.PanelAlias( "conversations.git", "panel" )
 		// The diff panel became the Git panel's file view; saved diff panels restore as Git panels on the same folder.
 		.PanelAlias( "git.diff", "panel" )
@@ -77,15 +77,18 @@ public sealed class GitModule : ILoknModule
 			FixAsync = ( progress, cancellationToken ) => ToolLocator.InstallWingetAsync( "Git.Git", progress, cancellationToken ),
 		} );
 
-	/// <summary>Checks that git runs, reporting its version and path.</summary>
+	/// <summary>Checks that git runs on this PC, where the Install fix puts it, reporting its version and path.</summary>
 	private static async Task<SetupStatus> CheckGitAsync( CancellationToken cancellationToken )
 	{
 		try
 		{
-			var output = await GitProcess.RunAsync( AppContext.BaseDirectory, cancellationToken, "--version" ).ConfigureAwait( false );
-			return new( SetupState.Ready, $"{output.Trim().Replace( "git version ", "", StringComparison.Ordinal )} · {GitProcess.Executable}" );
+			var result = await LocalWorkspaceHost.Shared.RunAsync( GitProcess.Executable, ["--version"], AppContext.BaseDirectory, null, null, cancellationToken ).ConfigureAwait( false );
+			if ( result.Code != 0 )
+				return new( SetupState.Missing, "Not installed" );
+
+			return new( SetupState.Ready, $"{result.Output.Trim().Replace( "git version ", "", StringComparison.Ordinal )} · {GitProcess.Executable}" );
 		}
-		catch ( Exception error ) when ( error is InvalidOperationException or System.ComponentModel.Win32Exception )
+		catch ( System.ComponentModel.Win32Exception )
 		{
 			return new( SetupState.Missing, "Not installed" );
 		}
@@ -110,22 +113,24 @@ public sealed class GitModule : ILoknModule
 		_context = null;
 	}
 
-	/// <summary>Starts watching a folder's git state, sharing the reader with other holders of the same folder; call on the UI thread.</summary>
+	/// <summary>Starts watching a folder's git state on a host, sharing the reader with other holders of the same folder on that host; call on the UI thread.</summary>
+	/// <param name="host">The host the folder is on, such as the panel's <see cref="PanelContext.Host"/>; the same path on another host is another folder.</param>
+	/// <param name="directory">The folder.</param>
 	/// <returns>The holder; dispose it to stop watching.</returns>
-	public GitWatch Watch( string directory )
+	public GitWatch Watch( LoknHost host, string directory )
 	{
 		var context = _context ?? throw new InvalidOperationException( "The Git module is not running." );
-		var key = Path.TrimEndingDirectorySeparator( Path.GetFullPath( directory ) );
-		if ( !_sources.TryGetValue( key, out var source ) )
-			_sources.Add( key, source = new GitSource( context, key, released => _sources.Remove( released.Directory ) ) );
+		var folder = Path.TrimEndingDirectorySeparator( Path.GetFullPath( directory ) );
+		if ( !_sources.TryGetValue( (host.Id, folder), out var source ) )
+			_sources.Add( (host.Id, folder), source = new GitSource( context, host, folder, released => _sources.Remove( (released.Host.Id, released.Directory) ) ) );
 
 		return source.Hold();
 	}
 
 	/// <summary>Shows the Git panel of the repository holding a folder, on its graph or on one changed file's diff, reusing an open one for that
-	/// repository or opening one beside the panel that asked; call on the UI thread.</summary>
+	/// repository on the same host or opening one beside the panel that asked, on that panel's host; call on the UI thread.</summary>
 	/// <param name="app">The application.</param>
-	/// <param name="besidePanelId">The panel that asked, such as a chat or the Files side view.</param>
+	/// <param name="besidePanelId">The panel that asked, such as a chat or the Files side view; its host is the folder's.</param>
 	/// <param name="directory">A folder inside the repository.</param>
 	/// <param name="focus">The full path of a changed file whose diff shows once the changes load, or null for the graph beside the working tree.</param>
 	/// <param name="staged">Whether the file shows its staged change first.</param>
@@ -133,7 +138,8 @@ public sealed class GitModule : ILoknModule
 	public void OpenPanel( LoknApplication app, Guid besidePanelId, string directory, string? focus = null, bool staged = false, bool keepFocus = false )
 	{
 		Forget( app, _panels );
-		if ( _panels.FirstOrDefault( item => item.Value.Shows( directory ) ) is { Value: { } open } existing )
+		var host = app.Panels.GetHostId( besidePanelId ) ?? app.Hosts.Current.Id;
+		if ( _panels.FirstOrDefault( item => item.Value.Shows( directory ) && app.Panels.GetHostId( item.Key ) == host ) is { Value: { } open } existing )
 		{
 			open.Reveal( focus, staged );
 			if ( !keepFocus || !app.Panels.IsShown( existing.Key ) )
@@ -143,7 +149,7 @@ public sealed class GitModule : ILoknModule
 			return;
 		}
 
-		app.Panels.OpenBeside( PanelType, besidePanelId, new GitPanelInput( directory, Focus: focus, Staged: staged ) );
+		app.Panels.OpenBeside( PanelType, besidePanelId, new GitPanelInput( directory, Focus: focus, Staged: staged ), host );
 		if ( keepFocus )
 			app.Panels.Activate( besidePanelId );
 	}
@@ -156,7 +162,7 @@ public sealed class GitModule : ILoknModule
 	private static void ShowChanges( PanelContext context, string directory )
 	{
 		var app = context.App;
-		if ( !app.Panels.IsShown( context.Id ) || app.Services.Get<IWorkingFolder>()?.Current is not { Length: > 0 } project
+		if ( !app.Panels.IsShown( context.Id ) || context.WorkingFolder is not { Length: > 0 } project
 			|| app.Services.Get<IFileSideView>() is not { } side || !IsInside( directory, project ) && !IsInside( project, directory ) )
 			return;
 
@@ -178,20 +184,52 @@ public sealed class GitModule : ILoknModule
 			panels.Remove( closed );
 	}
 
-	/// <summary>Gets the folder a panel opened from the palette shows: the open project's, else the one Lokn runs in.</summary>
-	private static string ComputeDefaultDirectory( LoknApplication app ) => app.Services.Get<IWorkingFolder>()?.Current ?? Environment.CurrentDirectory;
+	/// <summary>Gets the folder a panel opened from the palette shows: the open project's on the panel's host, else on This PC the one Lokn runs in; null on a
+	/// paired host without one, whose disk has no such folder.</summary>
+	private static string? ComputeDefaultDirectory( PanelContext context ) => context.WorkingFolder ?? (context.Host.IsLocal ? Environment.CurrentDirectory : null);
 
-	/// <summary>Opens a Git panel on its requested or restored folder; from the palette, on the working folder.</summary>
+	/// <summary>Opens a Git panel on its requested or restored folder; from the palette, on the working folder, or without one on a paired host, a panel
+	/// that says to open a project there.</summary>
 	/// <remarks>Layouts saved by Conversations, and diff panels saved before the Git panel showed files, restore here through their former identifiers; their folder carries over.</remarks>
-	private GitContent BuildPanel( PanelContext context )
+	private PanelContent BuildPanel( PanelContext context )
 	{
 		var input = context.RestoredState?.Deserialize<GitPanelInput>() is { Directory.Length: > 0 } restored ? restored : context.Input as GitPanelInput;
 		var isNew = context.RestoredState is null;
-		input ??= new GitPanelInput( ComputeDefaultDirectory( context.App ) );
+		if ( input is null )
+		{
+			if ( ComputeDefaultDirectory( context ) is not { } directory )
+				return new NoFolderContent( context );
+			input = new GitPanelInput( directory );
+		}
 		Forget( context.App, _panels );
 		// The panel is placed once this returns, so the side view opens after it, and only for a panel the user opened now.
 		if ( isNew )
 			context.Post( () => ShowChanges( context, input.Directory ) );
 		return _panels[context.Id] = new GitContent( context, input );
+	}
+
+	/// <summary>A Git panel opened on a paired host without a project open there: no folder of that host to show yet.</summary>
+	/// <param name="context">The panel's context.</param>
+	private sealed class NoFolderContent( PanelContext context ) : PanelContent
+	{
+		/// <summary>Builds the note.</summary>
+		public override Goo.Blob Build() => new Goo.Text
+		{
+			Content = $"Open a project on {context.Host.Name} to see its repository.",
+			Color = Theme.Current.Muted,
+			Padding = Theme.Current.Spacing * 2,
+		};
+	}
+
+	/// <summary>Compares reader keys: host ids exactly, folders whatever their letter case.</summary>
+	private sealed class SourceKeyComparer : IEqualityComparer<(string Host, string Directory)>
+	{
+		/// <summary>Reports whether two keys name the same folder on the same host.</summary>
+		public bool Equals( (string Host, string Directory) x, (string Host, string Directory) y ) =>
+			string.Equals( x.Host, y.Host, StringComparison.Ordinal ) && string.Equals( x.Directory, y.Directory, StringComparison.OrdinalIgnoreCase );
+
+		/// <summary>Hashes a key consistently with <see cref="Equals"/>: the host id exactly, the folder whatever its letter case.</summary>
+		public int GetHashCode( (string Host, string Directory) key ) =>
+			HashCode.Combine( StringComparer.Ordinal.GetHashCode( key.Host ), StringComparer.OrdinalIgnoreCase.GetHashCode( key.Directory ) );
 	}
 }

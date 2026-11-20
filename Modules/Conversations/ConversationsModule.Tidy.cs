@@ -49,17 +49,19 @@ public sealed partial class ConversationsModule
 	/// <summary>Reports whether a chat never got a prompt: it still has the title it was created with.</summary>
 	private static bool IsUnstarted( ConversationInfo conversation ) => conversation is { Title: "New chat", IsTitleChosen: false };
 
-	/// <summary>Works out what tidying a project's chats would do now; chats open in a panel, working, or selected are never removed.</summary>
+	/// <summary>Works out what tidying a project of the current host would do now; chats open in a panel, working, or selected are never removed.</summary>
 	internal TidyPlan ComputeTidy( LoknApplication app, Guid projectId, DateTimeOffset now )
 	{
-		var project = store.ProjectStore.Get( projectId );
-		var open = FindPanels( app ).Select( item => item.Panel.ConversationId ).OfType<Guid>().ToHashSet();
+		var host = Hosts.Current;
+		var history = host.Store;
+		var project = host.Projects.Get( projectId );
+		var open = FindPanels( app ).Select( item => item.Panel.Chat ).OfType<ChatRef>().Where( chat => chat.HostId == host.Id ).Select( chat => chat.ConversationId ).ToHashSet();
 		var selected = GetSelected( app );
 		var stale = new List<ConversationInfo>();
 		var renamed = new List<ConversationInfo>();
-		foreach ( var conversation in store.Conversations( project.Profile, projectId ) )
+		foreach ( var conversation in history.Conversations( project.Profile, projectId ) )
 		{
-			var isInUse = open.Contains( conversation.Id ) || selected == conversation.Id || store.IsWorking( conversation.Id );
+			var isInUse = open.Contains( conversation.Id ) || selected == host.Ref( conversation.Id ) || history.IsWorking( conversation.Id );
 			if ( !isInUse && IsStale( conversation, now ) )
 				stale.Add( conversation );
 			else if ( conversation is { HasChat: true, IsTitleChosen: false } && !IsUnstarted( conversation ) )
@@ -69,7 +71,7 @@ public sealed partial class ConversationsModule
 		return new( projectId, stale, renamed );
 	}
 
-	/// <summary>Tidies a project's chats as the user confirmed: removes the stale chats they were shown that are still stale, then names the rest afresh in the background.</summary>
+	/// <summary>Tidies a project of the current host as the user confirmed: removes the stale chats they were shown that are still stale, then names the rest afresh in the background.</summary>
 	/// <param name="app">The application.</param>
 	/// <param name="confirmed">The plan the user confirmed; what changed since is worked out again, so nothing is removed that was not shown.</param>
 	internal void Tidy( LoknApplication app, TidyPlan confirmed )
@@ -77,25 +79,26 @@ public sealed partial class ConversationsModule
 		if ( IsTidying( confirmed.ProjectId ) )
 			return;
 
+		var host = Hosts.Current;
 		var plan = ComputeTidy( app, confirmed.ProjectId, DateTimeOffset.UtcNow );
 		var shown = confirmed.Stale.Select( conversation => conversation.Id ).ToHashSet();
 		foreach ( var conversation in plan.Stale.Where( conversation => shown.Contains( conversation.Id ) ) )
-			DeleteConversation( app, conversation.Id );
+			DeleteConversation( app, host.Ref( conversation.Id ) );
 
 		if ( plan.Renamed.Count == 0 || _context is not { } context )
 			return;
 
 		_tidying.Value = new HashSet<Guid>( _tidying.Value ) { plan.ProjectId };
-		_ = UpdateTitlesAsync( context, store.ProjectStore.Get( plan.ProjectId ), plan.Renamed );
+		_ = UpdateTitlesAsync( context, host.Store, host.Projects.Get( plan.ProjectId ), plan.Renamed );
 	}
 
 	/// <summary>Asks the project's model for a title per chat in one question, and applies each to a chat the user still did not name.</summary>
 	/// <remarks>A failure is reported in the shell notice; the chats keep their titles.</remarks>
-	private async Task UpdateTitlesAsync( ModuleContext context, ProjectInfo project, IReadOnlyList<ConversationInfo> conversations )
+	private async Task UpdateTitlesAsync( ModuleContext context, ConversationStore history, ProjectInfo project, IReadOnlyList<ConversationInfo> conversations )
 	{
 		try
 		{
-			var prompts = await store.ReadPromptsAsync( [.. conversations.Select( conversation => conversation.Id )], context.Lifetime ).ConfigureAwait( false );
+			var prompts = await history.ReadPromptsAsync( [.. conversations.Select( conversation => conversation.Id )], context.Lifetime ).ConfigureAwait( false );
 			var listed = conversations.Where( conversation => prompts.GetValueOrDefault( conversation.Id ) is { Count: > 0 } ).ToArray();
 			if ( listed.Length > 0 )
 			{
@@ -107,8 +110,8 @@ public sealed partial class ConversationsModule
 				{
 					foreach ( var (number, title) in titles )
 					{
-						if ( store.Find( listed[number - 1].Id ) is { IsTitleChosen: false } current )
-							store.SetAutomaticTitle( current.Id, title, isGenerated: true );
+						if ( history.Find( listed[number - 1].Id ) is { IsTitleChosen: false } current )
+							history.SetAutomaticTitle( current.Id, title, isGenerated: true );
 					}
 				} );
 			}

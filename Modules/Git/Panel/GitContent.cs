@@ -126,7 +126,7 @@ internal sealed partial class GitContent : PanelContent
 		_layout = layout;
 		_review = input is { ReviewAction: { } action, ReviewId: { } id } ? (action, id) : null;
 		var git = context.App.GetModule<GitModule>();
-		_watch = git.Watch( _directory );
+		_watch = git.Watch( context.Host, _directory );
 		_pictures = git.Pictures;
 		_changes = new GitChangesPane( context, () => _root ?? "", Run, () => ReviewFindings, OpenChange, OnChangesLoaded );
 		_file = new GitFileView( context, _changes, () => _root, Run, CloseFile );
@@ -409,10 +409,10 @@ internal sealed partial class GitContent : PanelContent
 		{
 			try
 			{
-				var log = withHistory ? GitRepository.ReadLogAsync( root, LogLimit, load.Token ) : Task.FromResult<IReadOnlyList<GitCommit>>( [] );
-				var refs = withHistory ? GitRepository.ReadRefsAsync( root, load.Token ) : Task.FromResult<IReadOnlyList<GitRef>>( [] );
-				var stashes = GitRepository.ReadStashesAsync( root, load.Token );
-				var operation = GitRepository.ReadOperationAsync( root, load.Token );
+				var log = withHistory ? GitRepository.ReadLogAsync( _context.Workspace, root, LogLimit, load.Token ) : Task.FromResult<IReadOnlyList<GitCommit>>( [] );
+				var refs = withHistory ? GitRepository.ReadRefsAsync( _context.Workspace, root, load.Token ) : Task.FromResult<IReadOnlyList<GitRef>>( [] );
+				var stashes = GitRepository.ReadStashesAsync( _context.Workspace, root, load.Token );
+				var operation = GitRepository.ReadOperationAsync( _context.Workspace, root, load.Token );
 				await Task.WhenAll( log, refs, stashes, operation ).ConfigureAwait( false );
 				var history = GitHistory.Build( log.Result );
 				_context.Post( () => ApplyLoad( load, root, history, refs.Result, stashes.Result, operation.Result, null ) );

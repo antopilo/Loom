@@ -126,7 +126,7 @@ internal sealed partial class GitChangesPane
 		{
 			try
 			{
-				var changes = await GitRepository.ReadChangesAsync( root, load.Token );
+				var changes = await GitRepository.ReadChangesAsync( _context.Workspace, root, load.Token );
 				_context.Post( () => ApplyChanges( load, root, changes, null ) );
 			}
 			catch ( OperationCanceledException )

@@ -35,20 +35,23 @@ public sealed partial class BrowserModule
 	/// <summary>Defines the shortest identifier prefix the tools accept.</summary>
 	private const int MinIdLength = 4;
 
+	/// <summary>Defines how many of the session's tabs not open in this window <c>browser_tabs</c> lists, the most recently used.</summary>
+	private const int MaxListedElsewhere = 20;
+
 	/// <summary>Defines the optional tab argument every page tool takes.</summary>
 	private const string TabArgument = """
 		"tab": { "type": "string", "description": "A tab id from browser_tabs, or a unique prefix of one. Defaults to the selected tab of the browser panel on screen." }
 		""";
 
-	/// <summary>Gets the per-user folder browser screenshots are saved in.</summary>
-	internal static string ScreenshotsPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "screenshots" );
+	/// <summary>Gets the folder browser screenshots are saved in.</summary>
+	internal string ScreenshotsPath => Path.Combine( _root, "screenshots" );
 
 	/// <summary>Registers the tools that let agents use browser panels.</summary>
 	private void RegisterPageTools( ModuleBuilder builder ) => builder
-		.Tool( "tabs",
-			"Lists Lokn's browser panels and their tabs: ids, titles, addresses, which tab each panel shows, and which panel is on screen. The other browser tools act on the selected tab of the panel on screen unless given a tab id.",
+		.ToolAsync( "tabs",
+			"Lists the session's browser tabs, which every Loom window shares: ids, titles, addresses, and which browser panel of this window shows each, marking the panel on screen. The other browser tools act on the selected tab of the panel on screen unless given a tab id.",
 			"""{ "type": "object", "properties": {}, "additionalProperties": false }""",
-			ListTabs )
+			Lend( "tabs", ( context, arguments ) => Task.FromResult( ListTabs( context, arguments ) ) ) )
 		.ToolAsync( "navigate",
 			"Loads an address in Lokn's browser panel, which the user sees, or goes back, forward or reloads, and waits for the page to load. With no browser panel on screen it opens one beside your conversation. The page keeps the user's cookies and sign-ins for the profile. Use it to open web pages and local dev servers instead of a shell browser.",
 			$$"""
@@ -63,7 +66,7 @@ public sealed partial class BrowserModule
 				"additionalProperties": false
 			}
 			""",
-			NavigateAsync )
+			Lend( "navigate", NavigateAsync ) )
 		.ToolAsync( "read",
 			"Reads the page in a browser tab: its title and address, its visible text, and its links, buttons and fields, each numbered with a ref for browser_act. Read again after the page changes; refs from an earlier read may no longer exist.",
 			$$"""
@@ -78,7 +81,7 @@ public sealed partial class BrowserModule
 				"additionalProperties": false
 			}
 			""",
-			ReadAsync )
+			Lend( "read", ReadAsync ) )
 		.ToolAsync( "act",
 			"Uses an element of the page in a browser tab as a person would, with real mouse and keyboard input: click, type into a field, press a key, choose an option of a select box, hover, or scroll. Name the element by a ref from browser_read or by a CSS selector. Waits for any page load the action starts.",
 			$$"""
@@ -99,7 +102,7 @@ public sealed partial class BrowserModule
 				"additionalProperties": false
 			}
 			""",
-			ActAsync )
+			Lend( "act", ActAsync ) )
 		.ToolAsync( "eval",
 			"Runs JavaScript in the page of a browser tab and returns its value as JSON, awaiting a promise. Use it to extract data or check state that browser_read does not show; prefer browser_act for clicking and typing, which sends real input.",
 			$$"""
@@ -113,7 +116,7 @@ public sealed partial class BrowserModule
 				"additionalProperties": false
 			}
 			""",
-			EvaluateAsync )
+			Lend( "eval", EvaluateAsync ) )
 		.ToolAsync( "screenshot",
 			"Saves a PNG screenshot of the page in a browser tab and returns its path; read that image file to see the page. Use it to check layout and visuals.",
 			$$"""
@@ -126,30 +129,39 @@ public sealed partial class BrowserModule
 				"additionalProperties": false
 			}
 			""",
-			ScreenshotAsync );
+			Lend( "screenshot", ScreenshotAsync ) );
 
-	/// <summary>Lists every open browser panel's tabs, marking the panel on screen and each panel's selected tab.</summary>
+	/// <summary>Lists the host's session tabs with the browser panel of this window that shows each, marking the panel on screen and each panel's selected tab;
+	/// of the tabs not open in this window, only the <see cref="MaxListedElsewhere"/> most recently used, and how many more there are.</summary>
 	private AgentToolResult ListTabs( AgentToolContext context, JsonElement arguments )
 	{
-		var panels = _panels.Where( panel => panel.IsOpen ).ToArray();
-		if ( panels.Length == 0 )
-			return new( "No browser panel is open. browser_navigate with a url opens one beside your conversation." );
+		var host = FindHost( context );
+		var tabs = host.BrowserTabs.Tabs;
+		if ( tabs.Count == 0 )
+			return new( "No browser tab is open. browser_navigate with a url opens one beside your conversation." );
 
-		var shown = FindDefault( context );
+		var shown = FindDefault( context, host );
+		var panels = _panels.Where( panel => panel.IsOpen && panel.Host == host ).ToArray();
+		var elsewhere = tabs.Where( info => !IsShown( host.Id, info.Id ) ).OrderByDescending( info => info.LastUsed ).ThenByDescending( info => info.Order ).ToArray();
+		var listed = elsewhere.Take( MaxListedElsewhere ).Select( info => info.Id ).ToHashSet();
 		var text = new StringBuilder();
-		foreach ( var panel in panels )
+		text.AppendLine( "Browser tabs of the session, which every Loom window shares:" );
+		foreach ( var info in tabs )
 		{
-			var place = panel == shown ? "on screen, used by default" : IsShown( context.App, panel ) ? "on screen" : "hidden";
-			text.AppendLine( $"Browser panel {ComputeShortId( panel.Id )} ({place}, {panel.Profile} profile):" );
-			foreach ( var tab in panel.Tabs )
-			{
-				var marker = tab == panel.Selected ? "*" : " ";
-				var state = tab.Navigation.Loading ? " [loading]" : tab.Controller is null ? " [not started]" : "";
-				text.AppendLine( $"{marker} tab {ComputeShortId( tab.Id )} \"{tab.Title}\" {tab.Source}{state}" );
-			}
+			var views = panels.SelectMany( panel => panel.Tabs.Where( tab => tab.Id == info.Id ) ).ToArray();
+			if ( views.Length == 0 && !listed.Contains( info.Id ) )
+				continue;
+
+			var marker = views.Any( view => view == view.Owner.Selected ) ? "*" : " ";
+			var state = info.Loading ? " [loading]" : info.Failed is { } failed ? $" [{failed}]" : "";
+			var places = views.Length == 0 ? "not open in this window"
+				: string.Join( "; ", views.Select( view => $"in browser panel {ComputeShortId( view.Owner.Id )} ({(view.Owner == shown ? "on screen, used by default" : IsShown( context.App, view.Owner ) ? "on screen" : "hidden")}{(view.Controller is null ? ", not started" : "")})" ) );
+			text.AppendLine( $"{marker} tab {ComputeShortId( info.Id )} \"{info.Title}\" {info.Url}{state}, {info.Profile} profile, {places}" );
 		}
 
-		text.Append( "* marks the tab each panel shows." );
+		if ( elsewhere.Length > listed.Count )
+			text.AppendLine( $"{elsewhere.Length - listed.Count} older tabs not open in this window are not listed." );
+		text.Append( "* marks the tab a panel shows. A tab not open in this window opens beside your conversation when a tool names it." );
 		return new( text.ToString() );
 	}
 
@@ -162,19 +174,24 @@ public sealed partial class BrowserModule
 			throw new ArgumentException( "Pass either url or action." );
 
 		var app = context.App;
+		var host = FindHost( context );
 		var isNewTab = arguments.TryGetProperty( "newTab", out var flag ) && flag.ValueKind == JsonValueKind.True;
 		BrowserTab tab;
 		string outcome;
 		if ( url is not null )
 		{
 			var address = BrowserAddress.Compute( url, app.Settings.Get( Search ) ) ?? throw new ArgumentException( "The url is blank." );
-			if ( ReadString( arguments, "tab" ) is null && FindDefault( context ) is null )
+			if ( !host.BrowserTabs.CanShow( address ) )
+				throw new ArgumentException( $"This browser runs on a paired PC, which opens only http and https addresses for the host, not {address}. Its localhost addresses reach the host's." );
+			var named = ReadString( arguments, "tab" );
+			var panel = named is null ? FindDefault( context, host ) : null;
+			if ( named is null && panel is null )
 			{
-				tab = ShowBeside( app, address, context.Caller, replace: null );
+				tab = ShowBeside( app, host, address, context.Caller, replace: null );
 			}
-			else if ( isNewTab )
+			else if ( isNewTab || panel is { Selected: null } )
 			{
-				tab = ResolveTab( context, arguments ).Owner.OpenTab( address );
+				tab = (panel ?? ResolveTab( context, arguments ).Owner).OpenTab( address );
 			}
 			else
 			{
@@ -355,57 +372,74 @@ public sealed partial class BrowserModule
 		return new( json.Length > MaxScriptResult ? json[..MaxScriptResult] + $"\n… cut at {MaxScriptResult} of {json.Length} characters." : json );
 	}
 
-	/// <summary>Saves a screenshot of a tab's page and returns its path.</summary>
+	/// <summary>Saves a screenshot of a tab's page and returns its path, on the PC whose agent called: a paired PC lending its browser sends it to the host.</summary>
 	private async Task<AgentToolResult> ScreenshotAsync( AgentToolContext context, JsonElement arguments )
 	{
 		var tab = ResolveTab( context, arguments );
+		var share = tab.Owner.Session.ShareFile;
 		await RequirePageAsync( context.App, tab, context.Cancellation );
 		var isFullPage = arguments.TryGetProperty( "fullPage", out var full ) && full.ValueKind == JsonValueKind.True;
+		var source = tab.PageSource;
 		var png = await tab.CaptureAsync( isFullPage );
 		Directory.CreateDirectory( ScreenshotsPath );
 		var path = Path.Combine( ScreenshotsPath, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{ComputeShortId( tab.Id )}.png" );
 		await File.WriteAllBytesAsync( path, png, context.Cancellation );
-		return new( $"Saved a screenshot of {tab.Source} to {path}. Read that file to see it." );
+		if ( share is not null )
+			path = await share( path, context.Cancellation );
+		return new( $"Saved a screenshot of {source} to {path}. Read that file to see it." );
 	}
 
-	/// <summary>Finds the tab an agent named, or the selected tab of its default browser panel.</summary>
+	/// <summary>Finds the tab an agent named among its host's session tabs, showing it in this window when no panel here does, or the selected tab of its default browser panel.</summary>
 	private BrowserTab ResolveTab( AgentToolContext context, JsonElement arguments )
 	{
+		var host = FindHost( context );
 		if ( ReadString( arguments, "tab" ) is not { } text )
-			return FindDefault( context )?.Selected ?? throw new InvalidOperationException( "You have no browser panel beside your conversation. Call browser_navigate with a url to open one, or pass a tab id from browser_tabs." );
+			return FindDefault( context, host )?.Selected ?? throw new InvalidOperationException( "You have no browser panel beside your conversation. Call browser_navigate with a url to open one, or pass a tab id from browser_tabs." );
 
 		var key = text.Trim().Replace( "-", "", StringComparison.Ordinal ).ToLowerInvariant();
 		if ( key.Length < MinIdLength )
 			throw new ArgumentException( $"Pass at least {MinIdLength} characters of a tab id from browser_tabs." );
 
-		BrowserTab[] matches = [.. _panels.Where( panel => panel.IsOpen ).SelectMany( panel => panel.Tabs ).Where( tab => tab.Id.ToString( "N" ).StartsWith( key, StringComparison.Ordinal ) )];
+		Guid[] matches = [.. host.BrowserTabs.Tabs.Select( tab => tab.Id ).Where( id => id.ToString( "N" ).StartsWith( key, StringComparison.Ordinal ) )];
 		return matches switch
 		{
-			[var tab] => tab,
+			[var id] => ShowSession( context.App, host, id, context.Caller ),
 			[] => throw new KeyNotFoundException( $"No open tab has id {text}; call browser_tabs." ),
 			_ => throw new ArgumentException( $"{text} matches several tabs; pass more of its id." ),
 		};
 	}
 
-	/// <summary>Gets the browser an agent's tools use without a tab id: the one beside its conversation, otherwise, while the conversation is on screen, the browser on screen in its profile.</summary>
+	/// <summary>Gets the host whose browser tabs a call uses: the host whose agent called, else the calling panel's host, else this PC.</summary>
+	/// <remarks>A paired PC lends its browser to a host's agent through the tabs it mirrors of that host, so the host's calls never reach another host's pages.</remarks>
+	internal static LoknHost FindHost( AgentToolContext context )
+	{
+		var panels = context.App.Panels;
+		return context.App.Hosts.Get( context.Host ?? (context.Caller is { } caller ? panels.GetHostId( panels.ResolvePanelId( caller ) ) : null) );
+	}
+
+	/// <summary>Gets the browser on a host an agent's tools use without a tab id: the one beside its conversation, otherwise, while the conversation is on screen,
+	/// the browser on screen in its profile.</summary>
 	/// <remarks>A conversation working in the background never defaults to the browser the user is looking at, which may belong to another session or profile.</remarks>
-	private BrowserContent? FindDefault( AgentToolContext context )
+	private BrowserContent? FindDefault( AgentToolContext context, LoknHost host )
 	{
 		var app = context.App;
 		if ( context.Caller is not { } caller )
-			return FindShown( app );
+			return FindShown( app, host );
 
 		var source = app.Panels.ResolvePanelId( caller );
-		if ( FindOwn( app, source ) is { } own )
+		if ( FindOwn( app, host, source ) is { } own )
 			return own;
 
-		return app.Panels.IsShown( source ) ? FindShown( app, app.Panels.GetProfile( source ) ) : null;
+		return app.Panels.IsShown( source ) ? FindShown( app, host, app.Panels.GetProfile( source ) ) : null;
 	}
 
 	/// <summary>Shows a tab when its panel is on screen and waits until its page runs and finished its first load, or for a while.</summary>
-	/// <exception cref="InvalidOperationException">The page cannot run because its panel is hidden, or it failed to start.</exception>
+	/// <exception cref="InvalidOperationException">The page cannot run because its panel is hidden, this PC may not show its address, or it failed to start.</exception>
 	private async Task RequirePageAsync( LoknApplication app, BrowserTab tab, CancellationToken cancellation )
 	{
+		if ( tab.Blocked.Length > 0 )
+			throw new InvalidOperationException( tab.Blocked );
+
 		var isShown = IsShown( app, tab.Owner );
 		if ( isShown )
 		{
@@ -438,21 +472,13 @@ public sealed partial class BrowserModule
 			?? throw new InvalidOperationException( "The page returned nothing." );
 
 	/// <summary>Describes a tab after a navigation.</summary>
-	private static AgentToolResult Describe( BrowserTab tab, string outcome )
-	{
-		var web = tab.Controller?.CoreWebView2;
-		return new( $"{Capitalize( outcome )}: \"{web?.DocumentTitle ?? tab.Title}\" {web?.Source ?? tab.Source} (tab {ComputeShortId( tab.Id )}). Call browser_read to see the page." );
-	}
+	private static AgentToolResult Describe( BrowserTab tab, string outcome ) =>
+		new( $"{Capitalize( outcome )}: \"{tab.Controller?.CoreWebView2.DocumentTitle ?? tab.Title}\" {tab.PageSource} (tab {ComputeShortId( tab.Id )}). Call browser_read to see the page." );
 
 	/// <summary>Describes what an action did, and the page it led to when it navigated.</summary>
-	private static AgentToolResult DescribeAction( BrowserTab tab, string done, string? navigation )
-	{
-		if ( navigation is null )
-			return new( done );
-
-		var web = tab.Controller?.CoreWebView2;
-		return new( $"{done} The page navigated and {navigation}: \"{web?.DocumentTitle ?? tab.Title}\" {web?.Source ?? tab.Source}. Refs from the earlier browser_read are gone; read the page again." );
-	}
+	private static AgentToolResult DescribeAction( BrowserTab tab, string done, string? navigation ) => navigation is null
+		? new( done )
+		: new( $"{done} The page navigated and {navigation}: \"{tab.Controller?.CoreWebView2.DocumentTitle ?? tab.Title}\" {tab.PageSource}. Refs from the earlier browser_read are gone; read the page again." );
 
 	/// <summary>Capitalizes a sentence's first letter.</summary>
 	private static string Capitalize( string text ) => text.Length == 0 ? text : char.ToUpperInvariant( text[0] ) + text[1..];

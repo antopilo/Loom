@@ -11,11 +11,11 @@ Dependencies point one way: features and the shell depend on Core, never the rev
 
 | Layer | Assembly | Holds | May reference |
 |---|---|---|---|
-| `Core/` | `Lokn.Core` | Module contracts, `LoknApplication`, command registry, search registry, panel workspace and docking tree, settings, the notification feed, `Theme` | Goo only |
+| `Core/` | `Lokn.Core` | Module contracts, `LoknApplication`, the hosts (`LoknHosts`: This PC and paired hosts), command registry, search registry, panel workspace and docking tree, settings, the notification feed, `Theme`, `IWorkspaceHost` with `LocalWorkspaceHost` (processes, files, watchers and the ConPTY pseudoconsole) and `OfflineWorkspaceHost`, `DataUpgrade` (`version.json`, backups and restore; see [Data and upgrades](#data-and-upgrades)) and `IAgentActivity` (how many agents work on This PC) | Goo only |
 | `Shell/` | `Lokn` | Goo views: window chrome with its titlebar, sidebar and status bar slots, the sidebar column and profile switcher, dock rendering, the Search palette, the settings editor (a Shell tab, the Modules tab with its Community list, then one tab per module), `ShellModule` (id `shell`: window settings and commands, the `shell_*` agent tools, and the Search palette's Panels, Actions and Settings), `ModuleStates` (which modules are on, in `modules.json`), `ThemeModule` in `Theming/` (the theme file, the Tern catalog and the picker; it cannot be disabled), `ModuleHost` with `ModuleCompatibility` (loading module DLLs and module updates that fit), `UpdatesModule` in `Updates/` (id `updates`: app and module updates; see [Updates](#updates)), `CommunityModule` in `Community/` (id `community`: installs, updates and removes modules from the community hub as source folders Hotload loads; see [modules.md](modules.md#community-modules)), and `AttentionNotifier` (acknowledging requests the user looked at, and opening clicked Windows notifications) | Core, Goo |
 | `Modules/<Name>/` | one `Lokn.Modules.<Name>` DLL each | Features: `Omp` (also publishes `IAgentService`), `Git` (the one git runner, `GitProcess`, each watched folder's live repository, branch and changes, the Git panel with its graph and file diff modes and its `git.actions` and `git.messages` points, and the Files side view's Changes and History modes), `Projects` (a named working folder per profile with a session of its own, its icon and the trusted modules it carries, and `IWorkingFolder`, with the `projects.folders` point other sessions such as tasks give their folder through; it lists them in the sidebar or tab strip while Conversations is not loaded), `Conversations` (with the chat panel in `Chat/`, Home: the empty state of a conversation panel, opening each project's session through Projects, and the Git views' review in chat and commit message writer; Git is optional), `Markdown` (`IMarkdownRenderer` and the chat's Markdown view), `Files` (the side view at the left of the workspace: the file tree and the modes other modules add through `files.modes`), `Editor` (a text editor with history, highlighting and gutter marks, `lokn://editor/open`), `Notifications` (the feed page, the bell, its popover and banners, the chime and Windows notifications; it depends on no module, and modules describe their notifications with `NotificationKind`), `GitHub`, `Worktrees`, `Terminal`, `Workspaces` (saved workspaces, one set per session; always on), `Browser`, and the example `Welcome` | Core, Goo, and another module only through a project reference plus a declared dependency |
 | `Modules/Hotload/` | `Lokn` | The runtime compiler for source modules; part of the host because it carries Roslyn | Core, Goo |
-| `Program.cs` | `Lokn` | Configures the Goo app identity and single instance, starts the module host, loads the shell's own modules, restores the workspace, then raises `LoknApplication.Started`, where modules open their own startup view (`ModuleContext.WhenStarted`); with none the shell shows its empty pane | Core and shell only, never a feature module, not even by ID |
+| `Program.cs` | `Lokn` | Backs the data up when a newer version first runs on it (`DataUpgrade.Prepare`), configures the Goo app identity and single instance, starts the module host, loads the shell's own modules, restores the workspace, then raises `LoknApplication.Started`, where modules open their own startup view (`ModuleContext.WhenStarted`); with none the shell shows its empty pane | Core and shell only, never a feature module, not even by ID |
 | Source modules | one in-memory assembly per folder | Features compiled at runtime from `%LOCALAPPDATA%\Lokn\modules` | Core and Goo public API only |
 | `tests/Lokn.Tests/` | `Lokn.Tests` | Executable checks, no test framework | Everything, including internals |
 
@@ -46,7 +46,25 @@ the app through it:
   marks a panel's entries read when its request clears.
 - `Load`, `Unload`, `Enable`, `Reload`, `Remove`: the module lifecycle.
 - `GetModule<T>()`: the loaded module of a type, which is how one module reaches
-  another's services, such as `OmpModule.Service` or `ConversationsModule.Store`.
+  another's services, such as `OmpModule.Service` or `ConversationsModule.Hosts`.
+- `Hosts` (`LoknHosts`): the machines this Loom shows. `Hosts.Local` is This PC (in-process,
+  or through its daemon); the Remote module adds each paired host with `Hosts.Add` and
+  removes it with `Hosts.Remove`. Each `LoknHost` has an `Id` (`"local"` or the paired
+  host's id), an observable `Name`, `State` (`Local`, `Connecting`, `Connected`, `Failed`,
+  `Stopped`, `Removed`), `StatusText` and `CanControl`, its own `BrowserTabs`, and its
+  `Workspace` (`IWorkspaceHost`): the disk, processes, file watchers and pseudoterminals of
+  the user's work there. This PC's is `LocalWorkspaceHost.Shared`; a paired host's is the
+  Remote module's while connected and an `OfflineWorkspaceHost` (every call fails)
+  otherwise; replacing it raises the host's `WorkspaceChanged`. `Hosts.Current` is the host
+  of the current session, which the sidebar's host switcher changes; `Hosts.Get` gives a
+  `Removed` placeholder for an id no longer paired, such as one a restored layout names.
+  File operations of the local host finish before they return, and `WhenDone` continues a
+  finished task at once, so views stay synchronous on this PC. Native dialogs, Explorer and
+  local caches stay on this PC.
+- `Workspace`, `WorkspaceChanged` and `BrowserTabs`: the current host's workspace and
+  browser tabs, for work that follows the host the user is on, such as a source module's
+  command. `WorkspaceChanged` fires when the current host's workspace is replaced or another
+  host becomes current. Panels use their own host instead (below).
 - `Window` (internal): the shell's Goo window, bound while the shell is mounted, for
   native file dialogs and the clipboard. Built-in modules only; null in headless runs.
 
@@ -75,7 +93,10 @@ order their `Dependencies` require. A module gets what it needs from other modul
 through `GetModule<T>()`, never through constructor arguments. Module projects
 deploy their DLL into that folder when built; `Modules/Directory.Build.props` and
 `Directory.Build.targets` hold the shared settings. A module that sets
-`DeployModule` to `false`, like `Welcome`, is built but not shipped.
+`DeployModule` to `false`, like `Welcome`, is built but not shipped. The daemon's
+`ModuleHost` (`DaemonRules`) creates only its allowed modules, follows the window's
+`modules.json` live without writing it, and holds every reload back until no chat's agent
+works ([remote.md](remote.md#roles)).
 
 ## Panels and the workspace
 
@@ -88,6 +109,17 @@ deploy their DLL into that folder when built; `Modules/Directory.Build.props` an
 - Moving or swapping a panel changes the tree only. The `PanelContent` instance and
   its mounted Goo cells keep their identity, because the shell keeps all panel views
   as siblings keyed by panel ID.
+- A **host-bound** panel type (`builder.Panel( …, onHost: true )`, `PanelTypeInfo.IsHostBound`)
+  works on one host, This PC or a paired host. `PanelWorkspace.Open( …, hostId )` binds it to
+  the given host, else the current one; `OpenBeside` to the given host, else the host of the
+  panel it opens beside. The panel reads it as `PanelContext.HostId`, `Host` and `Workspace`,
+  keeps it across module reloads, restarts (`workspace.json`) and saved workspaces, and
+  follows `context.Host.WorkspaceChanged`. A panel can report that it works on another host
+  now through `PanelContent.HostId`, as a chat panel showing a paired host's chat does;
+  `PanelWorkspace.GetHostId`/`GetHost` read either, and `CloseHost` closes every panel of a
+  host. Other panel types have no host (`HostId` null, `Host` is This PC). The shell names a
+  paired host in a chip at the pane's top-right corner and in the pane menu, and covers the
+  panel while its host is offline, or offers **Close panel** once the host was removed.
 - **Slots** are window areas that are not panels: `ShellSlots.Sidebar`, `TitleLeft`,
   `TitleRight`, `StatusLeft` and `StatusRight`. Modules fill them with
   `builder.Slot( slot, order, … )`, a `PanelContent` created after the module starts and
@@ -170,7 +202,7 @@ All under `%LOCALAPPDATA%\Lokn\`:
 | File | Owner | Contents |
 |---|---|---|
 | `settings.json` | `SettingsService` | Global and per-profile values, active profile |
-| `workspace.json` | `PanelWorkspace` | Docking tree, active pane, each panel's `CaptureState()` |
+| `workspace.json` | `PanelWorkspace` | Docking tree, active pane, each panel's `CaptureState()` and, for a host-bound panel on a paired host, its `Host` |
 | `projects.json` | `ProjectStore` (Projects) | Every profile's projects: name, profile and working directory |
 | `conversations.json` | `ConversationStore` | Chats and tasks, each with the project it belongs to |
 | `conversations\<chat>.json` | `ConversationStore` | One chat's cached rich messages, read when it first opens |
@@ -181,6 +213,8 @@ All under `%LOCALAPPDATA%\Lokn\`:
 | `theme.json` | `ThemeModule` | Theme token overrides layered over the theme picked in Settings; read only, written once by **Theme: edit theme file** with every token commented out |
 | `modules\` | `HotloadModule` | Source modules and their generated project files |
 | `cache\modules\` | `HotloadModule` | The newest build of each source module folder |
+| `version.json` | `DataUpgrade` (Core) | `lastRunVersion`, the version that last ran on the folder, and `upgradedFrom` until Home's What's new card is dismissed |
+| `backups\<version>-<yyyyMMdd-HHmmss>\` | `DataUpgrade` (Core) | The data files as they were before a newer version first ran; the three newest are kept ([Data and upgrades](#data-and-upgrades)) |
 
 Writes go to a sibling temporary file and then replace the target. A file that fails
 to parse is left untouched and that session does not overwrite it. `ConversationStore`
@@ -201,6 +235,51 @@ Outside that folder, `AttentionNotifier` keeps a Start menu `Lokn.lnk` declaring
 app ID `dev.lokn.desktop` and an `HKCU\Software\Classes\lokn-notification` protocol
 that a notification click opens. Windows shows notifications only for an app ID a
 Start menu shortcut declares. Both are rewritten when the running executable changes.
+
+## Data and upgrades
+
+Loom and its daemon call `DataUpgrade.Prepare` (Core) first thing at start, before any module loads or any
+migration such as `MoveSaved` writes: `Program.RunDesktop` for the window (data folder: `%LOCALAPPDATA%\Lokn`, or the
+bare folder) and `HostRunner.Start` for the daemon. It runs under the mutex `Local\Lokn.upgrade.<hash of the folder>`,
+so when the desktop and the daemon start together only the first backs up and the second finds `version.json` current.
+
+- **Backup.** When `version.json`'s `lastRunVersion` is older than the starting version, or the folder has data but no
+  `version.json` (data from 0.2.0 or earlier, named `earlier`), it copies `conversations.json`, the `conversations\`
+  message files, `projects.json`, `workspaces.json`, `workspace.json`, `settings.json`, `modules.json` and
+  `browser-tabs.json` (those that exist) into `backups\<version>-<yyyyMMdd-HHmmss>\` through a `.partial` folder, then
+  deletes all but the three newest backups. A fresh folder gets no backup. A backup that fails is reported (the window's
+  error notice, the daemon's `host.log` as `FAILED backup`) and Loom starts normally.
+- **`version.json`.** `{ "lastRunVersion": "0.3.0", "upgradedFrom": "earlier" }`, written after the backup, also by an older
+  version (without a backup). `upgradedFrom` stays until Home's What's new card is dismissed
+  (`ConversationsModule.WhatsNew`); the card shows while it is older than 0.3.0, so a fresh install never shows it.
+- **Restore.** Settings › Shell › Data › Backups lists the backups (`DataBackups`). **Restore…** asks, writes
+  `backups\restore.json`, closes the window normally and starts Loom again (`ShellRestart`, after `Main` let go of the
+  single-instance lease). The next desktop start stops the daemon of its folder, then `Prepare` copies the backup back:
+  each data file the backup holds replaces the current one, each it lacks is deleted, and `conversations\` is replaced
+  whole. Only the desktop restores (`canRestore`); a daemon that starts first leaves the request alone.
+
+Opt-in defaults: a fresh or upgraded install starts with `remote.role` `local` (no daemon), `remote.network` `off`, and
+`remote.login-item` off; the daemon's icon only exists while a daemon runs, which only the `daemon` role starts. LAN,
+Tailscale, Relay and Funnel and paired hosts are marked Preview in Remote access.
+
+**Upgrade check** (`UpgradeChecks`, suites `updates` and `default`). `tests/Lokn.Tests/Fixtures/data-0.2.0/` is a data
+folder written by the real 0.2.0 build (`main`, through a driver in its test project: two projects, three chats with
+messages and a task, settings in Global, Work and Personal, six Workspaces sessions with saved workspaces, and a layout with
+chat, Git, browser, terminal and file panels; paths under `C:\LoomFixture`). The check backs a copy up, opens it with every
+module as Loom does (`LoknPaths.UseDataRoot`), and checks that every chat, message, project, workspace and setting is kept,
+the layout restores with the 0.2.0 browser panel's pages as session tabs, `version.json` is written, the What's new card
+shows once and nothing starts a daemon.
+
+**Downgrade check.** The same check then opens the folder 0.3.0 saved with the 0.2.0 build. `pwsh scripts/loader-020.ps1`
+builds it once: `git archive main` into `%TEMP%\loom-020`, with the driver `tests/Downgrade-0.2.0/FixtureDriver.cs`
+(`--load-data <folder>`, and `--make-fixture <folder>`, which wrote the fixture) added to its test project; or point
+`LOKN_LOADER_020` at a loader's `Lokn.Tests.dll`. Without one the check prints `SKIP`. Result with 0.3.0: `LOAD OK`, nothing thrown; 2 projects, 3 chats with 4, 4 and 2 messages
+and the task, all 6 sessions with their saved workspaces (the Review workspace with its browser and terminal panels),
+and the settings. 0.3.0 needed no change for it: 0.2.0 ignores the files it does not know (`version.json`, `backups\`,
+`browser-tabs.json`, `chats.lock`, `remote-hosts.json`) and the `remote.*` settings, and a browser panel's saved state
+keeps 0.2.0's `Address` and `Tabs` beside its session tab `Ids`. What does not carry over: chats that ran in the daemon
+are in the same files, but 0.2.0 has no daemon, so its `LoomHost` sign-in entry, if on, starts a 0.2.0 window at
+sign-in until **Start the daemon at sign-in** is turned off first; a panel on a paired host opens on This PC.
 
 ## Installer
 
@@ -244,7 +323,15 @@ repository, a web address or a folder (`UpdateFeed`); blank turns updates off.
 
 - **App.** `AppUpdater` downloads a new release with Velopack and posts **Restart now**, which
   closes the window normally, so state is saved, and lets Velopack replace the files and start
-  Loom again with the same arguments, such as `--data`. Otherwise Velopack applies it at the next start. While a new Loom waits, module
+  Loom again with the same arguments, such as `--data`. An update never cuts an agent's turn off unless the user says
+  so: **Restart now** asks `UpdateGate` first, which counts the agents working on This PC through `IAgentActivity`
+  (Core; the Conversations module publishes This PC's store's working count, which in the `daemon` role mirrors the
+  daemon's). With none it restarts; otherwise it posts **Update when agents finish**, which restarts as soon as none
+  works (checked every 2 s), and **Update now (stops N agents)**. Velopack's before-update hook
+  (`HostRunner.StopForUpdate`) records in `daemon-update.flag` that the daemon ran and stops it gracefully; the
+  after-update hook (`HostRunner.StartAfterUpdate`) starts it again from the new build when it ran or its sign-in entry
+  is on. Otherwise Velopack applies a downloaded release at the next start, but not while the daemon runs, since its
+  agents may work: then the release waits for **Restart now**. While a new Loom waits, module
   updates are not fetched, because it brings its own modules.
 - **Modules.** Each built-in module has its own `<Version>` in its project, and publishing passes
   the app version to the app only (`GlobalPropertiesToRemove` in `Lokn.csproj`). `ModuleUpdater`

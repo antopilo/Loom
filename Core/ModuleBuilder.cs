@@ -42,17 +42,19 @@ public sealed class ModuleBuilder
 		return this;
 	}
 
-	/// <summary>Adds a panel type and its automatic Open command.</summary>
+	/// <summary>Adds a panel type and its automatic Open command, which opens it on the current host.</summary>
 	/// <param name="id">The local identifier.</param>
 	/// <param name="title">The default pane title.</param>
 	/// <param name="create">Creates the content of each opened panel.</param>
 	/// <param name="glyph">The type's tiny icon, a Segoe Fluent Icons code point, shown on the tasks that hold it; null has none.</param>
-	public ModuleBuilder Panel( string id, string title, Func<PanelContext, PanelContent> create, string? glyph = null )
+	/// <param name="onHost">Whether each panel works on one host, This PC or a paired host (<see cref="PanelTypeInfo.IsHostBound"/>), and reaches it
+	/// through <see cref="PanelContext.Host"/> and <see cref="PanelContext.Workspace"/>.</param>
+	public ModuleBuilder Panel( string id, string title, Func<PanelContext, PanelContent> create, string? glyph = null, bool onHost = false )
 	{
 		EnsureWritable( id, title );
 		ArgumentNullException.ThrowIfNull( create );
 		var qualifiedId = $"{_moduleId}.{id}";
-		Panels.Add( new( new( qualifiedId, title, _moduleId ) { Glyph = glyph }, create ) );
+		Panels.Add( new( new( qualifiedId, title, _moduleId ) { Glyph = glyph, IsHostBound = onHost }, create ) );
 		return Command( $"open.{id}", $"Open {title}", context => context.App.Panels.Open( qualifiedId ) );
 	}
 

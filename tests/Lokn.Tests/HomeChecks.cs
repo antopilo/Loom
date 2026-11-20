@@ -20,8 +20,9 @@ internal static class HomeChecks
 		var store = new ConversationStore( new ProjectStore() );
 		var project = store.ProjectStore.Create( profile, "App", Path.Combine( root, "app" ) );
 		app.Load( new WorkspacesModule( Path.Combine( root, "workspaces.json" ) ) );
-		app.Load( new ProjectsModule( store.ProjectStore ) );
-		var conversations = new ConversationsModule( store, ( context, history, id ) => new ChatFixture( id, history.Get( id ).Profile ) )
+		var projects = new ProjectsModule( store.ProjectStore );
+		app.Load( projects );
+		var conversations = new ConversationsModule( store, ( context, host, id ) => new ChatFixture( id, host.Store.Get( id ).Profile ) )
 		{
 			Dependencies = ["workspaces", "projects"],
 		};
@@ -32,41 +33,42 @@ internal static class HomeChecks
 		CoreChecks.Check( await app.Commands.ExecuteAsync( "conversations.home" ) && IsHomeAlone( app ) && app.Panels.Panels.Any( panel => panel.Id == scratch ),
 			"Home is one empty conversation panel alone, keeping what was open before hidden." );
 		var home = app.Panels.ActivePanelId!.Value;
+		var local = conversations.Hosts.Local;
 
 		var earlier = store.CreateConversation( profile, title: "Earlier" );
-		CoreChecks.Check( conversations.OpenConversation( app, earlier.Id ) == home && app.Panels.Panes.Count == 1 && Shown( app, home )?.ConversationId == earlier.Id,
+		CoreChecks.Check( conversations.OpenConversation( app, ChatRef.Local( earlier.Id ) ) == home && app.Panels.Panes.Count == 1 && Shown( app, home )?.ConversationId == earlier.Id,
 			"Opening a conversation from Home shows it in the same panel instead of opening another." );
 		conversations.OpenHome( app );
 		CoreChecks.Check( IsHomeAlone( app ) && app.Panels.ActivePanelId == home && CountPanels( app ) == 1, "Going home again empties that idle panel rather than opening another." );
 
-		conversations.StartConversation( app, "Explain this", panelId: home );
+		conversations.StartConversation( app, local, "Explain this", panelId: home );
 		var started = Shown( app, home )?.ConversationId;
 		CoreChecks.Check( started is { } id && store.Get( id ).Draft == "Explain this" && store.Get( id ).ProjectId is null && CountPanels( app ) == 1,
 			"Home's prompt starts its chat in the Home panel itself." );
-		conversations.DeleteConversation( app, started!.Value );
+		conversations.DeleteConversation( app, ChatRef.Local( started!.Value ) );
 		CoreChecks.Check( Shown( app, home )?.IsEmpty == true && app.Panels.Panels.Any( panel => panel.Id == home ), "Deleting the shown conversation brings Home back in its panel." );
 
-		conversations.OpenProject( app, project );
+		conversations.OpenProject( app, local, project );
 		var projectChat = app.Panels.ActivePanelId!.Value;
 		CoreChecks.Check( Shown( app, projectChat )?.ConversationId is { } first && store.Get( first ).ProjectId == project.Id && app.Panels.Panes.Count == 1,
 			"A project's first opening shows a new chat in the project." );
-		conversations.StartConversation( app, "In the project", conversations.ComputeSessionProject( app ), projectChat );
+		conversations.StartConversation( app, local, "In the project", conversations.ComputeSessionProject( app ), projectChat );
 		CoreChecks.Check( store.Conversations( profile, project.Id ).Count == 2, "A chat started in a project's session belongs to the project." );
 
 		conversations.OpenHome( app );
 		CoreChecks.Check( IsHomeAlone( app ) && app.Panels.Panels.Any( panel => panel.Id == projectChat ), "Going home keeps the project's chat running, hidden." );
-		conversations.OpenProject( app, project );
+		conversations.OpenProject( app, local, project );
 		CoreChecks.Check( app.Panels.IsShown( projectChat ) && app.Panels.Panes.Count == 1, "Opening the project again restores its layout with the same panel." );
 
-		var entries = conversations.ComputeEntries( app );
-		CoreChecks.Check( entries.Count == 2 && entries.Any( entry => entry is { Key: ConversationsModule.ChatsSession, Project: null } ) && entries.Any( entry => entry.Project?.Id == project.Id ),
+		var entries = conversations.ComputeEntries( app, local );
+		CoreChecks.Check( entries.Count == 2 && entries.Any( entry => entry is { Key: ConversationsModule.ChatsKey, Project: null } ) && entries.Any( entry => entry.Project?.Id == project.Id ),
 			"Home's cards are the projects and the chats outside them." );
 
-		conversations.OpenFolder( app, Path.Combine( root, "app" ) + Path.DirectorySeparatorChar );
+		conversations.OpenFolder( app, local, Path.Combine( root, "app" ) + Path.DirectorySeparatorChar );
 		CoreChecks.Check( store.ProjectStore.Projects( profile ).Count == 1 && app.Panels.IsShown( projectChat ), "Opening a project's folder opens that project instead of a copy." );
 		var tools = Path.Combine( root, "tools" );
 		Directory.CreateDirectory( tools );
-		conversations.OpenFolder( app, tools );
+		conversations.OpenFolder( app, local, tools );
 		CoreChecks.Check( store.ProjectStore.Projects( profile ).Any( item => item.Name == "tools" && item.Directory == tools ), "A new folder becomes a project named after it." );
 
 		Color[] palette = [Color.Parse( "#ff0000" ), Color.Parse( "#00ff00" ), Color.Parse( "#0000ff" ), Color.Parse( "#ffffff" )];
@@ -91,15 +93,15 @@ internal static class HomeChecks
 			"The gradient's hues turn and come back around after a full turn." );
 		var now = DateTimeOffset.UtcNow;
 		CoreChecks.Check( HomeContent.FormatAge( now.AddMinutes( -5 ), now ) == "5 min ago" && HomeContent.FormatAge( now.AddDays( -1.5 ), now ) == "yesterday", "Card ages read naturally." );
-		CheckProjectIcons( root );
+		CheckProjectIcons( root, projects, profile );
 
 		app.Shutdown();
 		Directory.Delete( root, recursive: true );
-		Console.WriteLine( "PASS Home: the empty conversation panel, reused when a chat opens or starts, emptied on return, back after a delete; project sessions; folders as projects; cards and project icons; logo mesh, characters and gradient." );
+		Console.WriteLine( "PASS Home: the empty conversation panel, reused when a chat opens or starts, emptied on return, back after a delete; project sessions; folders as projects; cards and project icons, none read from This PC for a paired host's project; logo mesh, characters and gradient." );
 	}
 
-	/// <summary>Checks conventional icon discovery and its explicit Lokn override.</summary>
-	private static void CheckProjectIcons( string root )
+	/// <summary>Checks conventional icon discovery, its explicit Lokn override, and that a paired host's project never reads This PC's disk.</summary>
+	private static void CheckProjectIcons( string root, ProjectsModule projects, SettingsProfile profile )
 	{
 		var directory = Path.Combine( root, "icons" );
 		Directory.CreateDirectory( directory );
@@ -128,6 +130,14 @@ internal static class HomeChecks
 		File.WriteAllBytes( sboxIcon, [] );
 		CoreChecks.Check( ProjectIcons.FindPath( sbox, sboxGame ) == sboxIcon,
 			"An s&box project uses the s&box program icon before a conventional project image." );
+
+		// A paired host's project names a folder on that host; the same path on This PC, icon and all, must not lend it an icon.
+		var shared = Path.Combine( root, "shared" );
+		Directory.CreateDirectory( shared );
+		File.WriteAllBytes( Path.Combine( shared, "logo.png" ), [] );
+		var remote = new ProjectInfo( Guid.NewGuid(), profile, "Remote", shared );
+		CoreChecks.Check( projects.GetIcon( remote, "paired-host" ) is null && projects.GetIcon( remote, LoknHost.LocalId ) is not null,
+			"A paired host's project shows its letter icon rather than an image read from This PC's folder of the same path." );
 	}
 
 	/// <summary>Reports whether one empty conversation panel is all that shows.</summary>

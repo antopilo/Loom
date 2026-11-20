@@ -6,23 +6,20 @@ namespace Lokn.Modules.Chat;
 /// <summary>Shows what the agent is doing while a turn runs: thinking, writing, or a running tool's intent.</summary>
 public sealed partial class ChatContent
 {
-	/// <summary>Stores the intent Omp gave each tool call when it started, by tool-call identifier.</summary>
-	private readonly Dictionary<string, string> _intents = new( StringComparer.Ordinal );
-
 	/// <summary>Stores when the running turn started, or null while idle.</summary>
 	private DateTime? _workingSince;
 
 	/// <summary>Builds the working indicator while a turn runs and no question waits for the user.</summary>
 	private Blob? BuildWorking()
 	{
-		if ( !_isBusy )
+		if ( !session.IsBusy )
 		{
 			_workingSince = null;
 			return null;
 		}
 
 		_workingSince ??= DateTime.UtcNow;
-		if ( _dialogs.Count > 0 )
+		if ( session.Dialogs.Count > 0 || _leavingDialogs.Count > 0 )
 			return null;
 
 		return Cell.Mount<WorkingInput, WorkingIndicator>( "conversation-working", new( ComputeWorkingLabel(), _workingSince.Value ) );
@@ -47,7 +44,7 @@ public sealed partial class ChatContent
 			if ( ComputeToolStatus( id, out _ ) != "Running" )
 				continue;
 
-			if ( _intents.TryGetValue( id, out var intent ) && intent.Length > 0 )
+			if ( session.Intents.TryGetValue( id, out var intent ) && intent.Length > 0 )
 				return intent;
 
 			var arguments = block.TryGetProperty( "arguments", out var args ) ? args : default;
@@ -60,12 +57,5 @@ public sealed partial class ChatContent
 			"text" when !string.IsNullOrWhiteSpace( ReadText( blocks[^1], "text" ) ) => "Writing",
 			_ => "Working",
 		};
-	}
-
-	/// <summary>Remembers a starting tool's intent, which later progress frames no longer carry.</summary>
-	private void UpdateIntent( JsonElement frame )
-	{
-		if ( ReadText( frame, "type" ) == "tool_execution_start" && ReadText( frame, "intent" ) is { Length: > 0 } intent )
-			_intents[ReadText( frame, "toolCallId" )] = intent;
 	}
 }

@@ -58,6 +58,8 @@ internal static class WorkspaceChecks
 		var module = new WorkspacesModule( path );
 		app.Load( module );
 		CoreChecks.Check( module.CurrentSession == "home", "A first start is in the home session." );
+		var changes = 0;
+		module.SessionChanged += () => changes++;
 
 		var created = 0;
 		void Fill( string name )
@@ -81,6 +83,8 @@ internal static class WorkspaceChecks
 		CoreChecks.Check( created == 2 && app.Panels.IsShown( alpha ) && app.Panels.IsShown( alphaSide ) && app.Panels.Panes.Count == 2 && module.Store.Items.Count == 2,
 			"Returning to a session shows the same panels in its last layout without rebuilding it." );
 		CoreChecks.Check( module.Sessions[0] is { Key: "project:a", Title: "Alpha renamed" } && module.Sessions.Count == 3, "Sessions list the most recently opened first under their latest title." );
+		module.OpenSession( app, "project:a", "Alpha renamed", () => Fill( "never" ) );
+		CoreChecks.Check( changes == 3 && created == 2, "SessionChanged is raised each time another session opens, and not when the open one is opened again." );
 
 		var reloaded = new WorkspaceStore( path );
 		reloaded.Load();
@@ -244,7 +248,7 @@ internal static class WorkspaceChecks
 		var home = workspaces.CurrentTask;
 
 		var project = projects.Store.Create( app.Settings.ActiveProfile, "Notes", Path.Combine( directory, "notes" ) );
-		projects.OpenProject( app, project.Id );
+		projects.OpenProject( app, project );
 		var session = ProjectsModule.SessionKey( project.Id );
 		var task = workspaces.CurrentTask;
 		CoreChecks.Check( projectTabs.Build() is Row { Children: [Row { Key: var first, Children: [Button { Key: "label" }, Button { Key: var tab }, Button { Key: "new" }] }, Row { Key: "home", Children: [_, Button { Key: var homeTab }, _] }, Button { Key: "new-home-task" }, Button { Key: "add" }] }

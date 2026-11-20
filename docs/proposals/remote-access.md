@@ -1,10 +1,13 @@
 # Remote access plan
 
-Status: proposal. Nothing here is built yet.
+Status: built on branch `remote-daemon`; [docs/remote.md](../remote.md) is the contract as built.
 
-Goal: other devices (phone, laptop, browser) see and control Loom's chats, with the same
-network modes as Tern: LAN, Tailscale, a self-hosted relay, and (later) a public tunnel.
-Later, a daemon owns the chats, and the network part does not change.
+Goal: work on the main PC from other devices, as with Tern. A daemon on the main PC owns
+the chats, the agents and the project files. Loom on a laptop is a **native client** of
+that daemon: chats, Git, diffs and files show the PC's state, and a stream panel shows a
+PC window (such as the s&box editor) to run and test the code there. Phones use a web
+client later. Network modes are the same as Tern: LAN, Tailscale, a self-hosted relay,
+and (later) a public tunnel.
 
 ## What Tern does
 
@@ -35,16 +38,16 @@ changes how bytes get from the device to the daemon.
                  │    secure channel (ECDH P-256, HKDF, AES-GCM) │
                  │    transports ▼                               │
                  └──┬──────────┬──────────────┬────────────────┬─┘
-        in-process  │  WS on   │  WS on       │ outbound WS    │
-        (phase 1-5) │  LAN     │  Tailscale IP│ to relay       │
+                    │  WS on   │  WS on       │ outbound WS    │
+        named pipe  │  LAN     │  Tailscale IP│ to relay       │
                     ▼          ▼              ▼                ▼
-               Loom panels   phone/laptop   phone/laptop     relay ◄── phone (any network)
+          Loom on this PC  Loom laptop  Loom laptop     relay ◄── phone (any network)
 ```
 
-- **Session host** is the Loom process in phases 1–5, and `Lokn.Host.exe` (the daemon)
-  in phase 6. The gateway moves with it; clients see no difference.
-- The desktop panels are clients of `ChatSessionService` from phase 1. In phase 6 they
-  connect over a named pipe with the same protocol.
+- **Session host** is `Lokn.Host.exe` (the daemon) from phase 3. Phases 1–2 prepare it
+  inside the Loom process. The gateway lives in the daemon; clients see no difference.
+- Loom on the same PC is a client too: it connects over a named pipe with the same
+  protocol. Loom on another PC connects over a network mode.
 
 ## The protocol (one for all clients)
 
@@ -132,10 +135,11 @@ WebCrypto works only in a secure context (HTTPS or localhost). A page from
 `OmpToolBridge` runs Lokn tools on the UI thread with the chat's panel as caller. A device
 prompt can make the agent call `shell_*`, `browser_show`, the terminal and file tools.
 
-- Phases 1–5: tools run as now; the caller is the chat's `ChatSession`, not a panel. Tools
+- Phases 1–2: tools run as now; the caller is the chat's `ChatSession`, not a panel. Tools
   that need a panel open one (as when the user is at the desk).
-- Phase 6: the daemon forwards `host_tool_call` to an attached Loom window. With no window,
-  the daemon sends `set_host_tools` without Lokn's tools, and the agent keeps Omp's own.
+- Phase 3 on: the daemon forwards `host_tool_call` to an attached Loom window on the host
+  PC. With no window, the daemon sends `set_host_tools` without Lokn's tools, and the agent
+  keeps Omp's own. A remote Loom never runs host tools: they act on the host PC.
 - A `control` device is remote code execution on this PC. Pairing UI says so.
 
 ## Phases
@@ -146,10 +150,8 @@ Each phase ships alone and keeps every current behavior.
 
 - New `ChatSessionService` in `Modules/Conversations`, reached with
   `context.App.GetModule<ConversationsModule>()`.
-- Move out of `ChatContent.*.cs` into `ChatSession`: connection (`_connection`,
-  `_session`, `EnsureConnection`, `BuildConnectionAsync`), frame handling
-  (`UpdateFrame`), send/abort/clear, dialogs, working state, tool bridge, title and
-  task-check calls.
+- Move out of `ChatContent.*.cs` into `ChatSession`: connection, frame handling, send,
+  abort, clear, queue, dialogs, working state, tool bridge, title and task-check calls.
 - `ChatSession` lifetime = module lifetime, not panel lifetime. Closing a panel detaches;
   an idle session stops after a timeout (setting).
 - `ChatContent` keeps view state only (scroll, composer draft, open cards) and subscribes
@@ -162,50 +164,71 @@ Each phase ships alone and keeps every current behavior.
 
 - Define the frames above in `Modules/Remote/Protocol`, with a version.
 - `ChatSession` events → protocol events in one mapper.
+- `IChatHost`: the interface `ChatContent` uses. `LocalChatHost` wraps
+  `ChatSessionService`; `RemoteChatHost` speaks the protocol. Panels never know which.
 - A headless test client attaches over an in-memory pipe and runs: list, attach, prompt,
   abort, dialog answer, reconnect with `since`.
 
-### Phase 3: `Remote` module, LAN and Tailscale
-
-- `Modules/Remote/Lokn.Modules.Remote.csproj`, depends on `conversations`.
-- `HttpListener` + `System.Net.WebSockets`; secure channel; `devices.json`.
-- Settings: mode, port. Panel **Remote access**: mode, status, QR pairing, device list with
-  scopes and **Revoke**. Commands in the Search palette.
-- Status bar dot while a device is connected.
-- Check: headless suite `remote`: pairing, wrong key, revoked device, replay, scope refusal.
-
-### Phase 4: Client
-
-- Web client first (one codebase for phone and laptop): chat list, transcript with
-  Markdown, tool and diff cards (read only), prompt, abort, dialogs.
-- Served by the relay or `tailscale serve`, never by plain LAN HTTP (WebCrypto).
-- Native phone app later, if the web client is not enough.
-
-### Phase 5: Relay
-
-- `Relay/` project, deploy notes, `relay` mode in the Remote module.
-- Check: host and device through a local relay; relay log has no plaintext.
-
-### Phase 6: Daemon
+### Phase 3: Daemon
 
 - `Lokn.Host.exe`: owns `ChatSessionService`, `OmpService` sessions and `RemoteGateway`.
-  Login item, single instance.
-- Loom connects over a named pipe (`\\.\pipe\lokn-host-<user>`) with the same protocol and
-  a local device identity.
+  Login item, single instance. Chats keep running when Loom closes, as in Tern.
+- Loom connects over a named pipe (`\\.\pipe\lokn-host-<user>`) with a local device
+  identity, and starts the daemon when it is absent.
 - Host-tool forwarding as above. Handover on update (stop accepting, finish turns or keep
   Omp children and re-adopt), as Tern v0.7.5 does.
 - This changes the architecture: `docs/architecture.md` gets a new layer.
 
-### Phase 7: Funnel and push
+### Phase 4: Network modes and pairing
+
+- `Modules/Remote/Lokn.Modules.Remote.csproj` in the daemon: `HttpListener` +
+  `System.Net.WebSockets`, secure channel, `devices.json`, `lan` and `tailscale` modes.
+- Settings: mode, port. Panel **Remote access**: mode, status, QR or code pairing, device
+  list with scopes and **Revoke**. Commands in the Search palette.
+- Status bar dot while a device is connected.
+- Check: headless suite `remote`: pairing, wrong key, revoked device, replay, scope refusal.
+
+### Phase 5: Native remote client
+
+- Loom setting **Host**: this PC (named pipe) or a paired host (address + device key).
+- Chat list, chat panels and Agent Hub use `RemoteChatHost`; the sidebar shows the host.
+- Projects come from the host; their paths are host paths, shown but never opened locally.
+- Check: two Loom processes on one PC, one as host and one as remote client.
+
+### Phase 6: Workspace channel
+
+- Frames for the host's files and Git: list, read, watch, diff, stage, commit, the git
+  line state. `GitRepository` gets a remote implementation behind one interface.
+- `upload` (chunked) for attachments; they become host paths.
+- Terminal: a PTY on the host, streamed to the client's Terminal panel.
+
+### Phase 7: Stream module
+
+- Panel that shows one host window (such as the s&box editor) and sends mouse and keys.
+- First: WebRTC from the host, shown in the Browser module (WebView2, so Chromium's WebRTC).
+  Later, if latency is too high: `Windows.Graphics.Capture` + Media Foundation H.264,
+  decoded into a Goo texture.
+- Input needs the `control` scope.
+
+### Phase 8: Web client
+
+- Phone and browser: chat list, transcript with Markdown, tool and diff cards (read
+  only), prompt, abort, dialogs.
+- Served by the relay or `tailscale serve`, never by plain LAN HTTP (WebCrypto).
+
+### Phase 9: Relay
+
+- `Relay/` project, deploy notes, `relay` mode in the Remote module.
+- Check: host and device through a local relay; relay log has no plaintext.
+
+### Phase 10: Funnel and push
 
 - `funnel` mode through Tailscale Funnel.
 - Push notifications for "agent needs you" need APNs/FCM and a native app: open question.
 
 ## Open questions
 
-- Phone client: web only, or a native app (MAUI / Kotlin / Swift)?
 - Relay: only self-hosted, or a hosted one too?
 - Idle timeout for a chat with no client attached.
 - Can a `view` device see tool output that holds secrets (env, files)? Proposal: yes, it
   is the same transcript the desk sees; pairing UI says so.
-- Phase 6 order: before or after the client? The protocol makes either order work.

@@ -87,12 +87,16 @@ public sealed partial class PanelWorkspace
 				map[panel.Id] = id;
 		}
 
-		// After a restart or a reload, identical panels such as the same chat still match by their captured state.
+		// After a restart or a reload, identical panels such as the same chat still match by their captured state, on the same host. A panel that says which
+		// host it works on now, such as a conversation panel that shows any host's chat, names that host in its state, which alone then decides: the host it
+		// was opened on may differ from the one a layout saved it under.
 		var states = new Dictionary<Guid, string?>();
 		foreach ( var panel in saved.Panels.Where( panel => !map.ContainsKey( panel.Id ) ) )
 		{
 			var state = panel.State?.GetRawText();
+			var host = panel.Host ?? LoknHost.LocalId;
 			var match = _sessions.Values.FirstOrDefault( session => !claimed.Contains( session.Info.Id ) && session.Info.TypeId == panel.TypeId
+				&& (session.HostId is null || session.HostId == host || session.Content?.HostId is not null)
 				&& (states.TryGetValue( session.Info.Id, out var captured ) ? captured : states[session.Info.Id] = CaptureState( session )?.GetRawText()) == state );
 			if ( match is not null )
 			{
@@ -105,7 +109,7 @@ public sealed partial class PanelWorkspace
 				continue;
 
 			var id = Guid.NewGuid();
-			_sessions.Add( id, BuildSession( type, id, input: null, panel.State, panel.Title ) );
+			_sessions.Add( id, BuildSession( type, id, input: null, panel.State, panel.Title, RestoreHost( type, panel.Host ) ) );
 			map[panel.Id] = id;
 		}
 
@@ -132,13 +136,12 @@ public sealed partial class PanelWorkspace
 		}
 	}
 
-	/// <summary>Builds the serializable layout of the current tree and its shown panels.</summary>
+	/// <summary>Builds the serializable layout of the current tree and its shown panels, each with the host it works on.</summary>
 	private SavedLayout BuildLayout()
 	{
 		var panels = EnumeratePanes( Root )
 			.Where( pane => pane.PanelId is { } id && _sessions.ContainsKey( id ) )
-			.Select( pane => _sessions[pane.PanelId!.Value] )
-			.Select( session => new SavedPanel( session.Info.Id, session.Info.TypeId, session.Info.Title, CaptureState( session ) ) )
+			.Select( pane => BuildSavedPanel( _sessions[pane.PanelId!.Value] ) )
 			.ToArray();
 		return new( LayoutVersion, ActivePaneId, BuildSavedNode( Root ), panels );
 	}

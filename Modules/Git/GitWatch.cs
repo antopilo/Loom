@@ -15,6 +15,13 @@ public sealed class GitWatch : IDisposable
 	{
 		_source = source;
 		Directory = source.Directory;
+		Host = source.Host;
+	}
+
+	/// <summary>Gets the host the watched folder is on.</summary>
+	public LoknHost Host
+	{
+		get;
 	}
 
 	/// <summary>Gets the watched folder.</summary>
@@ -37,8 +44,8 @@ public sealed class GitWatch : IDisposable
 	}
 }
 
-/// <summary>Reads one folder's git state and reads it again, once changes settle, when its files, index, HEAD or refs change.</summary>
-/// <remarks>State changes on the UI thread; reads and file watcher events run off it.</remarks>
+/// <summary>Reads one folder's git state on one host and reads it again, once changes settle, when its files, index, HEAD or refs change.</summary>
+/// <remarks>State changes on the UI thread; reads and file watcher events run off it. A new workspace of the host (a reconnect) restarts it.</remarks>
 internal sealed class GitSource
 {
 	/// <summary>Defines how long changes must settle before a read, in milliseconds.</summary>
@@ -62,8 +69,8 @@ internal sealed class GitSource
 	/// <summary>Delays a read until changes settle.</summary>
 	private readonly Timer _settle;
 
-	/// <summary>Stores the file watchers: the working tree, and the git folders when they lie outside it.</summary>
-	private readonly List<FileSystemWatcher> _watchers = [];
+	/// <summary>Stores the folder watches: the working tree, and the git folders when they lie outside it.</summary>
+	private readonly List<IDisposable> _watchers = [];
 
 	/// <summary>Stores the running read, or null when none runs.</summary>
 	private CancellationTokenSource? _read;
@@ -80,13 +87,21 @@ internal sealed class GitSource
 	/// <summary>Stores whether the reader stopped.</summary>
 	private bool _isStopped;
 
-	/// <summary>Creates a reader for a folder; it reads once its first holder arrives.</summary>
-	internal GitSource( ModuleContext context, string directory, Action<GitSource> released )
+	/// <summary>Creates a reader for a folder on a host; it reads once its first holder arrives, and follows the host's workspace when it is replaced.</summary>
+	internal GitSource( ModuleContext context, LoknHost host, string directory, Action<GitSource> released )
 	{
 		_context = context;
 		_released = released;
+		Host = host;
 		Directory = directory;
 		_settle = new Timer( _ => _context.Post( Refresh ), null, Timeout.Infinite, Timeout.Infinite );
+		host.WorkspaceChanged += Restart;
+	}
+
+	/// <summary>Gets the host the folder is on.</summary>
+	internal LoknHost Host
+	{
+		get;
 	}
 
 	/// <summary>Gets the watched folder.</summary>
@@ -139,13 +154,14 @@ internal sealed class GitSource
 		}
 
 		var read = CancellationTokenSource.CreateLinkedTokenSource( _context.Lifetime );
+		var workspace = Host.Workspace;
 		_read = read;
 		_ = Task.Run( async () =>
 		{
 			GitState state;
 			try
 			{
-				state = await GitState.ReadAsync( Directory, read.Token ).ConfigureAwait( false );
+				state = await GitState.ReadAsync( workspace, Directory, read.Token ).ConfigureAwait( false );
 			}
 			catch ( OperationCanceledException )
 			{
@@ -163,11 +179,23 @@ internal sealed class GitSource
 	internal void Stop()
 	{
 		_isStopped = true;
+		Host.WorkspaceChanged -= Restart;
 		_read?.Cancel();
 		_settle.Dispose();
 		foreach ( var watcher in _watchers )
 			watcher.Dispose();
 		_watchers.Clear();
+	}
+
+	/// <summary>Watches and reads again from scratch, as after the host's workspace was replaced.</summary>
+	internal void Restart()
+	{
+		if ( _isStopped || _holders == 0 )
+			return;
+
+		_watchedRoot = null;
+		UpdateWatchers( Directory );
+		Refresh();
 	}
 
 	/// <summary>Publishes a finished read, moves the watchers to its repository, and reads again when changes arrived meanwhile.</summary>
@@ -204,7 +232,7 @@ internal sealed class GitSource
 		string[] folders = [];
 		try
 		{
-			var output = await GitProcess.RunAsync( root, _context.Lifetime, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir" ).ConfigureAwait( false );
+			var output = await GitProcess.RunAsync( Host.Workspace, root, _context.Lifetime, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir" ).ConfigureAwait( false );
 			folders = [.. output.Split( '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ).Select( Path.GetFullPath ).Distinct( StringComparer.OrdinalIgnoreCase )];
 		}
 		catch ( Exception error ) when ( error is not OutOfMemoryException )
@@ -235,32 +263,26 @@ internal sealed class GitSource
 			if ( (folder + Path.DirectorySeparatorChar).StartsWith( inside, StringComparison.OrdinalIgnoreCase ) )
 				continue;
 
-			if ( TryWatch( folder, MarkGitChanged ) is { } gitWatcher )
+			if ( TryWatch( folder, path => MarkGitChanged( Path.GetRelativePath( folder, path ) ) ) is { } gitWatcher )
 				_watchers.Add( gitWatcher );
 		}
 	}
 
-	/// <summary>Starts a recursive watcher, or returns null when the folder cannot be watched.</summary>
-	private FileSystemWatcher? TryWatch( string folder, FileSystemEventHandler changed )
+	/// <summary>Starts a recursive watch, or returns null when the folder cannot be watched.</summary>
+	/// <param name="folder">The folder.</param>
+	/// <param name="changed">Receives the changed path's full path, on a watcher thread.</param>
+	private IDisposable? TryWatch( string folder, Action<string> changed )
 	{
-		if ( !System.IO.Directory.Exists( folder ) )
-			return null;
-
 		try
 		{
-			var watcher = new FileSystemWatcher( folder )
+			return Host.Workspace.Watch( folder, recursive: true, ( path, kind ) =>
 			{
-				IncludeSubdirectories = true,
-				NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
-			};
-			watcher.Changed += changed;
-			watcher.Created += changed;
-			watcher.Deleted += changed;
-			watcher.Renamed += ( sender, change ) => changed( sender, change );
-			// A full event buffer lost changes; read once to catch up.
-			watcher.Error += ( _, _ ) => MarkChanged();
-			watcher.EnableRaisingEvents = true;
-			return watcher;
+				// Lost changes; read once to catch up.
+				if ( kind == WorkspaceChange.Lost )
+					MarkChanged();
+				else
+					changed( path );
+			} );
 		}
 		catch ( Exception error ) when ( error is IOException or ArgumentException or UnauthorizedAccessException )
 		{
@@ -270,18 +292,20 @@ internal sealed class GitSource
 
 	/// <summary>Restarts the settle delay for a working-tree change, or a git folder change inside the tree that matters.</summary>
 	/// <remarks>Runs on a watcher thread.</remarks>
-	private void MarkTreeChanged( object sender, FileSystemEventArgs change )
+	/// <param name="path">The changed path's full path.</param>
+	private void MarkTreeChanged( string path )
 	{
 		var marker = $"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}";
-		var inside = change.FullPath.IndexOf( marker, StringComparison.OrdinalIgnoreCase );
-		if ( inside < 0 || IsGitChange( change.FullPath[(inside + marker.Length)..] ) )
+		var inside = path.IndexOf( marker, StringComparison.OrdinalIgnoreCase );
+		if ( inside < 0 || IsGitChange( path[(inside + marker.Length)..] ) )
 			MarkChanged();
 	}
 
 	/// <summary>Restarts the settle delay for a change in a git folder outside the tree that matters.</summary>
 	/// <remarks>Runs on a watcher thread.</remarks>
-	private void MarkGitChanged( object sender, FileSystemEventArgs change ) =>
-		MarkChanged( IsGitChange( change.Name ?? "" ) );
+	/// <param name="relative">The changed path relative to the git folder.</param>
+	private void MarkGitChanged( string relative ) =>
+		MarkChanged( IsGitChange( relative ) );
 
 	/// <summary>Reports whether a path inside a git folder can change the state: HEAD, the index, refs, and a linked worktree's own HEAD and index.</summary>
 	internal static bool IsGitChange( string relative )

@@ -84,46 +84,10 @@ public sealed partial class ChatContent
 	/// <summary>Sends a card's message to the agent: as a new turn when idle, otherwise queued after the running turn.</summary>
 	private void UpdateCardPrompt( string message )
 	{
-		if ( string.IsNullOrWhiteSpace( message ) )
-			return;
-
-		if ( _isBusy )
-		{
-			_ = UpdateFollowUpAsync( EnsureConnection(), message );
-			return;
-		}
-
-		_isBusy = true;
-		_status = "Sending…";
-		MarkChanged();
-		_transcript.ScrollToEnd();
-		_ = UpdateSendAsync( EnsureConnection(), message, [] );
-	}
-
-	/// <summary>Queues a message for after the running turn without accessing UI state from a background continuation.</summary>
-	private async Task UpdateFollowUpAsync( Task<OmpSession> connection, string message )
-	{
-		try
-		{
-			var session = await connection;
-			await session.RequestAsync( "follow_up", new
-			{
-				message
-			}, context.Lifetime );
-			context.Post( () =>
-			{
-				_status = "Queued for after this turn";
-				MarkChanged();
-			} );
-		}
-		catch ( Exception error )
-		{
-			context.Post( () =>
-			{
-				_status = error is OperationCanceledException ? "Stopped" : DescribeFailure( error );
-				MarkChanged();
-			} );
-		}
+		var isStarting = !session.IsBusy && !string.IsNullOrWhiteSpace( message );
+		session.UpdateCardPrompt( message );
+		if ( isStarting )
+			_transcript.ScrollToEnd();
 	}
 
 	/// <summary>Shows one tool call to its module's card from what this chat recorded of it.</summary>

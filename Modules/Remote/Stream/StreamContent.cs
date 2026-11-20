@@ -1,0 +1,468 @@
+using System.Diagnostics;
+using Goo;
+using Lokn.Core;
+
+namespace Lokn.Modules.Remote;
+
+/// <summary>Shows one host window live: first a list of the host's windows, then the chosen window's frames scaled to fit, with its frame rate and latency, forwarding pointer and keys in frame pixels.</summary>
+/// <remarks>Knows the host only through an <see cref="IStreamSource"/>. Each frame is decoded off the UI thread and acknowledged once it is on screen, so the host never sends faster than the panel shows.</remarks>
+public sealed partial class StreamContent : PanelContent
+{
+	/// <summary>Defines the panel content inset in logical pixels.</summary>
+	private const int ContentPadding = 16;
+
+	/// <summary>Defines the panel heading size in logical pixels.</summary>
+	private const int HeadingSize = 18;
+
+	/// <summary>Defines how much each new latency sample moves the shown latency, smoothing jitter.</summary>
+	private const double LatencySmoothing = 0.2;
+
+	/// <summary>Stores the panel's guarded dispatch and lifetime.</summary>
+	private readonly PanelContext _context;
+
+	/// <summary>Stores the host connection.</summary>
+	private readonly IStreamSource _source;
+
+	/// <summary>Stores the options each stream starts with.</summary>
+	private readonly CaptureOptions _options;
+
+	/// <summary>Retains the frame surface for focus.</summary>
+	private readonly ElementHandle _surface = new();
+
+	/// <summary>Stores when recent frames arrived, as <see cref="Stopwatch"/> timestamps, for the frame rate.</summary>
+	private readonly Queue<long> _arrivals = new();
+
+	/// <summary>Counts changes that need a rebuild: frames, lists and status.</summary>
+	private readonly State<int> _version = new( 0 );
+
+	/// <summary>Stores the windows last listed, or null before the first list arrives.</summary>
+	private IReadOnlyList<CaptureWindow>? _windows;
+
+	/// <summary>Stores the streamed window, or null while the picker shows.</summary>
+	private CaptureWindow? _streaming;
+
+	/// <summary>Stores the frame on screen, or null before the first.</summary>
+	private ImageSource? _frame;
+
+	/// <summary>Stores the status or error line, or empty.</summary>
+	private string _status = "";
+
+	/// <summary>Tracks whether a window list is being read.</summary>
+	private bool _isListing;
+
+	/// <summary>Stores when the last acknowledgement or start request went out, as a <see cref="Stopwatch"/> timestamp, or 0 when none is outstanding.</summary>
+	private long _requestedAt;
+
+	/// <summary>Stores the smoothed time from an acknowledgement to the next frame in milliseconds, or 0 before the first.</summary>
+	private double _latency;
+
+	/// <summary>Counts streams started, so frames of a stopped stream that arrive late are dropped.</summary>
+	private int _generation;
+
+	/// <summary>Creates the panel over a source and lists the source's windows.</summary>
+	/// <param name="context">The panel's context.</param>
+	/// <param name="source">The host connection: <see cref="LocalStreamSource"/> or a remote one.</param>
+	/// <param name="options">The options each stream starts with; null uses <see cref="CaptureOptions.Default"/>.</param>
+	public StreamContent( PanelContext context, IStreamSource source, CaptureOptions? options = null )
+	{
+		_context = context;
+		_source = source;
+		_options = (options ?? CaptureOptions.Default).Clamp();
+		_source.FrameReceived += QueueFrame;
+		_source.Ended += QueueEnded;
+		UpdateList();
+	}
+
+	/// <summary>Stops the stream and lets go of the source's events and the last frame.</summary>
+	public override void Closed()
+	{
+		_source.FrameReceived -= QueueFrame;
+		_source.Ended -= QueueEnded;
+		ReleaseKeys();
+		if ( _streaming is not null )
+			_source.Stop();
+
+		_frame?.Dispose();
+		_frame = null;
+	}
+
+	/// <summary>Builds the window picker, or the streamed window with its toolbar.</summary>
+	public override Blob Build()
+	{
+		_ = _version.Value;
+		var theme = Theme.Current;
+		return new Container
+		{
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = "Window stream",
+			FlexGrow = 1,
+			MinHeight = 0,
+			Children = [_streaming is { } window ? BuildViewer( window, theme ) : BuildPicker( theme )],
+		};
+	}
+
+	/// <summary>Builds the heading, the refresh button, the status line and one row per window.</summary>
+	private Container BuildPicker( Theme theme )
+	{
+		var children = new List<Blob>
+		{
+			new Row
+			{
+				AlignItems = AlignItems.Center,
+				Gap = theme.Spacing * 2,
+				Children =
+				[
+					new Text { Content = "Stream a window", FontSize = HeadingSize, },
+					theme.BuildButton( _isListing ? "Refreshing…" : "Refresh", () => _context.Run( UpdateList ), isEnabled: !_isListing ),
+				],
+			},
+		};
+
+		if ( _status.Length > 0 )
+			children.Add( new Text { Content = _status, Color = theme.Error, Selectable = true, } );
+
+		if ( _windows is { Count: 0 } )
+			children.Add( new Text { Content = "The host shows no windows.", Color = theme.Muted, } );
+
+		foreach ( var window in _windows ?? [] )
+			children.Add( BuildWindowRow( window, theme ) );
+
+		return new Container
+		{
+			FlexGrow = 1,
+			MinHeight = 0,
+			Padding = ContentPadding,
+			Gap = theme.Spacing,
+			OverflowY = Overflow.Scroll,
+			Children = children,
+		};
+	}
+
+	/// <summary>Builds one window as a button with its title, process and size.</summary>
+	private Button BuildWindowRow( CaptureWindow window, Theme theme )
+	{
+		void Start() => _context.Run( () => UpdateStart( window ) );
+		return new Button
+		{
+			Key = "window:" + window.Hwnd,
+			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
+			BorderRadius = theme.Radius,
+			Focusable = true,
+			Cursor = Cursor.Pointer,
+			AccessibilityName = $"Stream {window.Title}",
+			OnClick = Start,
+			KeyBindings =
+			[
+				new( Key.Enter, KeyModifiers.None, Start ),
+				new( Key.Space, KeyModifiers.None, Start ),
+			],
+			HoverStyle = new Style { BackgroundColor = theme.Hover, },
+			FocusStyle = new Style { BackgroundColor = theme.Hover, },
+			Children =
+			[
+				new Text { Content = window.Title, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, },
+				new Text
+				{
+					Content = window.Process.Length > 0 ? $"{window.Process} · {window.Width}×{window.Height}" : $"{window.Width}×{window.Height}",
+					Color = theme.Muted,
+					FontSize = ViewStyle.SmallSize,
+				},
+			],
+		};
+	}
+
+	/// <summary>Builds the toolbar with the way back, the window title, the frame rate and latency, and the frame surface below it.</summary>
+	private Container BuildViewer( CaptureWindow window, Theme theme )
+	{
+		var stats = _frame is { } frame
+			? $"{frame.Width}×{frame.Height} · {ComputeFrameRate( Stopwatch.GetTimestamp() )} fps · {_latency:0} ms"
+			: "Waiting for the first frame…";
+		if ( !_source.CanControl )
+			stats += " · view only";
+
+		var toolbar = new Row
+		{
+			AlignItems = AlignItems.Center,
+			Gap = theme.Spacing,
+			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
+			Children =
+			[
+				theme.BuildButton( "Windows", () => _context.Run( UpdateBack ) ),
+				new Text { Content = window.Title, FlexShrink = 1, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, },
+				new Text { Content = stats, Color = theme.Muted, FontSize = ViewStyle.SmallSize, FlexShrink = 0, TextWrap = TextWrap.NoWrap, },
+			],
+		};
+
+		var picture = Blob.Sized( BuildFrame );
+		picture.FlexGrow = 1;
+		picture.MinHeight = 0;
+		var surface = new Container
+		{
+			Handle = _surface,
+			FlexGrow = 1,
+			MinHeight = 0,
+			MinWidth = 0,
+			Overflow = Overflow.Hidden,
+			BackgroundColor = theme.Canvas,
+			Focusable = true,
+			AutoFocus = true,
+			Cursor = _source.CanControl ? Cursor.Default : Cursor.NotAllowed,
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = $"Stream of {window.Title}",
+			OnFocus = _ => _context.Run( () => UpdateFocus( true ) ),
+			OnBlur = _ => _context.Run( () => UpdateFocus( false ) ),
+			OnKeyDown = e => _context.Run( () => UpdateKey( e, isDown: true ) ),
+			OnKeyUp = e => _context.Run( () => UpdateKey( e, isDown: false ) ),
+			OnPointerDown = e => _context.Run( () => UpdatePointerDown( e ) ),
+			OnPointerMove = e => _context.Run( () => UpdatePointerMove( e ) ),
+			OnPointerUp = e => _context.Run( () => UpdatePointerUp( e ) ),
+			OnWheel = e => _context.Run( () => UpdateWheel( e ) ),
+			Children = [picture],
+		};
+
+		var children = new List<Blob> { toolbar };
+		if ( _status.Length > 0 )
+			children.Add( new Text { Content = _status, Color = theme.Error, Selectable = true, Padding = new Edges( 0, theme.Spacing ), } );
+
+		children.Add( surface );
+		return new Container
+		{
+			FlexGrow = 1,
+			MinHeight = 0,
+			Children = children,
+		};
+	}
+
+	/// <summary>Draws the frame centered and scaled to fit the space given, and remembers where, for pointer mapping.</summary>
+	private Blob BuildFrame( LayoutSize size )
+	{
+		_ = _version.Value;
+		if ( _frame is not { } frame || !double.IsFinite( size.Width ) || !double.IsFinite( size.Height ) || size.Width <= 0 || size.Height <= 0 )
+		{
+			_fit = null;
+			return new Container
+			{
+				Width = Length.Percent( 100 ),
+				Height = Length.Percent( 100 ),
+				AlignItems = AlignItems.Center,
+				JustifyContent = JustifyContent.Center,
+				Children = [new Text { Content = _frame is null ? "Waiting for the first frame…" : "", Color = Theme.Current.Muted, }],
+			};
+		}
+
+		var fit = ComputeFit( size.Width, size.Height, frame.Width, frame.Height );
+		_fit = fit;
+		return new Container
+		{
+			Width = Length.Percent( 100 ),
+			Height = Length.Percent( 100 ),
+			Children =
+			[
+				new Image
+				{
+					Source = frame,
+					Fit = ImageFit.Fill,
+					Position = PositionType.Absolute,
+					Left = fit.Left,
+					Top = fit.Top,
+					Width = frame.Width * fit.Scale,
+					Height = frame.Height * fit.Scale,
+				},
+			],
+		};
+	}
+
+	/// <summary>Computes where a frame sits when scaled to fit an area and centered: its top-left corner and its scale.</summary>
+	/// <param name="width">The area width in logical pixels.</param>
+	/// <param name="height">The area height in logical pixels.</param>
+	/// <param name="frameWidth">The frame width in pixels.</param>
+	/// <param name="frameHeight">The frame height in pixels.</param>
+	public static FrameFit ComputeFit( double width, double height, int frameWidth, int frameHeight )
+	{
+		var scale = Math.Min( width / Math.Max( 1, frameWidth ), height / Math.Max( 1, frameHeight ) );
+		return new( (width - frameWidth * scale) / 2, (height - frameHeight * scale) / 2, scale );
+	}
+
+	/// <summary>Reads the window list off the UI thread.</summary>
+	private void UpdateList()
+	{
+		if ( _isListing )
+			return;
+
+		_isListing = true;
+		UpdateVersion();
+		_ = UpdateListAsync();
+	}
+
+	/// <summary>Reads the window list and applies it or its error on the UI thread.</summary>
+	private async Task UpdateListAsync()
+	{
+		IReadOnlyList<CaptureWindow>? windows = null;
+		var status = "";
+		try
+		{
+			windows = await _source.ListAsync( _context.Lifetime ).ConfigureAwait( false );
+		}
+		catch ( Exception error )
+		{
+			status = error is OperationCanceledException ? "" : $"Could not list windows: {error.Message}";
+		}
+
+		_context.Post( () =>
+		{
+			_windows = windows ?? _windows;
+			_status = status;
+			_isListing = false;
+			UpdateVersion();
+		} );
+	}
+
+	/// <summary>Starts streaming a window.</summary>
+	private void UpdateStart( CaptureWindow window )
+	{
+		_streaming = window;
+		_status = "";
+		_latency = 0;
+		_arrivals.Clear();
+		_lastMove = (-1, -1);
+		_frame?.Dispose();
+		_frame = null;
+		_requestedAt = Stopwatch.GetTimestamp();
+		var generation = ++_generation;
+		UpdateVersion();
+		_ = UpdateStartAsync( window, generation );
+	}
+
+	/// <summary>Asks the source to start, and returns to the picker with the error when it cannot.</summary>
+	private async Task UpdateStartAsync( CaptureWindow window, int generation )
+	{
+		try
+		{
+			await _source.StartAsync( window.Hwnd, _options, _context.Lifetime ).ConfigureAwait( false );
+		}
+		catch ( Exception error ) when ( error is not OperationCanceledException )
+		{
+			_context.Post( () =>
+			{
+				if ( generation == _generation )
+					UpdateEnded( $"Could not stream {window.Title}: {error.Message}" );
+			} );
+		}
+	}
+
+	/// <summary>Stops the stream and shows the picker again with a fresh list.</summary>
+	private void UpdateBack()
+	{
+		ReleaseKeys();
+		_generation++;
+		_source.Stop();
+		_streaming = null;
+		_frame?.Dispose();
+		_frame = null;
+		_status = "";
+		UpdateList();
+		UpdateVersion();
+	}
+
+	/// <summary>Shows the picker with the reason the stream ended.</summary>
+	private void UpdateEnded( string message )
+	{
+		ReleaseKeys();
+		_generation++;
+		_streaming = null;
+		_frame?.Dispose();
+		_frame = null;
+		_status = message;
+		UpdateList();
+		UpdateVersion();
+	}
+
+	/// <summary>Decodes a frame on the thread that received it and shows it on the UI thread.</summary>
+	private void QueueFrame( StreamFrame frame )
+	{
+		var generation = Volatile.Read( ref _generation );
+		ImageSource image;
+		try
+		{
+			image = ImageSource.Decode( frame.Jpeg );
+		}
+		catch ( Exception error ) when ( error is FormatException or InvalidOperationException or ArgumentException or NotSupportedException or ImageLimitException )
+		{
+			// A broken frame is skipped; acknowledging it asks for the next.
+			_ = _context.Post( _source.Ack );
+			return;
+		}
+
+		if ( !_context.Post( () => ApplyFrame( image, generation ) ) )
+			image.Dispose();
+	}
+
+	/// <summary>Puts a decoded frame on screen, updates the frame rate and latency, and acknowledges it.</summary>
+	private void ApplyFrame( ImageSource image, int generation )
+	{
+		if ( generation != _generation || _streaming is null )
+		{
+			image.Dispose();
+			return;
+		}
+
+		var now = Stopwatch.GetTimestamp();
+		if ( _requestedAt != 0 )
+		{
+			var sample = Stopwatch.GetElapsedTime( _requestedAt, now ).TotalMilliseconds;
+			_latency = _latency == 0 ? sample : _latency + (sample - _latency) * LatencySmoothing;
+		}
+
+		_arrivals.Enqueue( now );
+		_frame?.Dispose();
+		_frame = image;
+		_requestedAt = Stopwatch.GetTimestamp();
+		_source.Ack();
+		UpdateVersion();
+	}
+
+	/// <summary>Returns to the picker when the source ends the stream.</summary>
+	private void QueueEnded( string message ) => _context.Post( () =>
+	{
+		if ( _streaming is not null )
+			UpdateEnded( message );
+	} );
+
+	/// <summary>Counts the frames that arrived in the last second.</summary>
+	private int ComputeFrameRate( long now )
+	{
+		while ( _arrivals.Count > 0 && Stopwatch.GetElapsedTime( _arrivals.Peek(), now ) > TimeSpan.FromSeconds( 1 ) )
+			_ = _arrivals.Dequeue();
+
+		return _arrivals.Count;
+	}
+
+	/// <summary>Requests a rebuild.</summary>
+	private void UpdateVersion() => _version.Value++;
+}
+
+/// <summary>Places a frame inside the stream panel's surface.</summary>
+/// <param name="Left">The frame's left edge in logical pixels from the surface's.</param>
+/// <param name="Top">The frame's top edge in logical pixels from the surface's.</param>
+/// <param name="Scale">Logical pixels per frame pixel.</param>
+public readonly record struct FrameFit( double Left, double Top, double Scale )
+{
+	/// <summary>Maps a point on the surface to frame pixels, or null when it is outside a frame of the given size.</summary>
+	/// <param name="x">The horizontal surface coordinate.</param>
+	/// <param name="y">The vertical surface coordinate.</param>
+	/// <param name="frameWidth">The frame width in pixels.</param>
+	/// <param name="frameHeight">The frame height in pixels.</param>
+	/// <param name="clamp">Whether a point outside is moved to the nearest frame edge instead of being dropped, as for a release after a drag.</param>
+	public (double X, double Y)? ComputeFramePoint( double x, double y, int frameWidth, int frameHeight, bool clamp )
+	{
+		if ( Scale <= 0 )
+			return null;
+
+		var frameX = (x - Left) / Scale;
+		var frameY = (y - Top) / Scale;
+		if ( frameX >= 0 && frameY >= 0 && frameX < frameWidth && frameY < frameHeight )
+			return (frameX, frameY);
+
+		return clamp ? (Math.Clamp( frameX, 0, frameWidth - 1 ), Math.Clamp( frameY, 0, frameHeight - 1 )) : null;
+	}
+}

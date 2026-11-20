@@ -4,7 +4,7 @@ using Lokn.Modules.Projects;
 
 namespace Lokn.Modules.Conversations;
 
-/// <summary>Shows Home, the empty state of a conversation panel: the wordmark, cards for recent projects, and a prompt bar that starts a chat in this panel.</summary>
+/// <summary>Shows Home, the empty state of a conversation panel: the wordmark, cards for the current host's recent projects, and a prompt bar that starts a chat in this panel.</summary>
 internal sealed class HomeContent( PanelContext context, ConversationsModule module ) : PanelContent
 {
 	/// <summary>Defines how many recent cards Home shows.</summary>
@@ -46,14 +46,18 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 	/// <summary>Builds the centered wordmark and cards with the prompt bar along the bottom.</summary>
 	public override Blob Build()
 	{
+		var host = module.Hosts.Current;
 		var children = new List<Blob>
 		{
 			new Spacer(),
 			Cell.Mount( "home-logo", () => new HomeLogo() ),
-			BuildCards( context, module, error => _status.Value = error ),
+			BuildCards( context, module, host, error => _status.Value = error ),
 		};
-		if ( module.Projects.BuildModulePrompt( context ) is { } modules )
+		// Project-trusted modules load on This PC alone.
+		if ( host.IsLocal && module.Projects.BuildModulePrompt( context ) is { } modules )
 			children.Add( modules );
+		if ( host.IsLocal && module.IsWhatsNewShown )
+			children.Add( BuildWhatsNew() );
 		if ( _status.Value.Length > 0 )
 			children.Add( BuildDetail( _status.Value, "home-status" ) );
 
@@ -97,20 +101,21 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 			: directory;
 	}
 
-	/// <summary>Builds the recent cards and the card that opens a folder as a project; an empty chat shows the same cards.</summary>
+	/// <summary>Builds a host's recent cards and the card that opens one of its folders as a project; an empty chat shows the same cards.</summary>
 	/// <param name="context">The panel the cards are in.</param>
 	/// <param name="module">The module whose projects the cards open.</param>
+	/// <param name="host">The host whose projects and chats the cards open.</param>
 	/// <param name="report">Shows a failure of the folder chooser in the panel.</param>
-	internal static Blob BuildCards( PanelContext context, ConversationsModule module, Action<string> report )
+	internal static Blob BuildCards( PanelContext context, ConversationsModule module, ChatHost host, Action<string> report )
 	{
 		var now = DateTimeOffset.UtcNow;
-		var cards = module.ComputeEntries( context.App )
+		var cards = module.ComputeEntries( context.App, host )
 			.Take( CardLimit )
 			.Select( entry => (Blob)BuildCard( entry.Key, entry.Title, entry.Project is null ? entry.Detail : FormatDirectory( entry.Detail ),
 				FormatUse( entry, now ), $"Open {entry.Title}", () => context.Run( () => module.Open( context.App, entry ) ),
-				entry.Project is { } project ? module.Projects.GetIcon( project ) : null ) )
-			.Append( BuildCard( "open-folder", "Open folder…", "Add a project", "", "Open a folder as a project",
-				() => context.Run( () => ChooseFolder( context, module, report ) ), icon: null, isQuiet: true ) )
+				entry.Project is { } project ? module.Projects.GetIcon( project, host.Id ) : null ) )
+			.Append( BuildCard( "open-folder", "Open folder…", host.IsLocal ? "Add a project" : $"Add a project on {host.Name}", "", "Open a folder as a project",
+				() => context.Run( () => ChooseFolder( context, module, host, report ) ), icon: null, isQuiet: true ) )
 			.ToList();
 
 		return new Row
@@ -251,7 +256,41 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 		TextAlign = TextAlign.Center,
 	};
 
-	/// <summary>Starts a chat with the typed prompt in this panel, in the project of the current session when there is one.</summary>
+	/// <summary>Builds the one-time What's new card after an update to 0.3.0: chats that keep running in the background, paired devices in preview, and
+	/// that nothing changed unless the user turns it on; <b>Turn on</b> runs This PC's chats in the daemon, <b>Not now</b> hides the card for good.</summary>
+	private Blob BuildWhatsNew()
+	{
+		var theme = Theme.Current;
+		Text Line( string key, string text ) => new() { Key = key, Content = text, Color = theme.Muted, TextWrap = TextWrap.Wrap, MinWidth = 0 };
+		var buttons = new List<Blob>();
+		if ( module.CanRunInBackground )
+			buttons.Add( theme.BuildButton( "Turn on", () => context.Run( () => module.TurnOnBackground( context.App ) ) ) );
+		buttons.Add( theme.BuildButton( "Not now", () => context.Run( module.DismissWhatsNew ) ) );
+		return new Container
+		{
+			Key = "home-whats-new",
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = $"What's new in Loom {ConversationsModule.WhatsNewVersion}",
+			Width = Length.Percent( 100 ),
+			MaxWidth = ColumnWidth,
+			Padding = new Edges( 12, 14 ),
+			Gap = theme.Spacing,
+			BorderRadius = theme.Radius + 3,
+			BorderWidth = theme.BorderWidth,
+			BorderColor = theme.Border,
+			BackgroundColor = theme.Raised,
+			Children =
+			[
+				new Text { Key = "title", Content = $"What's new in Loom {ConversationsModule.WhatsNewVersion}", FontSize = NameSize, FontWeight = 600 },
+				Line( "background", "Chats can keep running in the background. Turn it on and your agents keep working after you close Loom." ),
+				Line( "devices", "You can also use this PC's chats from your laptop or phone. Paired devices are a preview; find them in Remote access." ),
+				Line( "unchanged", "Nothing changed unless you turn it on. Your chats, projects and settings are as you left them, and Loom kept a backup in Settings." ),
+				new Row { Key = "buttons", Gap = theme.Spacing, JustifyContent = JustifyContent.FlexEnd, Children = buttons },
+			],
+		};
+	}
+
+	/// <summary>Starts a chat with the typed prompt in this panel on the current host, in the project of the current session when there is one.</summary>
 	private void UpdateSubmit( string value )
 	{
 		if ( string.IsNullOrWhiteSpace( value ) )
@@ -259,17 +298,20 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 
 		_prompt.Value = "";
 		_status.Value = "";
-		module.StartConversation( context.App, value.Trim(), module.ComputeSessionProject( context.App ), context.Id );
+		module.StartConversation( context.App, module.Hosts.Current, value.Trim(), module.ComputeSessionProject( context.App ), context.Id );
 	}
 
-	/// <summary>Opens the native folder chooser over the shell window, then the chosen folder's project, creating it when it is new.</summary>
-	private static void ChooseFolder( PanelContext context, ConversationsModule module, Action<string> report )
+	/// <summary>Asks for a folder of the host, then opens its project, creating it when it is new: the native folder chooser over the shell window on This PC,
+	/// a typed path checked on the host for a paired one.</summary>
+	private static void ChooseFolder( PanelContext context, ConversationsModule module, ChatHost host, Action<string> report )
 	{
-		if ( context.App.Window is { } window )
+		if ( !host.IsLocal )
+			HostFolderPrompt.Show( context, host.Host, "Open a project folder", null, directory => module.OpenFolder( context.App, host, directory ) );
+		else if ( context.App.Window is { } window )
 			_ = ChooseFolderAsync( window, context, module, report );
 	}
 
-	/// <summary>Opens the chosen folder's project once the owner-modal chooser closes.</summary>
+	/// <summary>Opens the chosen folder's project on This PC once the owner-modal chooser closes.</summary>
 	private static async Task ChooseFolderAsync( Window window, PanelContext context, ConversationsModule module, Action<string> report )
 	{
 		var result = await window.ShowFileDialogAsync( FileDialogKind.Folder, new FileDialogOptions
@@ -279,7 +321,7 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 		context.Post( () =>
 		{
 			if ( result.Status == FileDialogStatus.Success && result.Paths.FirstOrDefault() is { } directory )
-				module.OpenFolder( context.App, directory );
+				module.OpenFolder( context.App, module.Hosts.Local, directory );
 			else if ( result.Status != FileDialogStatus.Cancelled )
 				report( $"Could not open the folder chooser: {result.Error}" );
 		} );

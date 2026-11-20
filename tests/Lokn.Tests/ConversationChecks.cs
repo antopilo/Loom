@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Goo;
 using Lokn.Core;
+using Lokn.Modules.Chat;
 using Lokn.Modules.Conversations;
 using Lokn.Modules.Notifications;
+using Lokn.Modules.Omp;
 using Lokn.Modules.Projects;
 using Lokn.Modules.Workspaces;
 
@@ -109,8 +111,10 @@ internal static class ConversationChecks
 		CheckPanels();
 		CheckSessions();
 		CheckNotifications();
+		CheckBackgroundChats();
+		CheckMirrorStarts();
 		CheckTidy( directory );
-		Console.WriteLine( "PASS conversation profile isolation, project management, message replacement, rich history restart, chat folders, invalid-file preservation, conversation workspaces per profile, the notification feed workspace, and tidying a project's chats." );
+		Console.WriteLine( "PASS conversation profile isolation, project management, message replacement, rich history restart, chat folders, invalid-file preservation, conversation workspaces per profile, the notification feed workspace, chats no panel shows, deletes by store operation, chats started over a mirror, and tidying a project's chats." );
 	}
 
 	/// <summary>Checks which folder each chat works in, that a chosen folder survives restart, and that history from before chats chose folders loads.</summary>
@@ -186,12 +190,12 @@ internal static class ConversationChecks
 	{
 		var app = new LoknApplication();
 		var store = new ConversationStore( new ProjectStore() );
-		var module = new ConversationsModule( store, ( context, history, id ) => new FixtureContent( history.Get( id ) ) );
+		var module = new ConversationsModule( store, ( context, host, id ) => new FixtureContent( host.Store.Get( id ) ) );
 		Check( ProjectChecks.LoadProjects( app, store ) && app.Load( module ), "Conversation panels register without a backend dependency in a pure fixture." );
-		var id = module.CreateConversation( app );
+		var id = module.CreateConversation( app, module.Hosts.Local );
 		var firstPanel = app.Panels.ActivePanelId;
 		Check( module.OpenConversation( app, id ) == firstPanel && app.Panels.Panels.Count == 1, "Selecting an open conversation focuses its existing panel." );
-		var other = store.CreateConversation( SettingsProfile.Personal ).Id;
+		var other = ChatRef.Local( store.CreateConversation( SettingsProfile.Personal ).Id );
 		app.Panels.RequestAttention( firstPanel!.Value, new( "Chat", "Finished and waiting for you" ) );
 		Check( module.ComputeWaiting( app ).SetEquals( [id] ) && !module.ComputeWaiting( app ).Contains( other ), "A chat whose panel waits for the user is marked waiting in the sidebar, and only that chat." );
 		app.Panels.ClearAttention( firstPanel.Value );
@@ -206,8 +210,8 @@ internal static class ConversationChecks
 		{
 		}
 
-		Check( store.Get( id ).Profile == SettingsProfile.Personal, "Profile switching never changes an existing conversation's account." );
-		var mismatch = app.Panels.Open( ConversationsModule.ChatPanelType, input: new ConversationPanelInput( id, SettingsProfile.Work ) );
+		Check( store.Get( id.ConversationId ).Profile == SettingsProfile.Personal, "Profile switching never changes an existing conversation's account." );
+		var mismatch = app.Panels.Open( ConversationsModule.ChatPanelType, input: new ConversationPanelInput( id.ConversationId, SettingsProfile.Work ) );
 		Check( app.LastError?.Contains( "profile" ) == true, "A mismatched saved chat profile produces a contained panel error." );
 		app.Panels.Close( mismatch );
 		module.DeleteConversation( app, id );
@@ -228,9 +232,9 @@ internal static class ConversationChecks
 		} );
 		app.Load( new WorkspacesModule( path ) );
 		var store = new ConversationStore( new ProjectStore() );
-		var module = new ConversationsModule( store, ( context, history, id ) => new FixtureContent( history.Get( id ) ) );
+		var module = new ConversationsModule( store, ( context, host, id ) => new FixtureContent( host.Store.Get( id ) ) );
 		Check( ProjectChecks.LoadProjects( app, store ) && app.Load( module ) && app.Load( new NotificationsModule() ), "Conversations and Notifications load for the notification feed." );
-		var chat = store.CreateConversation( SettingsProfile.Personal, title: "Build fix" ).Id;
+		var chat = ChatRef.Local( store.CreateConversation( SettingsProfile.Personal, title: "Build fix" ).Id );
 		var chatPanel = module.SelectConversation( app, chat );
 		var fromChat = app.Notifications.Post( new( "Build fix", "Finished and waiting for you" ) { PanelId = chatPanel, Source = "conversations.chat" } );
 		// A module ships its notification kinds: short updates with their own summaries, and no code for them in the feed.
@@ -273,7 +277,7 @@ internal static class ConversationChecks
 		// From another task, a clicked notification goes back to the task its panel belongs to instead of pulling the panel in.
 		app.Load( new FixtureModule( "scratch", builder => builder.Panel( "panel", "Scratch", _ => new Lokn.Tests.FixtureContent() ) ) );
 		var scratch = app.Panels.Open( "scratch.panel", app.Panels.SplitActive( SplitAxis.Horizontal ) );
-		var other = store.CreateConversation( SettingsProfile.Personal, title: "Other" ).Id;
+		var other = ChatRef.Local( store.CreateConversation( SettingsProfile.Personal, title: "Other" ).Id );
 		var otherPanel = module.SelectConversation( app, other );
 		var finished = app.Notifications.Post( new( "Build fix", "Finished and waiting for you" ) { PanelId = chatPanel, Source = "conversations.chat" } );
 		app.OpenNotification( finished );
@@ -286,7 +290,7 @@ internal static class ConversationChecks
 
 		// A chat the user keeps in another workspace of its task opens there, not beside what that task's current workspace shows.
 		var workspaces = app.GetModule<WorkspacesModule>();
-		var moved = store.CreateConversation( SettingsProfile.Personal, title: "Moved" ).Id;
+		var moved = ChatRef.Local( store.CreateConversation( SettingsProfile.Personal, title: "Moved" ).Id );
 		var movedPanel = module.SelectConversation( app, moved );
 		workspaces.Create( app );
 		app.Panels.HideAll();
@@ -297,10 +301,10 @@ internal static class ConversationChecks
 			"A chat's notification travels to the workspace of its task that holds it, instead of pulling it into the one on screen." );
 
 		// A chat of the other profile switches profile and opens its own task there, not the profile's last session and not the current layout.
-		var workChat = store.CreateConversation( SettingsProfile.Work, title: "Work fix" ).Id;
+		var workChat = ChatRef.Local( store.CreateConversation( SettingsProfile.Work, title: "Work fix" ).Id );
 		app.Settings.SetActiveProfile( SettingsProfile.Work );
 		var workPanel = module.SelectConversation( app, workChat );
-		var workOther = store.CreateConversation( SettingsProfile.Work, title: "Work other" ).Id;
+		var workOther = ChatRef.Local( store.CreateConversation( SettingsProfile.Work, title: "Work other" ).Id );
 		module.SelectConversation( app, workOther );
 		app.Settings.SetActiveProfile( SettingsProfile.Personal );
 		module.SelectConversation( app, other );
@@ -325,10 +329,10 @@ internal static class ConversationChecks
 		var workspaces = new WorkspacesModule( path );
 		Check( app.Load( workspaces ), "The Workspaces module loads for conversation sessions." );
 		var store = new ConversationStore( new ProjectStore() );
-		var module = new ConversationsModule( store, ( context, history, id ) => new FixtureContent( history.Get( id ) ) );
+		var module = new ConversationsModule( store, ( context, host, id ) => new FixtureContent( host.Store.Get( id ) ) );
 		Check( ProjectChecks.LoadProjects( app, store ) && app.Load( module ) && app.Load( new NotificationsModule() ), "Conversations and Notifications load beside Workspaces." );
-		var first = store.CreateConversation( SettingsProfile.Personal ).Id;
-		var second = store.CreateConversation( SettingsProfile.Personal ).Id;
+		var first = ChatRef.Local( store.CreateConversation( SettingsProfile.Personal ).Id );
+		var second = ChatRef.Local( store.CreateConversation( SettingsProfile.Personal ).Id );
 
 		var firstPanel = module.SelectConversation( app, first );
 		Check( app.Panels.Panes is [{ PanelId: var only }] && only == firstPanel, "A conversation's first opening shows just its chat." );
@@ -342,48 +346,49 @@ internal static class ConversationChecks
 
 		// A task without a chat is only its own layout: it opens empty, keeps the panels opened in it, and can gain a chat later.
 		var project = store.ProjectStore.Create( SettingsProfile.Personal, "Repo", Path.GetTempPath() );
-		var task = module.NewTask( app, project.Id );
-		Check( store.Get( task ) is { HasChat: false, Title: "New task" } && workspaces.CurrentSession == ConversationsModule.ConversationSession( task )
+		var task = module.NewTask( app, projectId: project.Id );
+		Check( store.Get( task.ConversationId ) is { HasChat: false, Title: "New task" } && workspaces.CurrentSession == ConversationsModule.ConversationSession( task )
 			&& app.Panels.Panes is [{ PanelId: null }] && !app.Panels.IsShown( firstPanel ), "A new task without a chat opens as one empty pane in its own workspace." );
 		var folder = app.Services.Get<IWorkingFolder>();
 		Check( folder?.Current == project.Directory, "A project task's workspace works in its project's directory, so the file tree and terminals open there." );
 		var worktree = Path.Combine( Path.GetTempPath(), "lokn-task-worktree" );
-		store.SetWorktree( task, worktree );
+		store.SetWorktree( task.ConversationId, worktree );
 		Check( folder?.Current == Path.GetFullPath( worktree ), "A task moved into a worktree makes that worktree the working folder." );
-		store.SetWorktree( task, project.Directory );
+		store.SetWorktree( task.ConversationId, project.Directory );
 		var feed = app.Panels.Open( NotificationsModule.PanelType );
 		module.SelectConversation( app, first );
 		Check( module.SelectConversation( app, task ) == Guid.Empty && app.Panels.Panes is [{ PanelId: var kept }] && kept == feed,
 			"Returning to a task without a chat shows the panels left in it and opens no chat." );
-		var taskChat = module.StartChat( app, task );
-		Check( store.Get( task ).HasChat && app.Panels.Panes.Count == 2 && app.Panels.IsShown( taskChat ) && app.Panels.IsShown( feed ),
+		Check( module.StartChat( app, task ) == task, "Starting a chat in a task keeps the task's chat." );
+		var taskChat = FindPanel( app, task );
+		Check( store.Get( task.ConversationId ).HasChat && app.Panels.Panes.Count == 2 && app.Panels.IsShown( taskChat ) && app.Panels.IsShown( feed ),
 			"Starting a chat in a task opens it beside the task's panels." );
-		store.RenameConversation( task, "Release notes" );
-		Check( store.Get( task ) is { Title: "Release notes", IsTitleChosen: true } && !store.SetAutomaticTitle( task, "Generated", isGenerated: true ),
+		store.RenameConversation( task.ConversationId, "Release notes" );
+		Check( store.Get( task.ConversationId ) is { Title: "Release notes", IsTitleChosen: true } && !store.SetAutomaticTitle( task.ConversationId, "Generated", isGenerated: true ),
 			"Renaming a task keeps the name from generated titles." );
 		// The + grid names a task after its starter; Chat's task is named as a new chat is, so its first prompt names it.
-		var chatTask = module.NewTask( app, project.Id, "Chat" );
+		var chatTask = module.NewTask( app, projectId: project.Id, name: "Chat" );
 		app.Extensions.Get<TaskStarter>( TaskStarter.Point ).Single( starter => starter.Title == "Chat" ).Open( app );
-		Check( store.Get( chatTask ) is { Title: "New chat", HasChat: true, IsTitleChosen: false } && workspaces.CurrentSession == ConversationsModule.ConversationSession( chatTask ),
+		Check( store.Get( chatTask.ConversationId ) is { Title: "New chat", HasChat: true, IsTitleChosen: false } && workspaces.CurrentSession == ConversationsModule.ConversationSession( chatTask ),
 			"A task started with the grid's Chat becomes a new chat in that task, named by its first prompt rather than after the starter." );
 
 		// A chat started from an empty conversation panel inside a task's workspace belongs with that task, not to the chats outside projects.
 		module.SelectConversation( app, task );
-		var extra = module.StartConversation( app, "hi", module.ComputeSessionProject( app ), app.Panels.Open( ConversationsModule.ChatPanelType ) );
-		Check( extra != task && store.Get( extra ).ProjectId == project.Id,
+		var extra = module.StartConversation( app, module.Hosts.Local, "hi", module.ComputeSessionProject( app ), app.Panels.Open( ConversationsModule.ChatPanelType ) );
+		Check( extra != task && store.Get( extra.ConversationId ).ProjectId == project.Id,
 			"A second chat started inside a task's workspace is a new task in the same project, not one outside projects." );
-		var bare = module.NewTask( app, project.Id );
+		var bare = module.NewTask( app, projectId: project.Id );
 		var bareHome = app.Panels.Open( ConversationsModule.ChatPanelType );
-		var started = module.StartConversation( app, "hi", module.ComputeSessionProject( app ), bareHome );
+		var started = module.StartConversation( app, module.Hosts.Local, "hi", module.ComputeSessionProject( app ), bareHome );
 		module.SelectConversation( app, first );
 		module.SelectConversation( app, bare );
-		Check( started == bare && store.Get( bare ).HasChat && module.GetSelected( app ) == bare && store.Conversations( SettingsProfile.Personal ).All( item => item.Id != started ),
+		Check( started == bare && store.Get( bare.ConversationId ).HasChat && module.GetSelected( app ) == bare && store.Conversations( SettingsProfile.Personal ).All( item => item.Id != started.ConversationId ),
 			"A chat started inside a task without one becomes that task's chat, and clicking the task highlights it." );
 		var tabs = app.Slots.Get( ShellSlots.Tabs ).Single( item => item.ModuleId == "conversations" ).Content;
 		Check( tabs.Build() is Row { Children: [Row { Key: var currentGroup, Children: [Button { Key: "label" }, Button { Key: var currentTab }, .., Button { Key: "new" }] }, .., Button { Key: "new-chat" }] } strip
-			&& currentGroup == ProjectsModule.SessionKey( project.Id ) && currentTab == bare.ToString()
-			&& strip.Children.OfType<Row>().SingleOrDefault( group => group.Key == ConversationsModule.ChatsSession ) is { Children: var chatTabs }
-			&& chatTabs.OfType<Button>().Any( tab => tab.Key == first.ToString() ),
+			&& currentGroup == ProjectsModule.SessionKey( project.Id ) && currentTab == bare.ConversationId.ToString()
+			&& strip.Children.OfType<Row>().SingleOrDefault( group => group.Key == ConversationsModule.ChatsKey ) is { Children: var chatTabs }
+			&& chatTabs.OfType<Button>().Any( tab => tab.Key == first.ConversationId.ToString() ),
 			"The chat tabs group chats by project, the current chat first in its group and its group first, each group with its +, then the + that starts a chat outside projects." );
 		module.SelectConversation( app, first );
 
@@ -399,7 +404,7 @@ internal static class ConversationChecks
 			? [.. rows.SelectMany( Expand ).SkipWhile( row => row is not Text { Content: ConversationsModule.ChatsTitle } ).Skip( 1 )]
 			: [];
 		var folded = ReadScratch();
-		Check( loose == 8 && folded.Count( row => row is Container ) == 6 && folded.Any( row => row is Container { Key: var key } && key == first.ToString() )
+		Check( loose == 8 && folded.Count( row => row is Container ) == 6 && folded.Any( row => row is Container { Key: var key } && key == first.ConversationId.ToString() )
 			&& folded[^1] is Button { Key: "scratch-toggle" } viewAll && viewAll.AccessibilityName == $"View all {loose} {ConversationsModule.ChatsTitle} chats",
 			"Scratch shows the 5 latest chats outside projects plus the older open one, then View all with the full count." );
 		( (Button)folded[^1] ).OnClick!();
@@ -408,7 +413,7 @@ internal static class ConversationChecks
 			"View all lists every chat outside projects, then Show less." );
 
 		app.Settings.SetActiveProfile( SettingsProfile.Work );
-		var work = store.CreateConversation( SettingsProfile.Work ).Id;
+		var work = ChatRef.Local( store.CreateConversation( SettingsProfile.Work ).Id );
 		var workPanel = module.SelectConversation( app, work );
 		app.Settings.SetActiveProfile( SettingsProfile.Personal );
 		Check( app.Panels.IsShown( firstPanel ) && !app.Panels.IsShown( workPanel ) && module.GetSelected( app ) == first,
@@ -463,11 +468,11 @@ internal static class ConversationChecks
 		// The fixture is history from before projects had a file of their own: its projects move to the projects file as it loads.
 		var store = new ConversationStore( new ProjectStore( Path.Combine( directory, "tidy-projects.json" ), path ), path );
 		var app = new LoknApplication();
-		var module = new ConversationsModule( store, ( context, history, id ) => new FixtureContent( history.Get( id ) ) );
+		var module = new ConversationsModule( store, ( context, host, id ) => new FixtureContent( host.Store.Get( id ) ) );
 		Check( ProjectChecks.LoadProjects( app, store ) && app.Load( module ) && store.LastError is null && store.ProjectStore.Find( projectId )?.Name == "Repo",
 			"The tidy fixture loads, its projects imported." );
 		var empty = store.CreateConversation( SettingsProfile.Personal, projectId );
-		var open = module.CreateConversation( app, projectId );
+		var open = module.CreateConversation( app, module.Hosts.Local, projectId ).ConversationId;
 		var plan = module.ComputeTidy( app, projectId, now );
 		Check( plan.Stale.Select( item => item.Id ).Order().SequenceEqual( new[] { old, empty.Id }.Order() ),
 			"Tidying removes chats never started or quiet for two weeks, never pinned or named ones, tasks without a chat, or a chat open in a panel." );
@@ -493,6 +498,81 @@ internal static class ConversationChecks
 		Check( store.Find( open ) is not null && store.Find( old ) is not null, "Tidying one project leaves the others alone." );
 		app.Shutdown();
 	}
+
+	/// <summary>Checks that a chat no panel shows reaches the user when its agent asks or finishes, and that a delete by store operation stops its session and empties its panel.</summary>
+	private static void CheckBackgroundChats()
+	{
+		var app = new LoknApplication();
+		app.BindDispatcher( action =>
+		{
+			action();
+			return true;
+		} );
+		var store = new ConversationStore( new ProjectStore() );
+		var module = new ConversationsModule( store, ( context, host, id ) => new FixtureContent( host.Store.Get( id ) ) );
+		Check( app.Load( new OmpModule() ) && ProjectChecks.LoadProjects( app, store ) && app.Load( module ), "Omp, Projects and Conversations load for chats no panel shows." );
+		static JsonElement Frame( string json ) => JsonDocument.Parse( json ).RootElement.Clone();
+
+		var asking = store.CreateConversation( SettingsProfile.Personal, title: "Asking" ).Id;
+		var session = module.Hosts.Local.Sessions.GetOrCreate( asking );
+		session.UpdateFrame( Frame( """{"type":"agent_start"}""" ) );
+		session.UpdateFrame( Frame( """{"type":"extension_ui_request","id":"q1","method":"confirm","title":"Proceed?"}""" ) );
+		var link = LoknLinks.Create( "conversations", "open", asking.ToString( "N" ) ).AbsoluteUri;
+		var asked = app.Notifications.Items.FirstOrDefault( item => item.Url == link );
+		Check( asked is { Title: "Asking", Message: "Proceed?", PanelId: null, IsRead: false, Source: ConversationsModule.ChatPanelType },
+			"A question from a chat no panel shows posts a notification whose link opens the chat." );
+		Check( module.ComputeWaiting( app ).SetEquals( [ChatRef.Local( asking )] ), "A chat no panel shows is marked waiting in the sidebar when its agent asks." );
+		Check( module.ComputePrompts( app ) is [{ PanelId: null } prompt] && prompt.Key == asking.ToString( "N" ) && prompt.Title == "Asking" && prompt.Build( "feed" ) is null,
+			"The notification feed lists the question of a chat no panel shows, as a link to the chat." );
+
+		app.OpenLink( new Uri( link ) );
+		var shown = app.Panels.Sessions.Select( item => item.Content ).OfType<ConversationPanel>().SingleOrDefault( panel => panel.ConversationId == asking );
+		Check( shown is not null && module.ComputeWaiting( app ).Count == 0 && app.Notifications.Items.Single( item => item.Id == asked!.Id ).IsRead,
+			"The notification's link opens the chat, which then stops waiting and marks its notification read." );
+
+		var finishing = store.CreateConversation( SettingsProfile.Personal, title: "Finishing" ).Id;
+		var background = module.Hosts.Local.Sessions.GetOrCreate( finishing );
+		background.UpdateFrame( Frame( """{"type":"agent_start"}""" ) );
+		background.UpdateFrame( Frame( """{"type":"agent_end"}""" ) );
+		var finished = app.Notifications.Items.FirstOrDefault( item => item.Title == "Finishing" );
+		Check( finished is { Message: "Finished and waiting for you", PanelId: null } && module.ComputeWaiting( app ).Contains( ChatRef.Local( finishing ) ),
+			"A turn that finishes in a chat no panel shows posts a notification and marks the chat waiting." );
+		background.UpdateFrame( Frame( """{"type":"agent_start"}""" ) );
+		Check( !module.ComputeWaiting( app ).Contains( ChatRef.Local( finishing ) ) && app.Notifications.Items.Single( item => item.Id == finished!.Id ).IsRead,
+			"A chat whose agent works on alone stops waiting." );
+
+		store.Apply( StoreOp.Build( StoreOp.Conversations, nameof( ConversationStore.DeleteConversation ), new { id = asking } ) );
+		Check( module.Hosts.Local.Sessions.Find( asking ) is null && !store.IsWorking( asking ) && shown!.IsEmpty && module.ComputePrompts( app ).Count == 0,
+			"A conversation deleted by a store operation, as another device deletes it, stops its session and its panel shows Home." );
+		store.Apply( StoreOp.Build( StoreOp.Conversations, nameof( ConversationStore.DeleteConversation ), new { id = finishing } ) );
+		Check( module.Hosts.Local.Sessions.Find( finishing ) is null && !store.IsWorking( finishing ), "Deleting a working chat no panel shows stops its session too." );
+		app.Shutdown();
+	}
+
+	/// <summary>Checks that chats start over a mirror whose host has not answered yet: a task gains its chat and a started chat holds its prompt at once.</summary>
+	private static void CheckMirrorStarts()
+	{
+		var app = new LoknApplication();
+		var store = new ConversationStore( new ProjectStore() );
+		var sent = new List<StoreOp>();
+		store.Forward = op =>
+		{
+			sent.Add( op );
+			return true;
+		};
+		var module = new ConversationsModule( store, ( context, host, id ) => new FixtureContent( host.Store.Get( id ) ) );
+		Check( ProjectChecks.LoadProjects( app, store ) && app.Load( module ), "Conversations loads over a mirror store." );
+		var task = module.NewTask( app );
+		Check( module.StartChat( app, task ) == task && store.Get( task.ConversationId ).HasChat, "A task over a mirror gains its chat at once, and the chat opens." );
+		var started = module.StartConversation( app, module.Hosts.Local, "Typed on Home" );
+		Check( store.Get( started.ConversationId ).Draft == "Typed on Home" && sent.Any( op => op.Op == nameof( ConversationStore.SaveDraft ) ),
+			"A chat started over a mirror holds its prompt at once, and the host is told." );
+		app.Shutdown();
+	}
+
+	/// <summary>Gets the open conversation panel that shows a chat.</summary>
+	internal static Guid FindPanel( LoknApplication app, ChatRef chat ) =>
+		app.Panels.Sessions.First( session => session.Content is ConversationPanel { Chat: { } shown } && shown == chat ).Info.Id;
 
 	/// <summary>Provides minimal conversation content to isolate history and panel ownership checks.</summary>
 	private sealed class FixtureContent( ConversationInfo conversation ) : PanelContent

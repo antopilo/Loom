@@ -725,9 +725,9 @@ internal sealed partial class GitChangesPane
 		var amend = _amend;
 		RunGit( amend ? "Amending and pushing" : "Committing and pushing", async ( root, cancellationToken ) =>
 		{
-			await GitRepository.CommitAsync( root, message, amend, cancellationToken );
+			await GitRepository.CommitAsync( _context.Workspace, root, message, amend, cancellationToken );
 			_context.Post( ClearMessage );
-			await GitRepository.PushAsync( root, null, false, cancellationToken );
+			await GitRepository.PushAsync( _context.Workspace, root, null, false, cancellationToken );
 		} );
 	}
 
@@ -752,7 +752,7 @@ internal sealed partial class GitChangesPane
 		{
 			try
 			{
-				var patch = await GitProcess.RunAsync( root, writing.Token, "-c", "core.quotepath=false", "diff", request.HasStaged ? "--cached" : "HEAD", "--no-color", "--no-ext-diff" );
+				var patch = await GitProcess.RunAsync( _context.Workspace, root, writing.Token, "-c", "core.quotepath=false", "diff", request.HasStaged ? "--cached" : "HEAD", "--no-color", "--no-ext-diff" );
 				if ( patch.Length > MessagePatchLimit )
 					patch = patch[..MessagePatchLimit] + "\n… the rest of the changes is cut.";
 				_context.Post( () => StartWriter( writing, writer, new GitMessageRequest( app, request.Profile, root, patch, request.Summary ) ) );
@@ -813,8 +813,8 @@ internal sealed partial class GitChangesPane
 
 	/// <summary>Stages every unstaged file, or unstages every staged one.</summary>
 	private void UpdateStageAll( bool staged ) => RunGit( staged ? "Unstaging all files" : "Staging all files", ( root, cancellationToken ) => staged
-		? GitRepository.UnstageAsync( root, [], cancellationToken )
-		: GitRepository.StageAsync( root, [], cancellationToken ) );
+		? GitRepository.UnstageAsync( _context.Workspace, root, [], cancellationToken )
+		: GitRepository.StageAsync( _context.Workspace, root, [], cancellationToken ) );
 
 	/// <summary>Shows the side lists flat or as folder trees.</summary>
 	private void UpdateAsList( bool asList )

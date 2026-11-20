@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Lokn.Core;
 
@@ -71,18 +72,21 @@ public sealed partial class PanelWorkspace
 		ActivePaneId = saved.ActivePaneId;
 		EnsureActivePane();
 		foreach ( var panel in available )
-			_sessions.Add( panel.Id, BuildSession( _types[panel.TypeId], panel.Id, input: null, panel.State, panel.Title ) );
+		{
+			var type = _types[panel.TypeId];
+			_sessions.Add( panel.Id, BuildSession( type, panel.Id, input: null, panel.State, panel.Title, RestoreHost( type, panel.Host ) ) );
+		}
 
 		_invalidLayoutPath = null;
 		_app.MarkChanged();
 		return true;
 	}
 
-	/// <summary>Creates one owned panel model from its factory and optional restored state.</summary>
-	private PanelSession BuildSession( RegisteredPanel type, Guid id, object? input, JsonElement? state = null, string? title = null )
+	/// <summary>Creates one owned panel model from its factory and optional restored state, on a host already resolved for its type.</summary>
+	private PanelSession BuildSession( RegisteredPanel type, Guid id, object? input, JsonElement? state = null, string? title = null, string? hostId = null )
 	{
 		var lifetime = CancellationTokenSource.CreateLinkedTokenSource( type.Lifetime );
-		var context = new PanelContext( _app, id, lifetime.Token, input, state );
+		var context = new PanelContext( _app, id, lifetime.Token, input, state, hostId );
 		PanelContent? content = null;
 		string? failure = null;
 		try
@@ -95,7 +99,7 @@ public sealed partial class PanelWorkspace
 			_app.ReportError( type.Definition.Info.Title, error );
 		}
 
-		return new( new( id, type.Definition.Info.Id, title ?? type.Definition.Info.Title ), content, failure, lifetime );
+		return new( new( id, type.Definition.Info.Id, title ?? type.Definition.Info.Title ), content, failure, lifetime, hostId );
 	}
 
 	/// <summary>Reads panels saved under a former panel type identifier as the type that took it over.</summary>
@@ -170,8 +174,13 @@ public sealed partial class PanelWorkspace
 	/// <summary>Stores the versioned layout document and selected pane.</summary>
 	private sealed record SavedLayout( int Version, Guid ActivePaneId, SavedNode Root, SavedPanel[] Panels );
 
-	/// <summary>Stores one panel factory identifier and its feature-owned JSON state.</summary>
-	private sealed record SavedPanel( Guid Id, string TypeId, string Title, JsonElement? State );
+	/// <summary>Stores one panel factory identifier, its feature-owned JSON state, and the paired host it works on, omitted for This PC and for types
+	/// that are not host-bound, so a layout without paired hosts reads as before.</summary>
+	private sealed record SavedPanel( Guid Id, string TypeId, string Title, JsonElement? State, [property: JsonIgnore( Condition = JsonIgnoreCondition.WhenWritingNull )] string? Host = null );
+
+	/// <summary>Builds the saved form of an open panel.</summary>
+	private SavedPanel BuildSavedPanel( PanelSession session ) =>
+		new( session.Info.Id, session.Info.TypeId, session.Info.Title, CaptureState( session ), session.HostId is null or LoknHost.LocalId ? null : session.HostId );
 
 	/// <summary>Stores a pane or split node using an explicit JSON discriminator.</summary>
 	private sealed record SavedNode( string Kind, Guid Id, Guid? PanelId, SplitAxis Axis, double Ratio, SavedNode? First, SavedNode? Second );

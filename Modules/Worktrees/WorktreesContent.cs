@@ -95,7 +95,7 @@ internal sealed partial class WorktreesContent : PanelContent
 	/// <summary>Tracks the working tree whose removal or the branch whose deletion awaits a confirming second click, or empty.</summary>
 	private readonly State<string> _confirming = new( "" );
 
-	/// <summary>Creates the panel and starts listing the requested, restored or default repository.</summary>
+	/// <summary>Creates the panel and starts listing the requested, restored or default repository; on a paired host it lists nothing.</summary>
 	internal WorktreesContent( PanelContext context, ConversationStore store, WorktreeSetupStore setup, Action changed )
 	{
 		_context = context;
@@ -103,7 +103,8 @@ internal sealed partial class WorktreesContent : PanelContent
 		_setup = setup;
 		_changed = changed;
 		_repository = new( ComputeInitialRepository( context, store ) );
-		_ = UpdateViewAsync( resetForm: true );
+		if ( context.Host.IsLocal )
+			_ = UpdateViewAsync( resetForm: true );
 	}
 
 	/// <summary>Shows the repository holding a folder, unless it is already shown; call on the UI thread.</summary>
@@ -128,9 +129,26 @@ internal sealed partial class WorktreesContent : PanelContent
 		}
 	}
 
-	/// <summary>Builds the repository choices, setup, create form, working trees and branches.</summary>
+	/// <summary>Builds the repository choices, setup, create form, working trees and branches; on a paired host, only the notice that worktrees work on this PC.</summary>
 	public override Blob Build()
 	{
+		if ( !_context.Host.IsLocal )
+		{
+			return new Container
+			{
+				AccessibilityRole = AccessibilityRole.Group,
+				AccessibilityName = "Worktrees",
+				FlexGrow = 1,
+				Padding = ContentPadding,
+				Gap = Theme.Current.Spacing,
+				Children =
+				[
+					new Text { Content = "Worktrees", FontSize = HeadingSize },
+					new Text { Content = "Worktrees work on this PC only.", Color = Theme.Current.Muted },
+				],
+			};
+		}
+
 		var view = View;
 		var children = new List<Blob>
 		{

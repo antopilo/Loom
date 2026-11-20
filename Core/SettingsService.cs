@@ -94,7 +94,7 @@ public sealed partial class SettingsService
 
 		var values = ComputeValues( scope );
 		var serialized = JsonSerializer.SerializeToElement( value, value.GetType() );
-		if ( values.TryGetValue( setting.Id, out var previous ) && previous.GetRawText() == serialized.GetRawText() )
+		if ( values.TryGetValue( setting.Id, out var previous ) && JsonElement.DeepEquals( previous, serialized ) )
 			return EnsureSaved();
 
 		values[setting.Id] = serialized;

@@ -118,7 +118,7 @@ internal sealed partial class GitChangesPane
 		{
 			try
 			{
-				var message = await GitRepository.ReadHeadMessageAsync( root, load.Token );
+				var message = await GitRepository.ReadHeadMessageAsync( _context.Workspace, root, load.Token );
 				_context.Post( () => ApplyHeadMessage( load, message, null ) );
 			}
 			catch ( OperationCanceledException )
@@ -171,7 +171,7 @@ internal sealed partial class GitChangesPane
 		var amend = _amend;
 		RunGit( amend ? "Amending last commit" : "Committing", async ( root, cancellationToken ) =>
 		{
-			await GitRepository.CommitAsync( root, message, amend, cancellationToken );
+			await GitRepository.CommitAsync( _context.Workspace, root, message, amend, cancellationToken );
 			_context.Post( ClearMessage );
 		} );
 	}

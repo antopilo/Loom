@@ -161,26 +161,12 @@ public sealed partial class ChatContent
 		result = _toolResults.GetValueOrDefault( id )?.RichContent;
 		var status = result is { } completed ? ComputeResultStatus( completed ) : "Requested";
 		// A stored result is final: a live frame without its end, such as one whose end was missed, cannot make the tool run again.
-		if ( result is not null || !_tools.TryGetValue( id, out var execution ) )
+		if ( result is not null || !session.Tools.TryGetValue( id, out var execution ) )
 			return status;
 
 		if ( execution.TryGetProperty( "result", out var output ) || execution.TryGetProperty( "partialResult", out output ) || execution.TryGetProperty( "update", out output ) )
 			result = output;
 		return ReadText( execution, "type" ) == "tool_execution_end" ? ComputeResultStatus( execution ) : "Running";
-	}
-
-	/// <summary>Forgets live frames of tools that never reported their end once the agent has settled, so no tool spins after the turn.</summary>
-	private void SettleTools()
-	{
-		foreach ( var (id, frame) in _tools.ToArray() )
-		{
-			if ( ReadText( frame, "type" ) == "tool_execution_end" )
-				continue;
-
-			_tools.Remove( id );
-			if ( _toolOwners.TryGetValue( id, out var owner ) )
-				_revisions[owner] = _revisions.GetValueOrDefault( owner ) + 1;
-		}
 	}
 
 	/// <summary>Summarizes tool calls by kind in order of first use, such as "Read 2 files, edited ShellView.cs, ran 3 commands".</summary>

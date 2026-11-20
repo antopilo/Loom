@@ -4,7 +4,11 @@ using Microsoft.Web.WebView2.Core;
 
 namespace Lokn.Modules.Browser;
 
-/// <summary>Contributes browser panels that show web pages with the system's WebView2 (Edge) runtime.</summary>
+/// <summary>Contributes browser panels that show a host's browser tabs (<see cref="LoknHost.BrowserTabs"/>, this PC's or a paired host's) with this window's own WebView2 (Edge) pages.</summary>
+/// <remarks>
+/// In the daemon, which has no window, the module creates no web view: its tools run in an attached window through this PC's <see cref="BrowserTabs.Windows"/>,
+/// and fail with <see cref="BrowserTabs.NoWindowMessage"/> when none can (docs/remote.md, Host tools).
+/// </remarks>
 public sealed partial class BrowserModule : ILoknModule
 {
 	/// <summary>Defines the page a new browser panel opens.</summary>
@@ -28,8 +32,18 @@ public sealed partial class BrowserModule : ILoknModule
 	/// <summary>Defines the default search address.</summary>
 	private const string SearchDefault = "https://duckduckgo.com/?q={0}";
 
-	/// <summary>Stores the shared WebView2 environment once its creation starts.</summary>
-	private Task<CoreWebView2Environment>? _environment;
+	/// <summary>Stores the folder WebView2 data, reports and screenshots live under.</summary>
+	private readonly string _root;
+
+	/// <summary>Stores each host's WebView2 environment once its creation starts, with the proxy its pages connect through (null for none), by host id.</summary>
+	/// <remarks>A WebView2 user data folder keeps the browser arguments it started with, so each host has its own folder (<see cref="ComputeDataPath"/>).</remarks>
+	private readonly Dictionary<string, (string? Proxy, Task<CoreWebView2Environment> Environment)> _environments = new( StringComparer.Ordinal );
+
+	/// <summary>Stores the running application, or null while the module is stopped.</summary>
+	private LoknApplication? _app;
+
+	/// <summary>Stores the module's lifetime, cancelled when it unloads or the application shuts down.</summary>
+	private CancellationToken _lifetime;
 
 	/// <summary>Stores every open browser panel, in the order they opened.</summary>
 	private readonly List<BrowserContent> _panels = [];
@@ -43,8 +57,23 @@ public sealed partial class BrowserModule : ILoknModule
 	/// <summary>Stores, per panel whose agent opened pages, the browser panel beside it that its pages and tools use first.</summary>
 	private readonly Dictionary<Guid, BrowserContent> _ownBrowsers = [];
 
-	/// <summary>Gets the per-user folder WebView2 keeps cookies, history and caches in, one profile per settings profile.</summary>
-	internal static string DataPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "browser" );
+	/// <summary>Creates the module with its files in the data folder.</summary>
+	public BrowserModule() : this( LoknPaths.DataRoot )
+	{
+	}
+
+	/// <summary>Creates the module with its WebView2 data, reports and screenshots under another folder, for checks.</summary>
+	internal BrowserModule( string root ) => _root = root;
+
+	/// <summary>Computes the folder WebView2 keeps a host's cookies, history and caches in, one profile per settings profile: <c>browser</c> for this PC,
+	/// <c>browser-hosts\&lt;hostId&gt;</c> for a paired host.</summary>
+	/// <param name="root">The folder the module's files live under.</param>
+	/// <param name="hostId">The host's id, <see cref="LoknHost.LocalId"/> for this PC.</param>
+	internal static string ComputeDataPath( string root, string hostId ) =>
+		hostId == LoknHost.LocalId ? Path.Combine( root, "browser" ) : Path.Combine( root, "browser-hosts", hostId );
+
+	/// <summary>Gets the folder html reports agents show are saved in.</summary>
+	internal string ReportsPath => Path.Combine( _root, "reports" );
 
 	/// <summary>Gets the module identifier.</summary>
 	public string Id => "browser";
@@ -58,7 +87,7 @@ public sealed partial class BrowserModule : ILoknModule
 		builder
 			.Setting( Home )
 			.Setting( Search )
-			.Panel( "page", "Browser", Create, "\uE774" )
+			.Panel( "page", "Browser", Create, "\uE774", onHost: true )
 			.Command( "open-url", "Browser: open URL", context => OpenAddress( context.App ) )
 			.Contribute( TaskStarter.Point, new TaskStarter( "Browser", "\uE774", 50, app => OpenAddress( app ) ) )
 			.Contribute( SetupItem.Point, new SetupItem
@@ -72,7 +101,7 @@ public sealed partial class BrowserModule : ILoknModule
 				FixAsync = ( progress, cancellationToken ) => ToolLocator.InstallWingetAsync( "Microsoft.EdgeWebView2Runtime", progress, cancellationToken ),
 			} )
 			.LinkHandler( OpenLink )
-			.Tool( "show",
+			.ToolAsync( "show",
 				"Shows a web page in a browser panel beside your conversation, for the user to look at: an HTML report you write (benchmark results, a plan, charts, an interactive demo), a local .html file, or a web address. Prefer this over describing a visual result in text. Pass exactly one of html, path or url. Pages can run JavaScript and load scripts from CDNs. Later calls replace the page in the same browser tab.",
 				"""
 				{
@@ -86,8 +115,24 @@ public sealed partial class BrowserModule : ILoknModule
 					"additionalProperties": false
 				}
 				""",
-				Show );
+				Lend( "show", ( context, arguments ) => Task.FromResult( Show( context, arguments ) ) ) );
 		RegisterPageTools( builder );
+	}
+
+	/// <summary>Runs a tool in this process's windows, or, in the daemon, which has none, in an attached window that can show pages.</summary>
+	/// <param name="id">The tool's id within the module, such as <c>navigate</c>.</param>
+	/// <param name="run">Runs the tool here.</param>
+	/// <remarks>A call the daemon forwards names the chat panel of whichever window attached the chat last, which may be another window's; a caller
+	/// that is no panel here counts as none, so the page opens in view rather than beside a panel that does not exist.</remarks>
+	private Func<AgentToolContext, JsonElement, Task<AgentToolResult>> Lend( string id, Func<AgentToolContext, JsonElement, Task<AgentToolResult>> run ) => ( context, arguments ) =>
+		!context.App.IsHost ? run( context with { Caller = FindCaller( context ) }, arguments )
+			: context.App.Hosts.Local.BrowserTabs.Windows?.TryRun( context, $"{Id}_{id}", arguments ) ?? Task.FromResult( AgentToolResult.Error( BrowserTabs.NoWindowMessage ) );
+
+	/// <summary>Returns a call's caller when it is a panel of this window, else null.</summary>
+	private static Guid? FindCaller( AgentToolContext context )
+	{
+		var panels = context.App.Panels;
+		return context.Caller is { } caller && panels.Panels.Any( panel => panel.Id == panels.ResolvePanelId( caller ) ) ? caller : null;
 	}
 
 	/// <summary>Checks that the Edge WebView2 runtime is installed, reporting its version.</summary>
@@ -103,11 +148,8 @@ public sealed partial class BrowserModule : ILoknModule
 		}
 	}
 
-	/// <summary>Opens a browser panel with its address bar focused for the user to type where to go.</summary>
+	/// <summary>Opens a browser panel on the current host with its address bar focused for the user to type where to go.</summary>
 	private static Guid OpenAddress( LoknApplication app ) => app.Panels.Open( "browser.page", input: new BrowserRequest( null, FocusAddress: true ) );
-
-	/// <summary>Gets the per-user folder html reports agents show are saved in.</summary>
-	internal static string ReportsPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "reports" );
 
 	/// <summary>Creates a browser panel and tracks it as a place later links can open tabs in.</summary>
 	private BrowserContent Create( PanelContext context )
@@ -116,6 +158,49 @@ public sealed partial class BrowserModule : ILoknModule
 		_panels.Add( content );
 		return content;
 	}
+
+	/// <summary>Keeps the module's lifetime, which tells a panel closing for an unload or shutdown from one the user closed, and follows removed hosts.</summary>
+	public void Start( ModuleContext context )
+	{
+		_lifetime = context.Lifetime;
+		_app = context.App;
+		context.App.Hosts.Removed += ForgetHost;
+	}
+
+	/// <summary>Stops following removed hosts.</summary>
+	public void Stop()
+	{
+		if ( _app is { } app )
+			app.Hosts.Removed -= ForgetHost;
+		_app = null;
+	}
+
+	/// <summary>Drops a removed host's WebView2 environment and deletes its data folder when nothing holds it any more.</summary>
+	/// <remarks>The host's panels closed before this, but their pages may still hold the folder; then it stays until it is free, which a later
+	/// removal of a host with the same id, or the user, clears.</remarks>
+	private void ForgetHost( LoknHost host )
+	{
+		if ( host.IsLocal )
+			return;
+
+		_environments.Remove( host.Id );
+		var folder = ComputeDataPath( _root, host.Id );
+		try
+		{
+			if ( Directory.Exists( folder ) )
+				Directory.Delete( folder, recursive: true );
+		}
+		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException )
+		{
+			// Its pages still close; the folder stays.
+		}
+	}
+
+	/// <summary>Gets whether the module is unloading or the application is shutting down.</summary>
+	internal bool IsStopping => _lifetime.IsCancellationRequested;
+
+	/// <summary>Reports whether an open browser panel of this window on a host shows one of that host's session tabs.</summary>
+	internal bool IsShown( string hostId, Guid tabId ) => _panels.Any( panel => panel.IsOpen && panel.Host.Id == hostId && panel.Tabs.Any( tab => tab.Id == tabId ) );
 
 	/// <summary>Stops tracking a closed browser panel.</summary>
 	internal void Forget( BrowserContent content )
@@ -129,17 +214,22 @@ public sealed partial class BrowserModule : ILoknModule
 			_reportTabs.Remove( source );
 	}
 
-	/// <summary>Shows a followed web link in a new tab of the browser panel on screen, or a new browser panel beside its source.</summary>
+	/// <summary>Shows a followed web link in a new tab of the browser panel on screen, or a new browser panel beside its source, on the source's host;
+	/// the daemon, which has no window, leaves links alone.</summary>
 	private bool OpenLink( LinkRequest request )
 	{
-		if ( request.Uri.Scheme is not ("http" or "https") )
+		if ( request.App.IsHost || request.Uri.Scheme is not ("http" or "https") )
 			return false;
 
-		ShowBeside( request.App, request.Uri.AbsoluteUri, request.SourcePanelId, replace: null );
+		var app = request.App;
+		var source = request.SourcePanelId is { } id ? app.Panels.ResolvePanelId( id ) : (Guid?)null;
+		var host = app.Hosts.Get( (source is { } panel ? app.Panels.GetHostId( panel ) : null) ?? app.Hosts.Current.Id );
+		ShowBeside( app, host, request.Uri.AbsoluteUri, request.SourcePanelId, replace: null );
 		return true;
 	}
 
 	/// <summary>Shows a page an agent asked for beside its conversation, in the tab its previous report used while that is on screen, saving html it wrote as a report file first.</summary>
+	/// <remarks>The page opens in the browser tabs of the host whose agent asked (<see cref="FindHost"/>).</remarks>
 	private AgentToolResult Show( AgentToolContext context, JsonElement arguments )
 	{
 		string? Read( string name ) => arguments.TryGetProperty( name, out var value ) && value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : null;
@@ -149,6 +239,11 @@ public sealed partial class BrowserModule : ILoknModule
 		var url = Read( "url" );
 		if ( new[] { html, path, url }.Count( value => value is not null ) != 1 )
 			throw new ArgumentException( "Pass exactly one of html, path or url." );
+
+		// A paired PC's files are not the host's, where the agent wrote them; the host's own localhost reaches the paired PC through Loom.
+		var host = FindHost( context );
+		if ( host.BrowserTabs.IsRemote && (html is not null || path is not null) )
+			throw new ArgumentException( "This browser runs on a paired PC, which cannot open files from the host. Serve the page over http on the host instead, such as with a local server on localhost, and pass its url: the paired PC reaches the host's localhost through Loom." );
 
 		string address;
 		if ( html is not null )
@@ -173,46 +268,81 @@ public sealed partial class BrowserModule : ILoknModule
 		}
 
 		var caller = context.Caller is { } id ? context.App.Panels.ResolvePanelId( id ) : Guid.Empty;
-		var tab = ShowBeside( context.App, address, context.Caller, _reportTabs.GetValueOrDefault( caller ) );
+		var tab = ShowBeside( context.App, host, address, context.Caller, _reportTabs.GetValueOrDefault( caller ) );
 		_reportTabs[caller] = tab;
 		var shown = path is null ? address : path;
 		return new( IsShown( context.App, tab.Owner ) ? $"Showing {shown} in browser panel {tab.Owner.Id}."
 			: $"Opened {shown} in browser panel {tab.Owner.Id}, beside your conversation. The user is not looking at your conversation now, so the page waits there and shows when they open it." );
 	}
 
-	/// <summary>Loads an address beside the panel that asked, never in another session's or profile's browser.</summary>
+	/// <summary>Loads an address beside the panel that asked, never in another session's, profile's or host's browser.</summary>
 	/// <remarks>
 	/// The order: the tab to replace, while it is open; the asking panel's own browser; the browser on screen, when the asking
 	/// panel is on screen with it and uses the same profile; otherwise a new browser beside the asking panel, in its profile.
+	/// Every browser reused shows <paramref name="host"/>'s tabs, and a new one opens on it.
 	/// A source that is not on screen, such as a chat working in the background, gets its browser hidden beside it, where it
 	/// appears when the user opens the chat; nothing on screen changes. Without a source, as for a user's link, it opens in view.
 	/// </remarks>
-	private BrowserTab ShowBeside( LoknApplication app, string address, Guid? sourcePanelId, BrowserTab? replace )
+	private BrowserTab ShowBeside( LoknApplication app, LoknHost host, string address, Guid? sourcePanelId, BrowserTab? replace )
 	{
 		var source = sourcePanelId is { } id ? app.Panels.ResolvePanelId( id ) : (Guid?)null;
 		var isSourceShown = source is not { } visible || app.Panels.IsShown( visible );
 		var profile = source is { } asking ? app.Panels.GetProfile( asking ) : null;
 		BrowserTab tab;
-		if ( replace is { IsClosed: false } && replace.Owner.IsOpen && (source is { } from ? IsBeside( app, from, replace.Owner ) : IsShown( app, replace.Owner )) )
+		if ( replace is { IsClosed: false } && replace.Owner.IsOpen && replace.Owner.Host == host
+			&& (source is { } from ? IsBeside( app, from, replace.Owner ) : IsShown( app, replace.Owner )) )
 		{
 			tab = replace;
 			tab.Owner.Navigate( tab, address );
 		}
-		else if ( FindOwn( app, source ) is { } own )
+		else if ( FindOwn( app, host, source ) is { } own )
 		{
 			tab = own.OpenTab( address );
 		}
-		else if ( isSourceShown && FindShown( app, profile ) is { } panel )
+		else if ( isSourceShown && FindShown( app, host, profile ) is { } panel )
 		{
 			tab = panel.OpenTab( address );
 		}
 		else
 		{
-			var request = new BrowserRequest( address, FocusAddress: false, profile );
-			var opened = source is { } beside ? app.Panels.OpenBeside( "browser.page", beside, request ) : app.Panels.Open( "browser.page", null, request );
-			tab = _panels.Single( candidate => candidate.Id == opened ).Selected;
+			tab = OpenPanel( app, host, source, new BrowserRequest( address, FocusAddress: false, profile ) );
 		}
 
+		Remember( app, tab, source, isSourceShown );
+		return tab;
+	}
+
+	/// <summary>Shows a host's session tab in this window for an agent, such as one another window opened: in a panel here that shows it, else as a new tab of the asking
+	/// panel's own browser or of the browser on screen in its profile, else in a new browser beside the asking panel; each on that host.</summary>
+	private BrowserTab ShowSession( LoknApplication app, LoknHost host, Guid id, Guid? sourcePanelId )
+	{
+		var source = sourcePanelId is { } asked ? app.Panels.ResolvePanelId( asked ) : (Guid?)null;
+		var isSourceShown = source is not { } visible || app.Panels.IsShown( visible );
+		var views = _panels.Where( panel => panel.IsOpen && panel.Host == host ).SelectMany( panel => panel.Tabs.Where( tab => tab.Id == id ) ).ToArray();
+		if ( (views.FirstOrDefault( view => IsShown( app, view.Owner ) ) ?? views.FirstOrDefault()) is { } existing )
+		{
+			existing.Owner.UpdateSelect( existing );
+			return existing;
+		}
+
+		var profile = source is { } asking ? app.Panels.GetProfile( asking ) : null;
+		var tab = FindOwn( app, host, source ) is { } own ? own.ShowTab( id )
+			: isSourceShown && FindShown( app, host, profile ) is { } panel ? panel.ShowTab( id )
+			: OpenPanel( app, host, source, new BrowserRequest( null, FocusAddress: false, profile, id ) );
+		Remember( app, tab, source, isSourceShown );
+		return tab;
+	}
+
+	/// <summary>Opens a browser panel on a host beside the asking panel, or in view without one, and returns its tab.</summary>
+	private BrowserTab OpenPanel( LoknApplication app, LoknHost host, Guid? source, BrowserRequest request )
+	{
+		var opened = source is { } beside ? app.Panels.OpenBeside( "browser.page", beside, request, host.Id ) : app.Panels.Open( "browser.page", null, request, host.Id );
+		return _panels.Single( candidate => candidate.Id == opened ).Selected ?? throw new InvalidOperationException( "The browser panel opened without a tab." );
+	}
+
+	/// <summary>Remembers a tab's panel as the asking panel's own browser, and as the one later links use while the asking panel is on screen, which brings it forward.</summary>
+	private void Remember( LoknApplication app, BrowserTab tab, Guid? source, bool isSourceShown )
+	{
 		if ( source is { } owner )
 			_ownBrowsers[owner] = tab.Owner;
 		if ( isSourceShown )
@@ -220,13 +350,12 @@ public sealed partial class BrowserModule : ILoknModule
 			_linkPanel = tab.Owner;
 			app.Panels.Activate( tab.Owner.Id );
 		}
-		return tab;
 	}
 
-	/// <summary>Returns the open browser a panel's agent opened its pages in, while it stays in that panel's workspace.</summary>
-	private BrowserContent? FindOwn( LoknApplication app, Guid? source )
+	/// <summary>Returns the open browser on a host a panel's agent opened its pages in, while it stays in that panel's workspace.</summary>
+	private BrowserContent? FindOwn( LoknApplication app, LoknHost host, Guid? source )
 	{
-		if ( source is not { } id || !_ownBrowsers.TryGetValue( id, out var own ) || !own.IsOpen )
+		if ( source is not { } id || !_ownBrowsers.TryGetValue( id, out var own ) || !own.IsOpen || own.Host != host )
 			return null;
 
 		return IsBeside( app, id, own ) ? own : null;
@@ -249,15 +378,16 @@ public sealed partial class BrowserModule : ILoknModule
 		return isSourceShown || app.Services.Get<IPanelPlaces>()?.AreTogether( source, browser.Id ) == true;
 	}
 
-	/// <summary>Returns the browser panel on screen that later links open tabs in: the one the latest link used, otherwise the first in layout order; with a profile, only one of that profile.</summary>
-	private BrowserContent? FindShown( LoknApplication app, SettingsProfile? profile = null )
+	/// <summary>Returns the browser panel on screen on a host that later links open tabs in: the one the latest link used, otherwise the first in layout order;
+	/// with a profile, only one of that profile.</summary>
+	private BrowserContent? FindShown( LoknApplication app, LoknHost host, SettingsProfile? profile = null )
 	{
-		if ( _linkPanel is { } panel && IsShown( app, panel ) && (profile is null || panel.Profile == profile) )
+		if ( _linkPanel is { } panel && panel.Host == host && IsShown( app, panel ) && (profile is null || panel.Profile == profile) )
 			return panel;
 
 		foreach ( var pane in app.Panels.Panes )
 		{
-			if ( _panels.FirstOrDefault( candidate => candidate.Id == pane.PanelId && candidate.IsOpen && (profile is null || candidate.Profile == profile) ) is { } shown )
+			if ( _panels.FirstOrDefault( candidate => candidate.Id == pane.PanelId && candidate.IsOpen && candidate.Host == host && (profile is null || candidate.Profile == profile) ) is { } shown )
 				return shown;
 		}
 
@@ -268,7 +398,7 @@ public sealed partial class BrowserModule : ILoknModule
 	private static bool IsShown( LoknApplication app, BrowserContent panel ) => panel.IsOpen && app.Panels.IsShown( panel.Id );
 
 	/// <summary>Saves an html report under a unique, readable file name and returns its path.</summary>
-	internal static string SaveReport( string html, string? title )
+	internal string SaveReport( string html, string? title )
 	{
 		var name = new string( (title ?? "report").Select( character => char.IsAsciiLetterOrDigit( character ) ? char.ToLowerInvariant( character ) : '-' ).ToArray() ).Trim( '-' );
 		while ( name.Contains( "--", StringComparison.Ordinal ) )
@@ -285,13 +415,31 @@ public sealed partial class BrowserModule : ILoknModule
 		return path;
 	}
 
-	/// <summary>Creates the WebView2 environment once, on the UI thread, and shares it between panels.</summary>
+	/// <summary>Creates a host's WebView2 environment once, on the UI thread, and shares it between that host's panels; a paired host's pages connect through
+	/// its session's proxy (<see cref="BrowserTabs.ProxyServer"/>), loopback included, so localhost means the host and never this PC.</summary>
+	/// <remarks>Each host has its own user data folder (<see cref="ComputeDataPath"/>), since a folder keeps the browser arguments, the proxy among them, it started with.</remarks>
 	/// <exception cref="WebView2RuntimeNotFoundException">The Edge WebView2 runtime is not installed.</exception>
-	internal Task<CoreWebView2Environment> GetEnvironmentAsync() => _environment ??= CoreWebView2Environment.CreateAsync( null, DataPath );
+	/// <exception cref="InvalidOperationException">A paired host's session has no proxy, or the proxy changed since the environment started.</exception>
+	internal Task<CoreWebView2Environment> GetEnvironmentAsync( LoknHost host )
+	{
+		var tabs = host.BrowserTabs;
+		var proxy = tabs.ProxyServer;
+		if ( tabs.IsRemote && proxy is null )
+			throw new InvalidOperationException( "It has no connection to the host's pages. Restart Loom." );
+		if ( _environments.TryGetValue( host.Id, out var existing ) )
+			return existing.Proxy == proxy ? existing.Environment : throw new InvalidOperationException( "Its connection changed since it started. Restart Loom." );
+
+		// Chromium sends loopback addresses past a proxy unless told otherwise.
+		var options = proxy is null ? null : new CoreWebView2EnvironmentOptions { AdditionalBrowserArguments = $"--proxy-server={proxy} --proxy-bypass-list=<-loopback>" };
+		var environment = CoreWebView2Environment.CreateAsync( null, ComputeDataPath( _root, host.Id ), options );
+		_environments[host.Id] = (proxy, environment);
+		return environment;
+	}
 }
 
-/// <summary>Asks a new browser panel to open an address, or to focus its address bar.</summary>
+/// <summary>Asks a new browser panel to open an address or show a session tab, or to focus its address bar.</summary>
 /// <param name="Address">The address or search text to open, or null for the home page.</param>
 /// <param name="FocusAddress">Whether the address bar takes focus so the user can type.</param>
 /// <param name="Profile">The settings profile whose cookies the pages use, such as the asking chat's; null uses the active profile.</param>
-internal sealed record BrowserRequest( string? Address, bool FocusAddress, SettingsProfile? Profile = null );
+/// <param name="TabId">The session tab to show instead of opening one, or null.</param>
+internal sealed record BrowserRequest( string? Address, bool FocusAddress, SettingsProfile? Profile = null, Guid? TabId = null );

@@ -9,6 +9,8 @@ namespace Lokn;
 /// A module DLL can come from two folders: the bundled one beside the executable, and, in an installed Loom, the folder downloaded
 /// module updates go to. The newest version of each module loads, but only when <see cref="ModuleCompatibility"/> finds that every type
 /// and member it uses exists in the running application; otherwise the next older version loads, down to the bundled one.
+/// The headless daemon's host, given <see cref="DaemonRules"/>, creates only the allowed modules and follows the window's choices: it reads
+/// the same module states file again whenever it changes, and holds every reload back until no chat's agent works.
 /// </remarks>
 internal sealed class ModuleHost
 {
@@ -48,8 +50,17 @@ internal sealed class ModuleHost
 	/// <summary>Stores the watchers of the module folders while the host runs.</summary>
 	private readonly List<FileSystemWatcher> _watchers = [];
 
-	/// <summary>Stores which installed modules start on.</summary>
-	private readonly ModuleStates _states;
+	/// <summary>Stores which installed modules start on, or null when every module starts on and the user's choices are not remembered.</summary>
+	private readonly ModuleStates? _states;
+
+	/// <summary>Stores the daemon's rules, or null in a window.</summary>
+	private readonly DaemonRules? _daemon;
+
+	/// <summary>Stores, in the daemon, the changed assemblies waiting for every chat turn to end, by simple name; used on the UI thread.</summary>
+	private readonly Dictionary<string, AssemblyImage> _deferred = new( StringComparer.OrdinalIgnoreCase );
+
+	/// <summary>Coalesces the file events one save of the module states file raises into a single read; the daemon's only.</summary>
+	private readonly Timer _statesDebounce;
 
 	/// <summary>Gets the directory beside the executable where module projects deploy their DLLs.</summary>
 	internal static string DefaultDirectory => Path.Combine( AppContext.BaseDirectory, "modules" );
@@ -71,33 +82,53 @@ internal sealed class ModuleHost
 	/// <param name="directory">The directory of the bundled module assemblies.</param>
 	/// <param name="updatesDirectory">The directory applied module updates go to, or null to take no module updates.</param>
 	/// <param name="logPath">The file each load's outcome is appended to.</param>
-	/// <param name="states">Which modules start on.</param>
-	internal ModuleHost( LoknApplication app, string directory, string? updatesDirectory, string logPath, ModuleStates states )
+	/// <param name="states">Which modules start on, or null when every module starts on and the user's choices are not remembered.</param>
+	/// <param name="daemon">The daemon's rules, or null in a window, which applies staged updates and saves the user's choices.</param>
+	internal ModuleHost( LoknApplication app, string directory, string? updatesDirectory, string logPath, ModuleStates? states, DaemonRules? daemon = null )
 	{
 		_app = app;
 		_directory = directory;
 		_updatesDirectory = updatesDirectory;
 		_logPath = logPath;
 		_states = states;
+		_daemon = daemon;
 		_debounce = new( _ => PostChanges(), null, Timeout.Infinite, Timeout.Infinite );
-		app.ModuleToggled += states.Set;
+		_statesDebounce = new( _ => _app.Post( UpdateStates ), null, Timeout.Infinite, Timeout.Infinite );
+		// The daemon only follows the window's choices; the window writes the file.
+		if ( states is not null && daemon is null )
+			app.ModuleToggled += states.Set;
 	}
 
-	/// <summary>Applies staged updates, loads every module assembly in dependency order, then watches the folders for new ones.</summary>
+	/// <summary>Applies staged updates, loads every module assembly in dependency order, then watches the folders for new ones. The daemon leaves
+	/// staged and outdated updates to Loom on this PC, which owns the updates folder, and also watches the module states file.</summary>
 	internal void Start()
 	{
 		Directory.CreateDirectory( _directory );
 		if ( _updatesDirectory is not null )
 		{
 			Directory.CreateDirectory( _updatesDirectory );
-			ApplyStaged();
-			RemoveOutdatedUpdates();
+			if ( _daemon is null )
+			{
+				ApplyStaged();
+				RemoveOutdatedUpdates();
+			}
 		}
 
 		Apply( ReadChanges(), isInitial: true );
-		Watch( _directory );
+		Watch( _directory, AssemblyPattern, _debounce );
 		if ( _updatesDirectory is not null )
-			Watch( _updatesDirectory );
+			Watch( _updatesDirectory, AssemblyPattern, _debounce );
+		if ( _daemon is null )
+			return;
+
+		// A held-back reload applies once the Remote module publishes that no chat works.
+		_app.HostStatusChanged += PostDeferred;
+		if ( _states is not null )
+		{
+			var folder = Path.GetDirectoryName( _states.FilePath )!;
+			Directory.CreateDirectory( folder );
+			Watch( folder, Path.GetFileName( _states.FilePath ), _statesDebounce );
+		}
 	}
 
 	/// <summary>Stops watching while leaving the loaded modules running.</summary>
@@ -107,6 +138,7 @@ internal sealed class ModuleHost
 		foreach ( var watcher in _watchers )
 			watcher.Dispose();
 		_watchers.Clear();
+		_app.HostStatusChanged -= PostDeferred;
 	}
 
 	/// <summary>Moves downloaded updates from the staged folder into use; the folder watcher then reloads their modules.</summary>
@@ -155,13 +187,17 @@ internal sealed class ModuleHost
 		return refused;
 	}
 
-	/// <summary>Starts watching one folder for written module assemblies.</summary>
-	private void Watch( string directory )
+	/// <summary>Starts watching one folder for written files that match a pattern, restarting a quiet period on each event.</summary>
+	/// <param name="directory">The folder.</param>
+	/// <param name="filter">The file name pattern.</param>
+	/// <param name="debounce">The timer whose quiet period each event restarts.</param>
+	private void Watch( string directory, string filter, Timer debounce )
 	{
-		var watcher = new FileSystemWatcher( directory, AssemblyPattern )
+		var watcher = new FileSystemWatcher( directory, filter )
 		{
 			NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
 		};
+		void MarkDirty( object sender, FileSystemEventArgs change ) => debounce.Change( DebounceMilliseconds, Timeout.Infinite );
 		watcher.Changed += MarkDirty;
 		watcher.Created += MarkDirty;
 		watcher.Renamed += MarkDirty;
@@ -170,15 +206,104 @@ internal sealed class ModuleHost
 		_watchers.Add( watcher );
 	}
 
-	/// <summary>Restarts the quiet period after a module assembly is written.</summary>
-	private void MarkDirty( object sender, FileSystemEventArgs change ) => _debounce.Change( DebounceMilliseconds, Timeout.Infinite );
-
 	/// <summary>Reads rebuilt assemblies on the timer thread and reloads them on the UI thread.</summary>
 	private void PostChanges()
 	{
 		var changes = ReadChanges();
 		if ( changes.Count > 0 )
-			_app.Post( () => Apply( changes, isInitial: false ) );
+			_app.Post( () => Receive( changes ) );
+	}
+
+	/// <summary>Reloads changed assemblies on the UI thread; the daemon holds them back while a chat's agent works, since a reload would stop its turn.</summary>
+	/// <param name="changes">The changed assemblies.</param>
+	private void Receive( IReadOnlyList<AssemblyImage> changes )
+	{
+		if ( _daemon is null )
+		{
+			Apply( changes, isInitial: false );
+			return;
+		}
+
+		// A newer change to the same assembly replaces the one waiting.
+		foreach ( var change in changes )
+			_deferred[change.Name] = change;
+		if ( _app.HostStatus is { Working: > 0 } status )
+			UpdateLog( $"DEFERRED {string.Join( ", ", _deferred.Keys.Order( StringComparer.OrdinalIgnoreCase ) )}: {status.Working} {( status.Working == 1 ? "chat is" : "chats are" )} working; reloads once none is" );
+		else
+			ApplyDeferred();
+	}
+
+	/// <summary>Queues a look at the held-back reloads after the daemon's status changed, outside the change that raised it.</summary>
+	private void PostDeferred() => _app.Post( ApplyDeferred );
+
+	/// <summary>Applies the held-back reloads once no chat's agent works; on the UI thread.</summary>
+	private void ApplyDeferred()
+	{
+		if ( _deferred.Count == 0 || _app.HostStatus is { Working: > 0 } )
+			return;
+
+		var changes = _deferred.Values.ToList();
+		_deferred.Clear();
+		Apply( changes, isInitial: false );
+	}
+
+	/// <summary>Reads the module states file again after Loom on this PC saved it and turns the daemon's modules on and off to match; on the UI thread.</summary>
+	/// <remarks>A module turned off stops with every module that needs it; the required modules and the modules they need stay on whatever the
+	/// file says. A module turned on starts after the modules it needs, and stays off while one of them is off, as at startup.</remarks>
+	private void UpdateStates()
+	{
+		// A file read while it is being written is read again after the write's own event.
+		if ( _daemon is null || _states is null || !_states.Reload() )
+			return;
+
+		var known = OrderModules( _app.AvailableModules.Where( IsAllowed ).ToArray() );
+		var wanted = ComputeWanted( known );
+		var loaded = _app.Modules.Select( module => module.Id ).ToHashSet( StringComparer.Ordinal );
+		var off = known.Where( module => loaded.Contains( module.Id ) && !wanted.Contains( module.Id ) ).Select( module => module.Id ).ToHashSet( StringComparer.Ordinal );
+		var isGrowing = off.Count > 0;
+		while ( isGrowing )
+		{
+			var dependents = known.Where( module => loaded.Contains( module.Id ) && !off.Contains( module.Id ) && module.Dependencies.Any( off.Contains ) ).ToArray();
+			foreach ( var dependent in dependents )
+				off.Add( dependent.Id );
+			isGrowing = dependents.Length > 0;
+		}
+
+		// Dependents stop before the modules they need.
+		foreach ( var module in Enumerable.Reverse( known ).Where( module => off.Contains( module.Id ) ) )
+		{
+			if ( _app.Unload( module.Id ) )
+				UpdateLog( $"DISABLED {module.Id}" );
+		}
+
+		foreach ( var module in known.Where( module => wanted.Contains( module.Id ) && !_app.Modules.Any( loaded => loaded.Id == module.Id ) ) )
+		{
+			if ( module.Dependencies.All( id => _app.Modules.Any( loaded => loaded.Id == id ) ) && _app.Enable( module.Id ) )
+				UpdateLog( $"ENABLED {module.Id}" );
+		}
+	}
+
+	/// <summary>Finds the modules the daemon runs: those that cannot unload, those the module states turn on, or every one before the user ever chose,
+	/// and the required modules with every module they need, directly or through another.</summary>
+	/// <param name="modules">The allowed modules known to the daemon.</param>
+	private HashSet<string> ComputeWanted( IReadOnlyList<ILoknModule> modules )
+	{
+		var rules = _daemon!;
+		var wanted = modules
+			.Where( module => !module.CanUnload || rules.Required.Contains( module.Id ) || _states is null || !_states.IsChosen || _states.IsOn( module.Id ) )
+			.Select( module => module.Id )
+			.ToHashSet( StringComparer.Ordinal );
+		var pending = new Stack<string>( rules.Required );
+		while ( pending.TryPop( out var id ) )
+		{
+			foreach ( var dependency in modules.FirstOrDefault( module => module.Id == id )?.Dependencies ?? [] )
+			{
+				if ( wanted.Add( dependency ) )
+					pending.Push( dependency );
+			}
+		}
+
+		return wanted;
 	}
 
 	/// <summary>Deletes updates no newer than the bundled module, which an application update has caught up with.</summary>
@@ -196,7 +321,7 @@ internal sealed class ModuleHost
 	private Dictionary<string, List<string>> ListFiles()
 	{
 		var files = new Dictionary<string, List<string>>( StringComparer.OrdinalIgnoreCase );
-		string[] directories = _updatesDirectory is null ? [_directory] : [_directory, _updatesDirectory];
+		string[] directories = _updatesDirectory is null || !Directory.Exists( _updatesDirectory ) ? [_directory] : [_directory, _updatesDirectory];
 		foreach ( var directory in directories )
 		{
 			foreach ( var file in Directory.GetFiles( directory, AssemblyPattern ) )
@@ -286,7 +411,7 @@ internal sealed class ModuleHost
 				return;
 
 			foreach ( var item in hosted )
-				item.Modules = BuildModules( item.Assembly );
+				item.Modules = [.. BuildModules( item.Assembly ).Where( IsAllowed )];
 
 			var modules = OrderModules( hosted.SelectMany( item => item.Modules ).ToArray() );
 			RemoveDroppedModules( affected, modules );
@@ -295,10 +420,12 @@ internal sealed class ModuleHost
 			var isLoaded = true;
 			if ( isInitial )
 			{
+				var wanted = _daemon is null ? null : ComputeWanted( modules );
 				foreach ( var module in modules )
 				{
 					// A module whose needed modules are off stays listed and off, rather than failing to load; one that cannot unload is always on.
-					if ( (!module.CanUnload || _states.IsOn( module.Id )) && module.Dependencies.All( id => _app.Modules.Any( loaded => loaded.Id == id ) ) )
+					var isOn = !module.CanUnload || (wanted?.Contains( module.Id ) ?? _states?.IsOn( module.Id ) ?? true);
+					if ( isOn && module.Dependencies.All( id => _app.Modules.Any( loaded => loaded.Id == id ) ) )
 						isLoaded &= _app.Load( module );
 					else
 						_app.AddAvailable( module );
@@ -391,11 +518,12 @@ internal sealed class ModuleHost
 		return hosted;
 	}
 
-	/// <summary>Records a refused update, deletes its file so it is not tried again, and reports it.</summary>
+	/// <summary>Records a refused update, deletes its file so it is not tried again, and reports it. The daemon leaves the file to Loom on this PC,
+	/// which owns the updates folder; it tries the file again only once the file changes.</summary>
 	private void Refuse( AssemblyImage image, string problem )
 	{
 		UpdateLog( $"SKIPPED {image.Name} {image.Version}: {problem}" );
-		if ( image.Path is { } path && image.IsUpdate )
+		if ( image.Path is { } path && image.IsUpdate && _daemon is null )
 		{
 			lock ( _scanLock )
 			{
@@ -440,6 +568,9 @@ internal sealed class ModuleHost
 			.ToArray();
 	}
 
+	/// <summary>Tells whether this host creates a module: every module in a window, only the allowed ones in the daemon.</summary>
+	private bool IsAllowed( ILoknModule module ) => _daemon is null || _daemon.Allowed.Contains( module.Id );
+
 	/// <summary>Orders modules so each one follows the modules it declares as dependencies.</summary>
 	private static List<ILoknModule> OrderModules( IReadOnlyList<ILoknModule> modules )
 	{
@@ -471,17 +602,12 @@ internal sealed class ModuleHost
 	}
 
 	/// <summary>Appends one timestamped outcome line; a logging failure never blocks a reload.</summary>
-	private void UpdateLog( string line )
-	{
-		try
-		{
-			Directory.CreateDirectory( Path.GetDirectoryName( _logPath )! );
-			File.AppendAllText( _logPath, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {line}{Environment.NewLine}" );
-		}
-		catch ( IOException )
-		{
-		}
-	}
+	private void UpdateLog( string line ) => LogFile.Append( _logPath, line );
+
+	/// <summary>Holds the daemon's module rules (docs/remote.md, Roles).</summary>
+	/// <param name="Allowed">The only module IDs the daemon creates; every other module an assembly defines is ignored.</param>
+	/// <param name="Required">The module IDs that stay on whatever the module states say, with every module they need, such as the module the daemon exists for.</param>
+	internal sealed record DaemonRules( IReadOnlySet<string> Allowed, IReadOnlySet<string> Required );
 
 	/// <summary>Holds one module assembly's bytes as read from disk or downloaded.</summary>
 	/// <param name="Name">The assembly's simple name.</param>

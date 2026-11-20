@@ -13,7 +13,7 @@
 		<RootNamespace>Lokn</RootNamespace>
 		<ApplicationIcon>assets\brand\loom.ico</ApplicationIcon>
 		<!-- The release version: the installer's package version, and the version Program reports to Goo. Raise it for every release. -->
-		<Version>0.2.0</Version>
+		<Version>0.3.0</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
@@ -30,7 +30,10 @@
 		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\WinRT.Runtime.dll" />
 		<!-- Modules build Core without the app version too, so a publish builds it once; modules bind to Core by name, not version (Shell/ModuleHost.cs). -->
 		<ProjectReference Include="Core\Lokn.Core.csproj" GlobalPropertiesToRemove="Version" />
-		<Compile Remove="Core\**\*.cs;tests\**\*.cs;Modules\**\*.cs" />
+		<!-- The relay is its own server project, never part of Loom. -->
+		<Compile Remove="Core\**\*.cs;tests\**\*.cs;Modules\**\*.cs;Relay\**\*.cs" />
+		<None Remove="Relay\**" />
+		<Content Remove="Relay\**" />
 		<!-- The source-module compiler is part of the host; every other module is its own reloadable DLL. -->
 		<Compile Include="Modules\Hotload\**\*.cs" />
 		<EmbeddedResource Include="Modules\Hotload\ModuleGuide.md" LogicalName="ModuleGuide.md" />
@@ -56,5 +59,6 @@
 		<ProjectReference Include="Modules\Browser\Lokn.Modules.Browser.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Notifications\Lokn.Modules.Notifications.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Setup\Lokn.Modules.Setup.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Remote\Lokn.Modules.Remote.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 	</ItemGroup>
 </Project>

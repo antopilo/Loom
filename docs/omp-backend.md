@@ -318,7 +318,7 @@ its name.
 
 ## Transport and lifetime
 
-The transport correlates request IDs, keeps draining stdout/stderr, negotiates protocol v2 when advertised, and reassembles ordered base64 chunks into strict UTF-8 JSON up to Omp's 64 MiB logical-frame limit. An optional synchronous `onStarting` callback attaches the frame consumer before the child starts, allowing startup dialogs to be answered before protocol initialization completes. Raw cloned frames are delivered on the reader thread; UI consumers post updates through their panel context. Closing a chat stops its owned child; unloading Omp drains its children and terminates any that fail to exit after stdin closes. Login terminals opened explicitly by the user remain independent.
+The transport correlates request IDs, keeps draining stdout/stderr, negotiates protocol v2 when advertised, and reassembles ordered base64 chunks into strict UTF-8 JSON up to Omp's 64 MiB logical-frame limit. An optional synchronous `onStarting` callback attaches the frame consumer before the child starts, allowing startup dialogs to be answered before protocol initialization completes. Raw cloned frames are delivered on the reader thread; the chat session posts them to the UI thread. Each conversation's agent runs in a `ChatSession` owned by the Conversations module (`ChatSessionService`), not by its panel: a chat panel (`ChatContent`) only shows a session and hands it what the user types. When the last panel showing a chat closes, an idle session stops its child at once and a working one finishes its turn first, recording its messages with no panel open; host tools see the panel showing the chat as their caller. Unloading Conversations stops every session; unloading Omp drains its children and terminates any that fail to exit after stdin closes. Login terminals opened explicitly by the user remain independent.
 
 Focused checks exercise profile arguments, chunk reconstruction/ordering, concurrent request correlation, backend errors, cancellation, and shutdown using a synthetic JSONL child. They do not invoke a provider, authenticate, or incur model usage. Installed CLI version/help and fresh-profile startup were also checked locally.
 
@@ -376,7 +376,7 @@ close panels, and list and run palette commands. A chat cannot close itself.
 `worktrees_enter` moves the calling chat into a git worktree of its repository, or back
 to the main checkout; the chat keeps its Omp process for the rest of the turn, records
 the worktree (`ConversationInfo.Worktree`), and starts Omp there for its next turn.
-A project chat also follows its agent's shell: `ChatContent` counts the `details.cwd` of each
+A project chat also follows its agent's shell: `ChatSession` counts the `details.cwd` of each
 finished bash result in a turn, and when the turn settles, it resolves each folder with
 `git rev-parse --show-toplevel --git-common-dir`. If one worktree of the project's repository
 has more commands than any other and is not the chat's folder, the chat moves there through

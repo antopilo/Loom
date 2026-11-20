@@ -1,4 +1,5 @@
 using System.Globalization;
+using Lokn.Core;
 
 namespace Lokn.Modules.Git;
 
@@ -48,23 +49,26 @@ public sealed record GitState(
 	internal static GitState BuildEmpty( string directory, string? error = null ) => new( directory, null, null, null, null, 0, 0, 0, 0, 0, 0, 0, 0, 0, error );
 
 	/// <summary>Reads a folder's repository, branch and changes with three git commands at most.</summary>
+	/// <param name="workspace">The host the folder is on.</param>
+	/// <param name="directory">The folder.</param>
+	/// <param name="cancellationToken">Cancels the read.</param>
 	/// <returns>The state, with <see cref="Error"/> set when git could not be run or failed unexpectedly.</returns>
-	internal static async Task<GitState> ReadAsync( string directory, CancellationToken cancellationToken )
+	internal static async Task<GitState> ReadAsync( IWorkspaceHost workspace, string directory, CancellationToken cancellationToken )
 	{
-		if ( !System.IO.Directory.Exists( directory ) )
+		if ( !await workspace.DirectoryExistsAsync( directory, cancellationToken ).ConfigureAwait( false ) )
 			return BuildEmpty( directory, "The folder does not exist." );
 
-		var paths = await GitProcess.RunProcessAsync( directory, null, cancellationToken, "rev-parse", "--path-format=absolute", "--show-toplevel" ).ConfigureAwait( false );
+		var paths = await GitProcess.RunProcessAsync( workspace, directory, null, cancellationToken, "rev-parse", "--path-format=absolute", "--show-toplevel" ).ConfigureAwait( false );
 		if ( paths.ExitCode != 0 )
 			return BuildEmpty( directory, paths.Diagnostic.Contains( "not a git repository", StringComparison.OrdinalIgnoreCase ) ? null : GitProcess.BuildError( paths ).Message );
 
 		var root = Path.GetFullPath( paths.Output.Trim() );
-		var status = await GitProcess.RunAsync( root, cancellationToken, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal" ).ConfigureAwait( false );
+		var status = await GitProcess.RunAsync( workspace, root, cancellationToken, "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=normal" ).ConfigureAwait( false );
 		var state = ParseStatus( directory, root, status );
 		if ( state.Staged + state.Unstaged + state.Conflicted == 0 )
 			return state;
 
-		var numstat = await GitProcess.RunAsync( root, cancellationToken, "diff", "--numstat", "-z", state.Commit is null ? EmptyTree : "HEAD" ).ConfigureAwait( false );
+		var numstat = await GitProcess.RunAsync( workspace, root, cancellationToken, "diff", "--numstat", "-z", state.Commit is null ? EmptyTree : "HEAD" ).ConfigureAwait( false );
 		var (added, removed) = ParseNumstat( numstat );
 		return state with
 		{

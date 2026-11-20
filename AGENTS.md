@@ -76,9 +76,14 @@ running Lokn has the Release output locked.
 | Create a hot-reloaded source module | `pwsh scripts/new-module.ps1 -Name Notes` |
 | Compile-check a source module | `pwsh scripts/check-module.ps1 -Name Notes` |
 | Compile-check a project's `.lokn\modules` (all, or one with `-Name`) | `pwsh scripts/check-module.ps1 -Project F:\path\to\repo` |
+| Build the 0.2.0 data loader the upgrade checks' downgrade step runs (`%TEMP%\loom-020`) | `pwsh scripts/loader-020.ps1` |
 
 Headless suites: `default`, `features`, `all`, `layout`, `conversations`, `omp`,
-`chat`, `worktrees`, `terminal`, `git`, `hotload`, `updates`, `settings`. Report which suites you actually ran.
+`chat`, `worktrees`, `terminal`, `git`, `remote`, `hotload`, `updates`, `settings`. Report which suites you actually ran.
+
+The daemon, its clients and the protocol are in [docs/remote.md](docs/remote.md). `Loom.exe --host --bare <folder>`
+runs an isolated daemon for checks; never start a daemon on the user's own data without asking. The daemon follows
+Settings › Modules (`modules.json`) and reloads rebuilt modules itself, but only once none of its chats' agents works.
 
 Three things need the user's go-ahead first, because they take over their desktop,
 their running app, or their users' copies of Loom:
@@ -98,10 +103,13 @@ their running app, or their users' copies of Loom:
 What a change needs before it is live:
 
 - **Source module:** nothing. Saving its file reloads it.
-- **Built-in module** (`Modules/Omp`, `Git` (with the Git panel and the side view's Changes and History modes), `Projects`, `Conversations` (with `Chat` and Home), `Files`, `Editor`, `Notifications`, `Worktrees`, `Terminal`, `Browser`, `Workspaces`, `Setup` (Get started)):
+- **Built-in module** (`Modules/Omp`, `Git` (with the Git panel and the side view's Changes and History modes), `Projects`, `Conversations` (with `Chat` and Home), `Files`, `Editor`, `Notifications`, `Worktrees`, `Terminal`, `Browser`, `Workspaces`, `Setup` (Get started), `Remote` (daemon gateway, client, Remote access, Window stream)):
   `reload-module.ps1 -Name <Module>`. It prints `RELOADED`, `FAILED` or `NO CHANGE`;
   the same lines are kept in `%TEMP%\Lokn\modules.log`. Modules that depend on the
-  rebuilt one reload with it.
+  rebuilt one reload with it. A daemon started from the same build reloads the module
+  too and the script prints its outcome from its `host.log` (`%TEMP%\Lokn\host.log`, or
+  in its bare folder): `RELOADED`, `FAILED`, or `DEFERRED` while a chat works there, in
+  which case the daemon reloads once no chat works and logs the result then.
 - **Core, the shell (with its theme in `Shell/Theming`), `Program.cs`, `Modules/Hotload`:** a restart.
 
 Reloading Omp, Git, Projects or Conversations (which includes Chat) reopens the chat panels and

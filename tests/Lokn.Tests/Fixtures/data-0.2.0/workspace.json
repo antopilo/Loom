@@ -1,0 +1,134 @@
+{
+  "Version": 1,
+  "ActivePaneId": "dc2d2989-2e77-4ab1-8a98-48abaf4e7898",
+  "Root": {
+    "Kind": "split",
+    "Id": "9e7af1f8-23ef-4e16-adb4-9e206a71c00e",
+    "PanelId": null,
+    "Axis": 0,
+    "Ratio": 0.5,
+    "First": {
+      "Kind": "split",
+      "Id": "538377ed-5309-41f2-a47b-0eba1254ab42",
+      "PanelId": null,
+      "Axis": 0,
+      "Ratio": 0.24,
+      "First": {
+        "Kind": "pane",
+        "Id": "35e14c06-c233-4f52-948d-ad688b60d6a6",
+        "PanelId": "20f5ef87-5c8a-4227-83db-01f45c95c390",
+        "Axis": 0,
+        "Ratio": 0,
+        "First": null,
+        "Second": null
+      },
+      "Second": {
+        "Kind": "split",
+        "Id": "7f3921c3-1ad8-42b7-af1e-b31e1a892e22",
+        "PanelId": null,
+        "Axis": 0,
+        "Ratio": 0.5,
+        "First": {
+          "Kind": "pane",
+          "Id": "dc2d2989-2e77-4ab1-8a98-48abaf4e7898",
+          "PanelId": "1b6a30e6-2c88-4908-89e3-ba853f8d08e8",
+          "Axis": 0,
+          "Ratio": 0,
+          "First": null,
+          "Second": null
+        },
+        "Second": {
+          "Kind": "split",
+          "Id": "5dc6d6c9-2435-4b50-a400-bd756769cdd8",
+          "PanelId": null,
+          "Axis": 1,
+          "Ratio": 0.5,
+          "First": {
+            "Kind": "pane",
+            "Id": "b5d368c2-2b6f-404f-86ad-d15a43a2fe3e",
+            "PanelId": "addcb25e-e75e-4718-a803-d74f14945b72",
+            "Axis": 0,
+            "Ratio": 0,
+            "First": null,
+            "Second": null
+          },
+          "Second": {
+            "Kind": "pane",
+            "Id": "daa91c63-a7ee-423b-a63b-5989c4657cbc",
+            "PanelId": "307b9bb3-236a-4724-868e-cf8521fabf49",
+            "Axis": 0,
+            "Ratio": 0,
+            "First": null,
+            "Second": null
+          }
+        }
+      }
+    },
+    "Second": {
+      "Kind": "pane",
+      "Id": "95d3148c-2395-437e-8ca5-3588cde1fbc2",
+      "PanelId": "e6831637-4250-41bf-abe3-832122473aac",
+      "Axis": 0,
+      "Ratio": 0,
+      "First": null,
+      "Second": null
+    }
+  },
+  "Panels": [
+    {
+      "Id": "20f5ef87-5c8a-4227-83db-01f45c95c390",
+      "TypeId": "files.tree",
+      "Title": "Files",
+      "State": {
+        "Mode": "git.changes",
+        "States": {}
+      }
+    },
+    {
+      "Id": "1b6a30e6-2c88-4908-89e3-ba853f8d08e8",
+      "TypeId": "conversations.chat",
+      "Title": "Conversation",
+      "State": {
+        "ConversationId": "83688683-2893-453a-a313-7e719c953b8d",
+        "Profile": 1,
+        "ContinueTurn": false
+      }
+    },
+    {
+      "Id": "addcb25e-e75e-4718-a803-d74f14945b72",
+      "TypeId": "browser.page",
+      "Title": "Browser",
+      "State": {
+        "Address": "https://example.com/docs",
+        "Profile": 1,
+        "Tabs": [
+          "https://example.com/",
+          "https://example.com/docs"
+        ],
+        "Selected": 1
+      }
+    },
+    {
+      "Id": "307b9bb3-236a-4724-868e-cf8521fabf49",
+      "TypeId": "terminal.shell",
+      "Title": "Terminal",
+      "State": {
+        "Name": "pwsh -NoLogo",
+        "Command": "pwsh -NoLogo",
+        "Directory": "C:\\LoomFixture\\demo-app"
+      }
+    },
+    {
+      "Id": "e6831637-4250-41bf-abe3-832122473aac",
+      "TypeId": "git.panel",
+      "Title": "Git",
+      "State": {
+        "Directory": "C:\\LoomFixture\\demo-app",
+        "ReviewAction": null,
+        "ReviewId": null,
+        "Focus": null,
+        "Staged": false
+      }
+    }
+  ]
+}

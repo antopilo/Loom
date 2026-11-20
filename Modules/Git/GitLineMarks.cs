@@ -9,13 +9,13 @@ internal static partial class GitLineMarks
 	/// <summary>Gets the source the Git module contributes to the editor.</summary>
 	internal static LineMarkSource Source { get; } = new( "git", ComputeAsync );
 
-	/// <summary>Computes a file's changes against HEAD; a file outside a repository, untracked or unchanged has none.</summary>
-	internal static async Task<IReadOnlyList<LineMark>> ComputeAsync( string path, CancellationToken cancellation )
+	/// <summary>Computes a file's changes against HEAD on the editor's host; a file outside a repository, untracked or unchanged has none.</summary>
+	internal static async Task<IReadOnlyList<LineMark>> ComputeAsync( IWorkspaceHost workspace, string path, CancellationToken cancellation )
 	{
-		if ( Path.GetDirectoryName( path ) is not { } directory || !Directory.Exists( directory ) )
+		if ( Path.GetDirectoryName( path ) is not { } directory || !await workspace.DirectoryExistsAsync( directory, cancellation ) )
 			return [];
 
-		var diff = await GitProcess.TryRunAsync( directory, cancellation, "diff", "--no-color", "--no-ext-diff", "-U0", "HEAD", "--", Path.GetFileName( path ) );
+		var diff = await GitProcess.TryRunAsync( workspace, directory, cancellation, "diff", "--no-color", "--no-ext-diff", "-U0", "HEAD", "--", Path.GetFileName( path ) );
 		return diff is null ? [] : Parse( diff );
 	}
 

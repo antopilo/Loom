@@ -7,10 +7,45 @@ using Lokn.Modules.Omp;
 
 namespace Lokn.Modules.Chat;
 
-/// <summary>Owns a native rich conversation view and its profile-pinned Omp process.</summary>
+/// <summary>Owns a native rich conversation view of one <see cref="IChatSession"/>, which runs the conversation's profile-pinned Omp process here or in a host.</summary>
 /// <remarks>While the Git module is on, the rail under the prompt shows the chat folder's repository, branch and changes, and diffs open beside the chat; without it the chat works the same, without them.</remarks>
-public sealed partial class ChatContent( PanelContext context, ConversationStore store, Guid conversationId, OmpService backend ) : PanelContent
+public sealed partial class ChatContent : PanelContent
 {
+	/// <summary>Stores the panel this view shows in.</summary>
+	private readonly PanelContext context;
+
+	/// <summary>Stores the history the conversation is recorded in.</summary>
+	private readonly ConversationStore store;
+
+	/// <summary>Stores the session that runs the conversation this view shows.</summary>
+	private readonly IChatSession session;
+
+	/// <summary>Stores the conversation this view shows.</summary>
+	private readonly Guid conversationId;
+
+	/// <summary>Stores the Omp service the session runs on, for model names and provider usage.</summary>
+	private readonly OmpService backend;
+
+	/// <summary>Shows a conversation's session in a panel, following its changes and attaching the panel as the one its agent's tools see.</summary>
+	/// <param name="context">The panel this view shows in.</param>
+	/// <param name="store">The history the conversation is recorded in.</param>
+	/// <param name="session">The session that runs the conversation.</param>
+	public ChatContent( PanelContext context, ConversationStore store, IChatSession session )
+	{
+		this.context = context;
+		this.store = store;
+		this.session = session;
+		conversationId = session.ConversationId;
+		backend = session.Backend;
+		_composer = new( new TextDocument( store.Get( conversationId ).Draft ?? "" ) );
+		_marks = new( action => context.Post( action ) );
+		UpdateSubscription( isSubscribed: true );
+		session.Attach( context.Id );
+	}
+
+	/// <summary>Gets the session this view shows.</summary>
+	internal IChatSession Session => session;
+
 	/// <summary>Defines the transcript inset in logical pixels.</summary>
 	internal static int ContentPadding => Theme.Current.Spacing * 2;
 
@@ -27,28 +62,19 @@ public sealed partial class ChatContent( PanelContext context, ConversationStore
 	private readonly State<int> _version = new( 0 );
 
 	/// <summary>Retains the multiline prompt and its selection independently of docking.</summary>
-	private readonly TextEditorController _composer = new( new TextDocument( store.Get( conversationId ).Draft ?? "" ) );
+	private readonly TextEditorController _composer;
 
 	/// <summary>Targets the transcript scroller and keeps it on the newest message until the reader scrolls up.</summary>
 	private readonly TranscriptFollow _transcript = new();
 
 	/// <summary>Keeps where the user's prompts sit, for their lines along the transcript scrollbar.</summary>
-	private readonly TranscriptMarks _marks = new( action => context.Post( action ) );
+	private readonly TranscriptMarks _marks;
 
 	/// <summary>Receives each placement of the transcript rows; kept as one delegate across builds.</summary>
 	private Action<IReadOnlyList<TranscriptRow>, double[]>? _placeRows;
 
 	/// <summary>Retains expanded rich blocks by stable message and content identifiers.</summary>
 	private readonly HashSet<string> _expanded = [];
-
-	/// <summary>Maps this backend process's streaming message identifiers to local history identifiers.</summary>
-	private readonly Dictionary<string, Guid> _messageIds = new( StringComparer.Ordinal );
-
-	/// <summary>Retains live tool execution state by the backend tool-call identifier.</summary>
-	private readonly Dictionary<string, JsonElement> _tools = new( StringComparer.Ordinal );
-
-	/// <summary>Retains pending native tool dialogs in wire order.</summary>
-	private readonly List<JsonElement> _dialogs = [];
 
 	/// <summary>Retains editable dialog values independently of composer input.</summary>
 	private readonly Dictionary<string, TextEditorController> _dialogEditors = [];
@@ -80,41 +106,11 @@ public sealed partial class ChatContent( PanelContext context, ConversationStore
 	/// <summary>Reports whether the row being built was built before, so a tool line or image new to it arrived while it was on screen.</summary>
 	private bool _isRowLive;
 
-	/// <summary>Retains the single startup task until this panel closes.</summary>
-	private Task<OmpSession>? _connection;
-
-	/// <summary>Stores the connected process after startup completes.</summary>
-	private OmpSession? _session;
-
-	/// <summary>Serves Lokn's agent tools to the connected session.</summary>
-	private OmpToolBridge? _toolBridge;
-
-	/// <summary>Reports whether a prompt is connecting, running, or waiting on tools.</summary>
-	private bool _isBusy;
-
 	/// <summary>Reports whether the chat is connecting so it can open the Agent Hub once.</summary>
 	private bool _isOpeningAgents;
 
-	/// <summary>Reports whether this panel already asked Omp to summarize the chat into a title.</summary>
-	private bool _isTitleRequested;
-
-	/// <summary>Reports whether panel closure has detached backend events.</summary>
+	/// <summary>Reports whether the panel closed and detached from its session.</summary>
 	private bool _isClosed;
-
-	/// <summary>Stores the visible backend status or error.</summary>
-	private string _status = "Ready";
-
-	/// <summary>Retains the model reported by the connected backend rather than guessing its default.</summary>
-	private string _connectedModel = "";
-
-	/// <summary>Retains catalog limits and prices for the connected model when Omp reports them.</summary>
-	private OmpModelInfo? _modelInfo;
-
-	/// <summary>Counts compactions observed while this panel instance is open.</summary>
-	private int _compactionCount;
-
-	/// <summary>Counts isolated model calls Lokn starts for this chat: automatic titles and new-task checks.</summary>
-	private int _auxiliaryCallCount;
 
 	/// <summary>Builds the retained transcript, pending dialog, and multiline composer.</summary>
 	public override Blob Build()
@@ -146,12 +142,13 @@ public sealed partial class ChatContent( PanelContext context, ConversationStore
 				ScrollbarY = ViewStyle.BuildScrollbar(),
 			};
 		var stack = new List<Blob>();
-		if ( _dialogs.FirstOrDefault() is { ValueKind: JsonValueKind.Object } dialog )
+		// A question that was answered stays first while its exit plays; the next pending one shows after it.
+		if ( (_leavingDialogs.Count > 0 ? _leavingDialogs[0] : session.PendingDialog) is { ValueKind: JsonValueKind.Object } dialog )
 		{
 			var id = ReadText( dialog, "id" );
 			// The exit wraps the entrance, so the two animate different elements and neither overrides the other's opacity.
 			var question = Cell.Mount<RevealInput, Reveal>( "dialog:" + id, new( BuildDialog( dialog ), _shown.Add( "dialog:" + id ) ) );
-			var column = BuildColumn( "conversation-dialog", [Reveal.BuildExit( "dialog-exit", question, _leavingDialogs.Contains( id ) )], 0 );
+			var column = BuildColumn( "conversation-dialog", [Reveal.BuildExit( "dialog-exit", question, _leavingDialogs.Count > 0 )], 0 );
 			// The composer's context meter sits on its top edge, so the question keeps clear of it.
 			column.Padding = new Edges( 0, 0, Theme.Current.Spacing * 2, 0 );
 			stack.Add( column );
@@ -212,17 +209,16 @@ public sealed partial class ChatContent( PanelContext context, ConversationStore
 		};
 	}
 
-	/// <summary>Builds the empty chat, new or cleared, as Home shows it: the wordmark and recent cards, centered above the composer.</summary>
+	/// <summary>Builds the empty chat, new or cleared, as Home shows it: the wordmark and its host's recent cards, centered above the composer.</summary>
 	private Column BuildEmpty()
 	{
 		var children = new List<Blob> { Cell.Mount( "home-logo", () => new HomeLogo() ) };
 		// A chat hosted without the Conversations module, as in focused checks, has no projects to offer.
 		if ( context.App.Modules.Any( module => module.Id == "conversations" ) )
-			children.Add( HomeContent.BuildCards( context, context.App.GetModule<ConversationsModule>(), error =>
-			{
-				_status = error;
-				MarkChanged();
-			} ) );
+		{
+			var conversations = context.App.GetModule<ConversationsModule>();
+			children.Add( HomeContent.BuildCards( context, conversations, conversations.Hosts.Find( context.HostId ) ?? conversations.Hosts.Local, session.UpdateStatus ) );
+		}
 
 		return new Column
 		{
@@ -351,7 +347,7 @@ public sealed partial class ChatContent( PanelContext context, ConversationStore
 			}
 		}
 		Flush();
-		if ( !_isBusy )
+		if ( !session.IsBusy )
 			AddChanges();
 		return rows;
 	}
@@ -470,19 +466,20 @@ public sealed partial class ChatContent( PanelContext context, ConversationStore
 		};
 	}
 
-	/// <summary>Captures the conversation identity and its immutable account profile for layout restoration.</summary>
-	/// <remarks>A reload stops the running turn with this panel, so the capture also asks the reopened chat to continue it.</remarks>
-	public override JsonElement? CaptureState() => JsonSerializer.SerializeToElement(
-		new ConversationPanelInput( conversationId, store.Get( conversationId ).Profile, _isBusy && context.App.Panels.IsSuspending ) );
+	/// <summary>Captures the conversation identity, its immutable account profile and its host for layout restoration.</summary>
+	/// <remarks>A reload stops the running turn with the module, so the capture also asks the reopened chat to continue it.</remarks>
+	public override JsonElement? CaptureState() => JsonSerializer.SerializeToElement( ConversationsModule.BuildInput(
+		new ChatRef( context.HostId ?? LoknHost.LocalId, conversationId ), store.Get( conversationId ).Profile, session.IsBusy && context.App.Panels.IsSuspending ) );
 
-	/// <summary>Saves streaming history and the unsent prompt not saved yet, off the UI thread, then releases the panel-owned native child process.</summary>
+	/// <summary>Saves the unsent prompt, then detaches from the session, which stops its Omp process once no panel shows it and its agent is idle.</summary>
+	/// <remarks>A conversation deleted meanwhile, such as from another device, has no draft to keep.</remarks>
 	public override void Closed()
 	{
 		_isClosed = true;
-		store.SetWorking( conversationId, false );
-		store.SaveDraft( conversationId, _composer.Document.GetText() );
-		store.Save();
-		UpdateStopSession();
+		UpdateSubscription( isSubscribed: false );
+		if ( store.Find( conversationId ) is not null )
+			store.SaveDraft( conversationId, _composer.Document.GetText() );
+		session.Detach( context.Id );
 		_gitWatch?.Dispose();
 		_gitWatch = null;
 	}
@@ -498,13 +495,8 @@ public sealed partial class ChatContent( PanelContext context, ConversationStore
 		MinWidth = 0,
 	};
 
-	/// <summary>Rebuilds this panel after a UI-thread state transition, and tells the sidebar whether the agent works and the feed whether it waits on a question.</summary>
-	private void MarkChanged()
-	{
-		_version.Value++;
-		store.SetWorking( conversationId, _isBusy && !_isClosed );
-		UpdateDialogSignature();
-	}
+	/// <summary>Rebuilds this panel after a UI-thread state transition.</summary>
+	private void MarkChanged() => _version.Value++;
 
 	/// <summary>Reads an optional text property without losing unknown rich payloads.</summary>
 	internal static string ReadText( JsonElement element, string property, string fallback = "" ) =>

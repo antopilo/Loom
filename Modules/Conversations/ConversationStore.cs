@@ -110,15 +110,25 @@ public sealed partial class ConversationStore
 		return _conversations.GetValueOrDefault( id );
 	}
 
-	/// <summary>Gets the folder a chat outside projects works in until one is chosen for it: the user's home folder.</summary>
+	/// <summary>Gets This PC's folder a chat outside projects works in until one is chosen for it: the user's home folder.</summary>
 	public static string DefaultDirectory => Environment.GetFolderPath( Environment.SpecialFolder.UserProfile );
 
-	/// <summary>Gets the folder a chat works in: its project's worktree or directory, else the folder chosen for it, else <see cref="DefaultDirectory"/>.</summary>
+	/// <summary>Gets or sets the home folder of the PC a mirror shows the chats of, as its host reported it in <c>sync</c>; null for This PC's own.</summary>
+	/// <remarks>A paired host's chat outside projects works in that host's home folder, which a path of This PC's disk would not name.</remarks>
+	public string? HostHome
+	{
+		get; set;
+	}
+
+	/// <summary>Gets the folder a chat outside projects works in until one is chosen for it: the home folder of the PC whose chats these are.</summary>
+	public string HomeDirectory => HostHome ?? DefaultDirectory;
+
+	/// <summary>Gets the folder a chat works in: its project's worktree or directory, else the folder chosen for it, else <see cref="HomeDirectory"/>.</summary>
 	public string GetDirectory( Guid id )
 	{
 		var conversation = Get( id );
 		return conversation.ProjectId is { } projectId && _projects?.Find( projectId ) is { } project ? conversation.Worktree ?? project.Directory
-			: conversation.Directory ?? DefaultDirectory;
+			: conversation.Directory ?? HomeDirectory;
 	}
 
 	/// <summary>Gets a snapshot of a conversation's chronological messages, reading them from disk the first time.</summary>
@@ -152,16 +162,26 @@ public sealed partial class ConversationStore
 	}
 
 	/// <summary>Creates an empty conversation pinned to its account profile; without a chat, it is a task of other panels only.</summary>
-	public ConversationInfo CreateConversation( SettingsProfile profile, Guid? projectId = null, string title = "New chat", bool hasChat = true )
+	/// <remarks>A mirror adds it at once, so its caller can open it, and sends it to the host, which creates it under the same identifier and time.</remarks>
+	public ConversationInfo CreateConversation( SettingsProfile profile, Guid? projectId = null, string title = "New chat", bool hasChat = true ) =>
+		CreateConversation( Guid.NewGuid(), DateTimeOffset.UtcNow, profile, projectId, title, hasChat );
+
+	/// <summary>Creates an empty conversation with a given identifier and start, unless one with the identifier exists, such as a mirror's own creation coming back from the host.</summary>
+	private ConversationInfo CreateConversation( Guid id, DateTimeOffset createdAt, SettingsProfile profile, Guid? projectId, string title, bool hasChat )
 	{
 		EnsureLoaded();
 		ArgumentException.ThrowIfNullOrWhiteSpace( title );
+		if ( _conversations.TryGetValue( id, out var known ) )
+			return known;
+
 		EnsureProjectProfile( profile, projectId );
-		var now = DateTimeOffset.UtcNow;
-		var conversation = new ConversationInfo( Guid.NewGuid(), profile, projectId, title.Trim(), now, CreatedAt: now, HasChat: hasChat );
+		var args = new { id, createdAt, profile, projectId, title, hasChat };
+		var conversation = new ConversationInfo( id, profile, projectId, title.Trim(), createdAt, CreatedAt: createdAt, HasChat: hasChat );
 		_conversations.Add( conversation.Id, conversation );
 		_messages.Add( conversation.Id, [] );
 		MarkChanged();
+		// A mirror shows it at once, so its caller can open it, and the host's copy coming back finds it here; the host creates it under the same identifier.
+		MarkMutated( nameof( CreateConversation ), args );
 		return conversation;
 	}
 
@@ -177,6 +197,7 @@ public sealed partial class ConversationStore
 			HasChat = true,
 		};
 		MarkChanged();
+		MarkMutated( nameof( AddChat ), new { id } );
 	}
 
 	/// <summary>Names a task as the user chose; no generated title replaces it afterwards, even one equal to it.</summary>
@@ -193,6 +214,7 @@ public sealed partial class ConversationStore
 			IsTitleChosen = true,
 		};
 		MarkChanged();
+		MarkMutated( nameof( RenameConversation ), new { id, title } );
 	}
 
 	/// <summary>Updates a conversation title and project as the user chose them; a changed title is never replaced by a generated one.</summary>
@@ -201,7 +223,7 @@ public sealed partial class ConversationStore
 		ArgumentException.ThrowIfNullOrWhiteSpace( title );
 		var conversation = Get( id );
 		EnsureProjectProfile( conversation.Profile, projectId );
-		_conversations[id] = conversation with
+		var updated = conversation with
 		{
 			Title = title.Trim(),
 			ProjectId = projectId,
@@ -209,7 +231,13 @@ public sealed partial class ConversationStore
 			Position = projectId == conversation.ProjectId ? conversation.Position : null,
 			IsTitleChosen = conversation.IsTitleChosen || title.Trim() != conversation.Title,
 		};
+		// The host's echo of a mirror's own change finds it applied already.
+		if ( updated == conversation )
+			return;
+
+		_conversations[id] = updated;
 		MarkChanged();
+		MarkMutated( nameof( UpdateConversation ), new { id, title, projectId } );
 	}
 
 	/// <summary>Defines the most words a generated title keeps.</summary>
@@ -219,13 +247,16 @@ public sealed partial class ConversationStore
 	/// <param name="id">The conversation.</param>
 	/// <param name="title">The new title; a model's is cleaned by <see cref="ComputeGeneratedTitle"/>.</param>
 	/// <param name="isGenerated">Whether a model summarized it, so no further summary is asked for.</param>
-	/// <returns>Whether the title was set.</returns>
+	/// <returns>Whether the title is set, false when the user named the chat or the title is empty.</returns>
 	public bool SetAutomaticTitle( Guid id, string title, bool isGenerated )
 	{
 		var conversation = Get( id );
+		var args = new { id, title, isGenerated };
 		title = isGenerated ? ComputeGeneratedTitle( title ) : title.Trim();
 		if ( conversation.IsTitleChosen || title.Length == 0 )
 			return false;
+		if ( conversation.Title == title && (conversation.IsTitleGenerated || !isGenerated) )
+			return true;
 
 		_conversations[id] = conversation with
 		{
@@ -233,6 +264,7 @@ public sealed partial class ConversationStore
 			IsTitleGenerated = conversation.IsTitleGenerated || isGenerated,
 		};
 		MarkChanged();
+		MarkMutated( nameof( SetAutomaticTitle ), args );
 		return true;
 	}
 
@@ -273,10 +305,12 @@ public sealed partial class ConversationStore
 			IsPinned = isPinned,
 		};
 		MarkChanged();
+		MarkMutated( nameof( SetPinned ), new { id, isPinned } );
 	}
 
 	/// <summary>Moves a task to another's place among its project's tasks, or the chats outside projects; the tasks between shift toward where
 	/// it was, and every one of them keeps its place from then on.</summary>
+	/// <remarks>Moving again is not a no-op, so a mirror only sends the move and shows it once the host's operation comes back.</remarks>
 	/// <exception cref="ArgumentException">The two tasks are in different projects or profiles.</exception>
 	public void MoveConversation( Guid id, Guid target )
 	{
@@ -285,6 +319,10 @@ public sealed partial class ConversationStore
 		if ( moved.Profile != other.Profile || moved.ProjectId != other.ProjectId )
 			throw new ArgumentException( "A task moves only among the tasks of its own project." );
 		if ( id == target )
+			return;
+
+		var args = new { id, target };
+		if ( TryForward( nameof( MoveConversation ), args ) )
 			return;
 
 		var order = Conversations( moved.Profile, moved.ProjectId ).Select( conversation => conversation.Id ).ToList();
@@ -298,6 +336,7 @@ public sealed partial class ConversationStore
 				_conversations[conversation.Id] = conversation with { Position = index };
 		}
 		MarkChanged();
+		Mutated?.Invoke( StoreOp.Build( StoreOp.Conversations, nameof( MoveConversation ), args ) );
 	}
 
 	/// <summary>Stops a chat from suggesting a new chat when a prompt looks like a new task.</summary>
@@ -312,6 +351,7 @@ public sealed partial class ConversationStore
 			IsTaskCheckOff = true,
 		};
 		MarkChanged();
+		MarkMutated( nameof( SetTaskCheckOff ), new { id } );
 	}
 
 	/// <summary>Stores the Omp session directory used to resume this conversation.</summary>
@@ -326,6 +366,7 @@ public sealed partial class ConversationStore
 			BackendSessionPath = sessionDirectory,
 		};
 		MarkChanged();
+		MarkMutated( nameof( SaveBackendSession ), new { id, sessionDirectory } );
 	}
 
 	/// <summary>Sets the folder a chat outside projects works in, or clears it back to the application's current directory.</summary>
@@ -345,6 +386,7 @@ public sealed partial class ConversationStore
 			Directory = value,
 		};
 		MarkChanged();
+		MarkMutated( nameof( SetDirectory ), new { id, directory } );
 	}
 
 	/// <summary>Moves a chat into a git worktree: a project chat records it as its worktree, and the project's own directory clears it; a chat outside projects takes it as its folder.</summary>
@@ -367,12 +409,14 @@ public sealed partial class ConversationStore
 			Worktree = value,
 		};
 		MarkChanged();
+		MarkMutated( nameof( SetWorktree ), new { id, worktree } );
 	}
 
 	/// <summary>Moves the chats working in a removed worktree back to the main checkout: project chats to their project's directory, others to <paramref name="mainPath"/>.</summary>
 	public void ReleaseWorktree( string worktree, string mainPath )
 	{
 		EnsureLoaded();
+
 		var isChanged = false;
 		foreach ( var conversation in _conversations.Values.ToArray() )
 		{
@@ -386,8 +430,11 @@ public sealed partial class ConversationStore
 			isChanged = true;
 		}
 
-		if ( isChanged )
-			MarkChanged();
+		if ( !isChanged )
+			return;
+
+		MarkChanged();
+		MarkMutated( nameof( ReleaseWorktree ), new { worktree, mainPath } );
 	}
 
 	/// <summary>Reports whether two paths name the same folder, whatever their separators, trailing separator or letter case.</summary>
@@ -409,15 +456,18 @@ public sealed partial class ConversationStore
 			Draft = value,
 		};
 		MarkChanged();
+		MarkMutated( nameof( SaveDraft ), new { id, draft } );
 	}
 
-	/// <summary>Deletes a conversation and its local message history.</summary>
+	/// <summary>Deletes a conversation and its local message history, then raises <see cref="Deleted"/>.</summary>
+	/// <returns>Whether the conversation existed.</returns>
 	public bool DeleteConversation( Guid id )
 	{
 		EnsureLoaded();
-		if ( !_conversations.Remove( id ) )
+		if ( !_conversations.ContainsKey( id ) )
 			return false;
 
+		_conversations.Remove( id );
 		_messages.Remove( id );
 		_snapshots.Remove( id );
 		_unreadable.Remove( id );
@@ -426,10 +476,12 @@ public sealed partial class ConversationStore
 			version.Value++;
 		_deletedMessages.Add( id );
 		MarkChanged();
+		MarkMutated( nameof( DeleteConversation ), new { id } );
+		Deleted?.Invoke( id );
 		return true;
 	}
 
-	/// <summary>Appends a message and updates the conversation's activity timestamp.</summary>
+	/// <summary>Appends a message and updates the conversation's activity timestamp; only the host's chat session, or <see cref="ApplyMessage"/> in a mirror, calls it.</summary>
 	public void AppendMessage( Guid conversationId, ConversationMessage message, bool persist = true )
 	{
 		var conversation = Get( conversationId );
@@ -444,9 +496,10 @@ public sealed partial class ConversationStore
 		};
 		MarkMessagesChanged( conversationId, persist: false );
 		MarkChanged( persist );
+		MessageApplied?.Invoke( conversationId, message, persist );
 	}
 
-	/// <summary>Replaces an existing message as streaming output arrives; only readers of this conversation's messages rebuild.</summary>
+	/// <summary>Replaces an existing message as streaming output arrives; only readers of this conversation's messages rebuild. Host-only, as <see cref="AppendMessage"/>.</summary>
 	public void UpdateMessage( Guid conversationId, ConversationMessage message, bool persist = true )
 	{
 		_ = Get( conversationId );
@@ -457,9 +510,10 @@ public sealed partial class ConversationStore
 
 		messages[index] = BuildOwnedMessage( message );
 		MarkMessagesChanged( conversationId, persist );
+		MessageApplied?.Invoke( conversationId, message, persist );
 	}
 
-	/// <summary>Replaces a conversation's cached messages with authoritative backend history.</summary>
+	/// <summary>Replaces a conversation's cached messages with authoritative backend history. Host-only, as <see cref="AppendMessage"/>.</summary>
 	public void ReplaceMessages( Guid conversationId, IReadOnlyList<ConversationMessage> messages )
 	{
 		_ = Get( conversationId );
@@ -470,6 +524,7 @@ public sealed partial class ConversationStore
 			.Select( BuildOwnedMessage )
 			.ToList();
 		MarkMessagesChanged( conversationId, persist: true );
+		MessagesReplaced?.Invoke( conversationId, messages );
 	}
 
 	/// <summary>Reports whether a conversation's agent is working now; reading it rebuilds the reader only when the working set changes.</summary>
@@ -479,11 +534,24 @@ public sealed partial class ConversationStore
 		return _working.Contains( conversationId );
 	}
 
+	/// <summary>Gets how many conversations have an agent working now; reading it rebuilds the reader only when the working set changes.</summary>
+	public int WorkingCount
+	{
+		get
+		{
+			_ = _workingVersion.Value;
+			return _working.Count;
+		}
+	}
+
 	/// <summary>Records whether a conversation's agent is working; not saved, since no agent outlives the window.</summary>
 	public void SetWorking( Guid conversationId, bool isWorking )
 	{
-		if ( isWorking ? _working.Add( conversationId ) : _working.Remove( conversationId ) )
-			_workingVersion.Value++;
+		if ( !(isWorking ? _working.Add( conversationId ) : _working.Remove( conversationId )) )
+			return;
+
+		_workingVersion.Value++;
+		WorkingChanged?.Invoke( conversationId, isWorking );
 	}
 
 	/// <summary>Clones rich JSON so message storage owns it independently of a backend event document.</summary>

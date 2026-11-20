@@ -3,6 +3,7 @@ using Goo;
 using Lokn.Core;
 using Lokn.Modules.Conversations;
 using Lokn.Modules.Git;
+using Lokn.Modules.Projects;
 
 namespace Lokn.Modules.Chat;
 
@@ -14,12 +15,6 @@ public sealed partial class ChatContent
 
 	/// <summary>Stores the folder <see cref="_gitWatch"/> watches, as the chat resolved it.</summary>
 	private string? _gitDirectory;
-
-	/// <summary>Stores the folder the connected Omp process was started in, or null before a connection.</summary>
-	private string? _connectionDirectory;
-
-	/// <summary>Counts the folders the agent's bash commands ended in during the running turn, as Omp's results report them in <c>details.cwd</c>.</summary>
-	private readonly Dictionary<string, int> _shellFolders = new( StringComparer.OrdinalIgnoreCase );
 
 	/// <summary>Builds the left of the rail under the prompt: the folder of a chat outside projects, then the branch, how far it is from its upstream, and the lines changed.</summary>
 	/// <remarks>A chat outside projects shows its folder as a button that chooses another; a project chat shows no folder, since its project names it.
@@ -146,22 +141,24 @@ public sealed partial class ChatContent
 			return;
 
 		var previous = _gitWatch;
-		_gitWatch = watcher.Watch( directory );
+		_gitWatch = watcher.Watch( context.Host, directory );
 		_gitDirectory = directory;
 		previous?.Dispose();
 	}
 
-	/// <summary>Opens the native folder chooser over the shell window, unless the chat cannot change its folder now.</summary>
+	/// <summary>Asks for the chat's new folder, unless the chat cannot change its folder now: the native folder chooser over the shell window on This PC,
+	/// a typed path checked on the host for a paired host's chat.</summary>
 	private void UpdateChooseFolder()
 	{
-		if ( ComputeFolderRefusal( store.Get( conversationId ) ) is { } refusal )
+		if ( session.ComputeFolderRefusal( store.Get( conversationId ) ) is { } refusal )
 		{
-			_status = refusal;
-			MarkChanged();
+			session.UpdateStatus( refusal );
 			return;
 		}
 
-		if ( context.App.Window is { } window )
+		if ( !context.Host.IsLocal )
+			HostFolderPrompt.Show( context, context.Host, "Choose the chat's folder", store.GetDirectory( conversationId ), directory => UpdateDirectory( directory ) );
+		else if ( context.App.Window is { } window )
 			_ = UpdateChooseFolderAsync( window );
 	}
 
@@ -181,8 +178,7 @@ public sealed partial class ChatContent
 			}
 			else if ( result.Status != FileDialogStatus.Cancelled )
 			{
-				_status = $"Could not open the folder chooser: {result.Error}";
-				MarkChanged();
+				session.UpdateStatus( $"Could not open the folder chooser: {result.Error}" );
 			}
 		} );
 	}
@@ -191,127 +187,11 @@ public sealed partial class ChatContent
 	/// <returns>Whether the folder was set; a project chat, or one whose agent is working or connecting, keeps its folder and says why.</returns>
 	internal bool UpdateDirectory( string directory )
 	{
-		if ( _isClosed )
+		if ( _isClosed || !session.UpdateDirectory( directory ) )
 			return false;
 
-		if ( ComputeFolderRefusal( store.Get( conversationId ) ) is { } refusal )
-		{
-			_status = refusal;
-			MarkChanged();
-			return false;
-		}
-
-		store.SetDirectory( conversationId, directory );
-		UpdateFollowFolder();
-		var current = store.GetDirectory( conversationId );
-		UpdateGitWatch( current );
-		_status = $"Folder set to {FolderName.Compute( current )}";
+		UpdateGitWatch( store.GetDirectory( conversationId ) );
 		MarkChanged();
 		return true;
-	}
-
-	/// <summary>Gets why the chat cannot change its folder now, or null when it can.</summary>
-	private string? ComputeFolderRefusal( ConversationInfo conversation ) =>
-		conversation.ProjectId is not null ? "A project chat works in its project's folder"
-		: _isBusy || _connection is { IsCompleted: false } ? "The folder can change once the agent is idle"
-		: null;
-
-	/// <summary>Stops a connected Omp that runs in another folder than the chat's, such as after its agent moved the chat into a worktree,
-	/// so the next turn starts Omp in the chat's folder and continues the same session; call only between turns.</summary>
-	private void UpdateFollowFolder()
-	{
-		if ( _connection is not { IsCompleted: true } || _connectionDirectory is not { } connected || ConversationStore.IsSameFolder( connected, store.GetDirectory( conversationId ) ) )
-			return;
-
-		// Forgetting the stopped process lets the next connection start Omp in the new folder; the session directory keeps the conversation.
-		UpdateStopSession();
-		_session = null;
-		_connection = null;
-		_connectionDirectory = null;
-	}
-
-	/// <summary>Stops the connected Omp process and detaches its events and agent tools.</summary>
-	private void UpdateStopSession()
-	{
-		UpdateToolBridge( null );
-		if ( _session is { } session )
-		{
-			session.FrameReceived -= MarkFrameReceived;
-			_ = session.StopAsync();
-		}
-	}
-
-	/// <summary>Counts the folder a finished bash command ended in, from its result's <c>details.cwd</c>; other messages are ignored.</summary>
-	private void UpdateShellFolder( JsonElement message )
-	{
-		if ( ReadText( message, "role" ) != "toolResult" || ReadText( message, "toolName" ) != "bash" || !message.TryGetProperty( "details", out var details ) )
-			return;
-
-		var folder = ReadText( details, "cwd" );
-		if ( folder.Length > 0 )
-			_shellFolders[folder] = _shellFolders.GetValueOrDefault( folder ) + 1;
-	}
-
-	/// <summary>Moves a project chat, once its turn ends, to the worktree of its project's repository where most of the turn's bash commands ran,
-	/// so the sidebar lists it there and Omp starts there from the next turn on; a tie, or folders outside that repository, keep it where it is.</summary>
-	private void UpdateFollowShell()
-	{
-		if ( _shellFolders.Count == 0 )
-			return;
-
-		KeyValuePair<string, int>[] counts = [.. _shellFolders];
-		_shellFolders.Clear();
-		if ( store.Find( conversationId )?.ProjectId is not { } projectId || store.ProjectStore.Find( projectId ) is not { } project )
-			return;
-
-		_ = UpdateFollowShellAsync( counts, project.Directory, store.GetDirectory( conversationId ) );
-	}
-
-	/// <summary>Finds the worktree most of the turn's commands ran in off the UI thread, then moves the chat there unless its folder changed meanwhile.</summary>
-	private async Task UpdateFollowShellAsync( KeyValuePair<string, int>[] counts, string projectDirectory, string current )
-	{
-		var votes = new Dictionary<string, int>( StringComparer.OrdinalIgnoreCase );
-		try
-		{
-			if ( await ReadWorktreeAsync( projectDirectory ).ConfigureAwait( false ) is not { } repository )
-				return;
-
-			foreach ( var (folder, count) in counts )
-			{
-				if ( await ReadWorktreeAsync( folder ).ConfigureAwait( false ) is { } tree && string.Equals( tree.Common, repository.Common, StringComparison.OrdinalIgnoreCase ) )
-					votes[tree.Root] = votes.GetValueOrDefault( tree.Root ) + count;
-			}
-		}
-		catch ( Exception error ) when ( error is not OutOfMemoryException )
-		{
-			// Without git, or once the panel closed, the chat stays where it is.
-			return;
-		}
-
-		if ( votes.Count == 0 )
-			return;
-
-		var most = votes.Values.Max();
-		var target = votes.First( vote => vote.Value == most ).Key;
-		if ( votes.Count( vote => vote.Value == most ) > 1 || ConversationStore.IsSameFolder( target, current ) )
-			return;
-
-		context.Post( () =>
-		{
-			if ( store.Find( conversationId ) is { ProjectId: not null } && ConversationStore.IsSameFolder( store.GetDirectory( conversationId ), current ) )
-				store.SetWorktree( conversationId, target );
-		} );
-	}
-
-	/// <summary>Reads the top folder of the working tree holding a folder and its repository's shared git folder, or null outside a repository.</summary>
-	private async Task<(string Root, string Common)?> ReadWorktreeAsync( string folder )
-	{
-		if ( !System.IO.Directory.Exists( folder ) )
-			return null;
-
-		var output = await GitProcess.TryRunAsync( folder, context.Lifetime, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir" ).ConfigureAwait( false );
-		return output?.Split( '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ) is [var root, var common]
-			? (Path.TrimEndingDirectorySeparator( Path.GetFullPath( root ) ), Path.TrimEndingDirectorySeparator( Path.GetFullPath( common ) ))
-			: null;
 	}
 }

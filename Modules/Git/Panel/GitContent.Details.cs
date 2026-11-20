@@ -673,10 +673,10 @@ internal sealed partial class GitContent
 		{
 			try
 			{
-				var files = await GitRepository.ReadCommitFilesAsync( root, id, load.Token ).ConfigureAwait( false );
+				var files = await GitRepository.ReadCommitFilesAsync( _context.Workspace, root, id, load.Token ).ConfigureAwait( false );
 				IReadOnlyList<DiffFile>? patch = null;
 				if ( files.Sum( file => file.Added + file.Removed ) <= PreloadLines )
-					patch = GitDiff.Parse( await GitRepository.ReadCommitPatchAsync( root, id, null, load.Token ).ConfigureAwait( false ) );
+					patch = GitDiff.Parse( await GitRepository.ReadCommitPatchAsync( _context.Workspace, root, id, null, load.Token ).ConfigureAwait( false ) );
 				_context.Post( () => ApplyDetails( load, files, patch, null ) );
 			}
 			catch ( OperationCanceledException ) when ( load.IsCancellationRequested )
@@ -733,7 +733,7 @@ internal sealed partial class GitContent
 		{
 			try
 			{
-				var patch = GitDiff.Parse( await GitRepository.ReadCommitPatchAsync( root, id, change.Path, load.Token ).ConfigureAwait( false ) );
+				var patch = GitDiff.Parse( await GitRepository.ReadCommitPatchAsync( _context.Workspace, root, id, change.Path, load.Token ).ConfigureAwait( false ) );
 				_context.Post( () =>
 				{
 					if ( _details != load )

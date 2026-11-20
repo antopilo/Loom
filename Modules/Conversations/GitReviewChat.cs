@@ -24,22 +24,24 @@ internal static class GitReviewChat
 		then a blank line, then a short description of why the change was made, wrapped at 72 characters. Reply with the message only, without quotes or fences.
 		""";
 
-	/// <summary>Builds the working-tree action that starts a review chat in the repository and links its findings to the panel.</summary>
+	/// <summary>Builds the working-tree action that starts a review chat in the repository, on the host of the panel it ran from, and links its findings to the panel.</summary>
+	/// <remarks>A review is linked by its chat's text form; links saved before hosts are This PC's chats' <c>D</c> GUIDs, which still read.</remarks>
 	internal static GitAction BuildAction( ConversationsModule module ) => new( ActionKey, "Review in chat", GitActionScope.Changes, context =>
 	{
-		var id = module.StartConversationInDirectory( context.App, BuildPrompt( context.Root, context.Annotations ), context.Root );
-		context.LinkReview( id.ToString() );
+		var host = module.Hosts.Find( context.App.Panels.GetHostId( context.PanelId ) ) ?? module.Hosts.Local;
+		var chat = module.StartConversationInDirectory( context.App, host, BuildPrompt( context.Root, context.Annotations ), context.Root );
+		context.LinkReview( chat.ToString() );
 	} )
 	{
 		// Lucide's speech bubble.
 		Icon = Goo.VectorPath.Parse( "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", new Goo.ElementRect { Width = 24, Height = 24 } ),
-		ReadReview = ( _, id ) => Guid.TryParse( id, out var conversationId ) && module.Store.Find( conversationId ) is not null
-			? new GitReviewStatus( ParseResult( module.Store.GetMessages( conversationId ) ) )
+		ReadReview = ( _, id ) => ChatRef.TryParse( id, out var chat ) && module.Hosts.Find( chat ) is { } review
+			? new GitReviewStatus( ParseResult( review.Host.Store.GetMessages( chat.ConversationId ) ) )
 			: null,
 		OpenReview = ( app, id ) =>
 		{
-			if ( Guid.TryParse( id, out var conversationId ) && module.Store.Find( conversationId ) is not null )
-				module.OpenConversation( app, conversationId );
+			if ( ChatRef.TryParse( id, out var chat ) && module.Hosts.Find( chat ) is not null )
+				module.OpenConversation( app, chat );
 		},
 	};
 

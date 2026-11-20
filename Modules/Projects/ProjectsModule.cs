@@ -84,54 +84,69 @@ public sealed partial class ProjectsModule : ILoknModule, IWorkingFolder
 		_context = null;
 	}
 
-	/// <summary>Gets a project's Workspaces session key.</summary>
-	public static string SessionKey( Guid projectId ) => SessionPrefix + projectId.ToString( "N" );
+	/// <summary>Gets a project's Workspaces session key: <c>project:&lt;id&gt;</c>, followed by <c>@hostId</c> for a paired host's project.</summary>
+	/// <param name="projectId">The project.</param>
+	/// <param name="hostId">The host the project is on, or null or <see cref="LoknHost.LocalId"/> for This PC.</param>
+	public static string SessionKey( Guid projectId, string? hostId = null ) =>
+		hostId is null || hostId == LoknHost.LocalId ? SessionPrefix + projectId.ToString( "N" ) : $"{SessionPrefix}{projectId:N}@{hostId}";
 
-	/// <summary>Reads the project a Workspaces session key stands for, or null for any other session.</summary>
+	/// <summary>Reads the This PC project a Workspaces session key stands for, or null for any other session, a paired host's project's included.</summary>
 	public static Guid? ReadSession( string? key ) =>
 		key is not null && key.StartsWith( SessionPrefix, StringComparison.Ordinal ) && Guid.TryParseExact( key[SessionPrefix.Length..], "N", out var id ) ? id : null;
 
-	/// <summary>Opens a project's session with its saved workspaces and layout, first loading the modules it carries once they are trusted.</summary>
+	/// <summary>Opens a project's session with its saved workspaces and layout, first loading the modules a This PC project carries once they are trusted.</summary>
 	/// <param name="app">The application.</param>
-	/// <param name="id">The project.</param>
+	/// <param name="project">The project, This PC's or a paired host's.</param>
+	/// <param name="hostId">The host the project is on, or null for This PC.</param>
 	/// <param name="createLayout">Builds the session's first layout; by default one empty pane, with every open panel kept, hidden.</param>
 	/// <remarks>Without the Workspaces module, the first layout is built every time.</remarks>
-	public void OpenProject( LoknApplication app, Guid id, Action? createLayout = null )
+	public void OpenProject( LoknApplication app, ProjectInfo project, string? hostId = null, Action? createLayout = null )
 	{
-		var project = _store.Get( id );
-
 		// A project added since startup may bring modules; ask about them, and load trusted ones before its layout looks for their panels.
-		UpdateProjectModules( app );
+		UpdateHostModules( app, hostId );
 		createLayout ??= app.Panels.HideAll;
 		if ( FindWorkspaces( app ) is { } workspaces )
-			workspaces.OpenSession( app, SessionKey( project.Id ), project.Name, createLayout );
+			workspaces.OpenSession( app, SessionKey( project.Id, hostId ), project.Name, createLayout );
 		else
 			createLayout();
 	}
 
 	/// <summary>Opens a project's session and starts a new, empty task in it, named <paramref name="name"/>, such as the + grid starter it begins with.</summary>
-	public void NewTask( LoknApplication app, Guid id, string name = WorkspacesModule.NewTaskName )
+	/// <param name="app">The application.</param>
+	/// <param name="project">The project, This PC's or a paired host's.</param>
+	/// <param name="hostId">The host the project is on, or null for This PC.</param>
+	/// <param name="name">The task's name.</param>
+	public void NewTask( LoknApplication app, ProjectInfo project, string? hostId = null, string name = WorkspacesModule.NewTaskName )
 	{
-		var project = _store.Get( id );
-		UpdateProjectModules( app );
+		UpdateHostModules( app, hostId );
 		if ( FindWorkspaces( app ) is { } workspaces )
-			workspaces.NewTask( app, SessionKey( project.Id ), project.Name, app.Panels.HideAll, name );
+			workspaces.NewTask( app, SessionKey( project.Id, hostId ), project.Name, app.Panels.HideAll, name );
 	}
 
 	/// <summary>Opens a project's session and shows one of its tasks.</summary>
-	public void OpenTask( LoknApplication app, Guid id, Guid task )
+	/// <param name="app">The application.</param>
+	/// <param name="project">The project, This PC's or a paired host's.</param>
+	/// <param name="task">The task.</param>
+	/// <param name="hostId">The host the project is on, or null for This PC.</param>
+	public void OpenTask( LoknApplication app, ProjectInfo project, Guid task, string? hostId = null )
 	{
-		var project = _store.Get( id );
-		UpdateProjectModules( app );
-		FindWorkspaces( app )?.OpenTask( app, SessionKey( project.Id ), project.Name, task, app.Panels.HideAll );
+		UpdateHostModules( app, hostId );
+		FindWorkspaces( app )?.OpenTask( app, SessionKey( project.Id, hostId ), project.Name, task, app.Panels.HideAll );
+	}
+
+	/// <summary>Loads the modules This PC's projects carry; a paired host's projects bring none.</summary>
+	private void UpdateHostModules( LoknApplication app, string? hostId )
+	{
+		if ( hostId is null || hostId == LoknHost.LocalId )
+			UpdateProjectModules( app );
 	}
 
 	/// <summary>Gets a project's tasks, or none before its session is first opened or without Workspaces; subscribes the building view.</summary>
-	internal IReadOnlyList<WorkspaceTask> GetTasks( LoknApplication app, Guid id ) => FindWorkspaces( app )?.Tasks( SessionKey( id ) ) ?? [];
+	internal IReadOnlyList<WorkspaceTask> GetTasks( LoknApplication app, Guid id, string? hostId = null ) => FindWorkspaces( app )?.Tasks( SessionKey( id, hostId ) ) ?? [];
 
 	/// <summary>Gets the open task when a project's session is open, or empty; subscribes the building view.</summary>
-	internal Guid GetCurrentTask( LoknApplication app, Guid id ) =>
-		FindWorkspaces( app ) is { } workspaces && workspaces.CurrentSession == SessionKey( id ) ? workspaces.CurrentTask : Guid.Empty;
+	internal Guid GetCurrentTask( LoknApplication app, Guid id, string? hostId = null ) =>
+		FindWorkspaces( app ) is { } workspaces && workspaces.CurrentSession == SessionKey( id, hostId ) ? workspaces.CurrentTask : Guid.Empty;
 
 	/// <summary>Gets the active profile's project whose session is open, or null in any other session; reading it rebuilds the reader when the session changes.</summary>
 	internal Guid? FindCurrentProject( LoknApplication app ) =>

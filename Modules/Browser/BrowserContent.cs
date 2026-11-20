@@ -6,8 +6,11 @@ using Microsoft.Web.WebView2.Core;
 
 namespace Lokn.Modules.Browser;
 
-/// <summary>Shows web pages in tabs: a tab strip and an address bar with navigation buttons over the selected tab's WebView2 page placed on the panel.</summary>
+/// <summary>Shows session browser tabs: a tab strip and an address bar with navigation buttons over the selected tab's WebView2 page placed on the panel.</summary>
 /// <remarks>
+/// The tabs are the session's (<see cref="BrowserTabs"/>), which outlive the panel and the window; the panel shows some of them, each with this
+/// window's own page, and saves their ids. Closing a tab closes it in every window. Closing the panel leaves its tabs to the other windows of a daemon
+/// or paired host; in the <c>local</c> role, which has no other window, it closes those no other panel shows.
 /// Each page is a native child window over Lokn's window, so it stays hidden while a shell overlay must draw over its area.
 /// <see cref="BrowserView"/> keeps the selected tab's page on the panel's page area; the others, and every page while the panel or native surfaces are hidden, stay hidden.
 /// </remarks>
@@ -28,17 +31,23 @@ internal sealed partial class BrowserContent : PanelContent
 	/// <summary>Stores the module that shares the WebView2 environment.</summary>
 	private readonly BrowserModule _module;
 
-	/// <summary>Stores the settings profile whose cookies and history this panel uses, fixed when it opens.</summary>
+	/// <summary>Stores the settings profile whose cookies and history this panel's new tabs use, fixed when it opens.</summary>
 	private readonly SettingsProfile _profile;
 
 	/// <summary>Retains the address bar for focus.</summary>
 	private readonly ElementHandle _addressBar = new();
 
-	/// <summary>Tracks the open tabs in strip order; never empty while the panel is open.</summary>
+	/// <summary>Retains the session tabs button the menu opens under.</summary>
+	private readonly ElementHandle _sessionButton = new();
+
+	/// <summary>Tracks the tabs the panel shows, in strip order; empty while none is open or the host has not sent them yet.</summary>
 	private readonly State<IReadOnlyList<BrowserTab>> _tabs;
 
-	/// <summary>Tracks the tab whose page is shown.</summary>
-	private readonly State<BrowserTab> _selected;
+	/// <summary>Tracks the tab whose page is shown, or null when the panel shows none.</summary>
+	private readonly SelectedTab _selected = new();
+
+	/// <summary>Tracks whether the session tabs menu is open.</summary>
+	private readonly State<bool> _isMenuOpen = new( false );
 
 	/// <summary>Stores the latest placement in Lokn window pixels, or null while hidden.</summary>
 	private System.Drawing.Rectangle? _placement;
@@ -46,36 +55,44 @@ internal sealed partial class BrowserContent : PanelContent
 	/// <summary>Stores Lokn's window and its native handle once the view is mounted.</summary>
 	private (Window Window, nint Handle)? _host;
 
-	/// <summary>Creates the panel for a requested address, the restored tabs, or the home page.</summary>
+	/// <summary>Creates the panel for a session tab, a requested address, the restored tabs, or the home page.</summary>
 	internal BrowserContent( PanelContext context, BrowserModule module )
 	{
 		_context = context;
 		_module = module;
+		// The panel's host never changes, so the panel follows the same session from its first tab to its last.
+		Host = context.Host;
+		Session = Host.BrowserTabs;
 		var request = context.Input as BrowserRequest;
 		var restored = ReadRestored( context.RestoredState );
 		_profile = restored?.Profile ?? request?.Profile ?? context.App.Settings.ActiveProfile;
 		var search = context.App.Settings.Get( BrowserModule.Search );
 		var isEditing = request?.FocusAddress == true;
-		BrowserTab[] tabs;
+		List<BrowserTab> views = [];
 		var selected = 0;
-		if ( request?.Address is { } typed && BrowserAddress.Compute( typed, search ) is { } address )
+		_tabs = new( views );
+		if ( request?.TabId is { } shown )
 		{
-			tabs = [new( this, address, isEditing )];
+			views.Add( new( this, shown, isEditing: false ) );
+		}
+		else if ( request?.Address is { } typed && BrowserAddress.Compute( typed, search ) is { } address && Session.CanShow( address ) )
+		{
+			views.Add( CreateSessionTab( address, isEditing ) );
 		}
 		else if ( restored is not null )
 		{
-			tabs = (restored.Tabs?.Where( saved => saved.Length > 0 ).ToArray() is { Length: > 0 } saved ? saved : [restored.Address])
-				.Select( saved => new BrowserTab( this, saved, isEditing: false ) )
-				.ToArray();
-			selected = Math.Clamp( restored.Selected, 0, tabs.Length - 1 );
-		}
-		else
-		{
-			tabs = [new( this, ComputeHome(), isEditing )];
+			views.AddRange( Restore( restored ) );
+			selected = Math.Clamp( restored.Selected, 0, Math.Max( 0, views.Count - 1 ) );
 		}
 
-		_tabs = new( tabs );
-		_selected = new( tabs[selected] );
+		// A panel with nothing to show opens the home page, unless it waits for the host's tabs it was showing.
+		if ( views.Count == 0 && (restored is null || Session.IsSynced) )
+			views.Add( CreateSessionTab( ComputeHome(), isEditing ) );
+
+		_tabs.Value = views.ToArray();
+		_selected.Value = views.Count > 0 ? views[selected] : null;
+		Session.TabChanged += UpdateTabChanged;
+		Session.Reset += UpdateReset;
 	}
 
 	/// <summary>Gets the panel's dispatch and lifetime.</summary>
@@ -84,7 +101,7 @@ internal sealed partial class BrowserContent : PanelContent
 	/// <summary>Gets the module that shares the WebView2 environment.</summary>
 	internal BrowserModule Module => _module;
 
-	/// <summary>Gets the settings profile whose cookies and history the panel's pages use; never null for a browser.</summary>
+	/// <summary>Gets the settings profile whose cookies and history the panel's new tabs use; never null for a browser.</summary>
 	public override SettingsProfile? Profile => _profile;
 
 	/// <summary>Gets the panel's identifier.</summary>
@@ -93,26 +110,43 @@ internal sealed partial class BrowserContent : PanelContent
 	/// <summary>Gets whether the panel is still open.</summary>
 	internal bool IsOpen => !_context.Lifetime.IsCancellationRequested;
 
-	/// <summary>Gets the open tabs in strip order.</summary>
+	/// <summary>Gets the tabs the panel shows, in strip order.</summary>
 	internal IReadOnlyList<BrowserTab> Tabs => _tabs.Value;
 
-	/// <summary>Gets the tab whose page is shown.</summary>
-	internal BrowserTab Selected => _selected.Value;
+	/// <summary>Gets the tab whose page is shown, or null when the panel shows none.</summary>
+	internal BrowserTab? Selected => _selected.Value;
+
+	/// <summary>Gets the host whose browser tabs the panel shows: this PC's, or a paired host's mirror.</summary>
+	internal LoknHost Host
+	{
+		get;
+	}
+
+	/// <summary>Gets the session's tabs: the panel's host's.</summary>
+	internal BrowserTabs Session
+	{
+		get;
+	}
 
 	/// <summary>Builds the tab strip and the address bar over the page area.</summary>
 	public override Blob Build()
 	{
 		var theme = Theme.Current;
 		var tab = _selected.Value;
-		var navigation = tab.Navigation;
-		var page = tab.Failure.Length > 0
+		var navigation = tab?.Navigation ?? default;
+		var notice = tab is null ? (Session.IsSynced ? "No tab is open here. Open one with New tab or Session tabs." : "Waiting for the host's browser tabs\u2026")
+			: tab.Failure.Length > 0 ? tab.Failure
+			: tab.Info is null ? "Waiting for the host's browser tabs\u2026"
+			: tab.Blocked.Length > 0 ? tab.Blocked
+			: null;
+		var page = notice is not null
 			? new Container
 			{
 				FlexGrow = 1,
 				Padding = theme.Spacing * 3,
 				AlignItems = AlignItems.Center,
 				JustifyContent = JustifyContent.Center,
-				Children = [new Text { Content = tab.Failure, Color = theme.Muted, Selectable = true }],
+				Children = [new Text { Content = notice, Color = theme.Muted, Selectable = true }],
 			}
 			: Cell.Mount<BrowserViewInput, BrowserView>( "page", new( this, _context.Id ) );
 		page.FlexGrow = 1;
@@ -120,7 +154,7 @@ internal sealed partial class BrowserContent : PanelContent
 		return new Container
 		{
 			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = tab.Title.Length > 0 ? $"Browser: {tab.Title}" : "Browser",
+			AccessibilityName = tab?.Title is { Length: > 0 } title ? $"Browser: {title}" : "Browser",
 			FlexGrow = 1,
 			MinHeight = 0,
 			MinWidth = 0,
@@ -137,18 +171,18 @@ internal sealed partial class BrowserContent : PanelContent
 					Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
 					Children =
 					[
-						BuildButton( "\uE72B", "Back", navigation.Back, () => tab.Controller?.CoreWebView2.GoBack() ),
-						BuildButton( "\uE72A", "Forward", navigation.Forward, () => tab.Controller?.CoreWebView2.GoForward() ),
+						BuildButton( "\uE72B", "Back", navigation.Back, () => tab?.Controller?.CoreWebView2.GoBack() ),
+						BuildButton( "\uE72A", "Forward", navigation.Forward, () => tab?.Controller?.CoreWebView2.GoForward() ),
 						navigation.Loading
-							? BuildButton( "\uE711", "Stop", true, () => tab.Controller?.CoreWebView2.Stop() )
-							: BuildButton( "\uE72C", "Reload", tab.Controller is not null, () => tab.Controller?.CoreWebView2.Reload() ),
+							? BuildButton( "\uE711", "Stop", true, () => tab?.Controller?.CoreWebView2.Stop() )
+							: BuildButton( "\uE72C", "Reload", tab?.Controller is not null, () => tab?.Controller?.CoreWebView2.Reload() ),
 						new TextEntry
 						{
 							Key = "address",
 							Handle = _addressBar,
-							Value = tab.Address,
+							Value = tab?.Address ?? "",
 							Controlled = true,
-							AutoFocus = tab.IsEditing,
+							AutoFocus = tab?.IsEditing == true,
 							Placeholder = "Search or enter an address",
 							AccessibilityName = "Address",
 							InputOptions = new TextInputOptions { Purpose = InputPurpose.Url },
@@ -161,12 +195,12 @@ internal sealed partial class BrowserContent : PanelContent
 							BorderWidth = theme.BorderWidth,
 							BorderRadius = theme.Radius,
 							FocusStyle = new Style { BorderColor = theme.Accent },
-							OnFocus = _ => _context.Run( () => _selected.Value.IsEditing = true ),
-							OnBlur = _ => _context.Run( () => _selected.Value.EndEditing() ),
-							OnChange = text => _context.Run( () => _selected.Value.SetAddress( text ) ),
+							OnFocus = _ => _context.Run( () => _selected.Value?.BeginEditing() ),
+							OnBlur = _ => _context.Run( () => _selected.Value?.EndEditing() ),
+							OnChange = text => _context.Run( () => _selected.Value?.SetAddress( text ) ),
 							OnSubmit = text => _context.Run( () => UpdateNavigate( text ) ),
 						},
-						BuildButton( "\uE8A7", "Open in default browser", true, () => _context.Run( UpdateOpenExternal ) ),
+						BuildButton( "\uE8A7", "Open in default browser", tab is not null, () => _context.Run( UpdateOpenExternal ) ),
 					],
 				},
 				page,
@@ -174,25 +208,49 @@ internal sealed partial class BrowserContent : PanelContent
 		};
 	}
 
-	/// <summary>Captures every tab's address, the selected tab, and the profile the panel opened in, so a restart reopens the pages with the same cookies.</summary>
+	/// <summary>Captures the ids of the session tabs the panel shows, their addresses, the selected tab, and the profile the panel opened in, so a
+	/// reopened window shows the same tabs from the session.</summary>
 	public override JsonElement? CaptureState()
 	{
 		var tabs = _tabs.Value;
 		var selected = _selected.Value;
-		return JsonSerializer.SerializeToElement( new SavedPage( selected.Source, _profile, [.. tabs.Select( tab => tab.Source )], Math.Max( 0, IndexOf( selected ) ) ) );
+		return JsonSerializer.SerializeToElement( new SavedPage( selected?.Source ?? "", _profile, [.. tabs.Select( tab => tab.Source )], selected is null ? 0 : Math.Max( 0, IndexOf( selected ) ), [.. tabs.Select( tab => tab.Id )] ) );
 	}
 
-	/// <summary>Closes every page with the panel.</summary>
+	/// <summary>Closes every page of the panel. In the <c>local</c> role this window is the only one that shows the session, so tabs no other panel here
+	/// shows close with the panel rather than stay where nobody sees them; a mirror's stay for the other windows, and a reload, a restored layout or
+	/// shutdown keeps every tab.</summary>
 	public override void Closed()
 	{
+		Session.TabChanged -= UpdateTabChanged;
+		Session.Reset -= UpdateReset;
+		CoverPages( false );
 		foreach ( var tab in _tabs.Value )
 			tab.Close();
 
 		_module.Forget( this );
+		if ( Session.IsMirror || _module.IsStopping || _context.App.Panels.IsSuspending )
+			return;
+
+		foreach ( var tab in _tabs.Value.Where( tab => !_module.IsShown( Host.Id, tab.Id ) ) )
+			Session.Close( tab.Id );
 	}
 
-	/// <summary>Opens an address in a new tab after the others and shows it.</summary>
+	/// <summary>Opens an address in a new session tab after the others and shows it.</summary>
 	internal BrowserTab OpenTab( string address ) => OpenTab( address, isEditing: false );
+
+	/// <summary>Shows a session tab in this panel, adding it after the others when the panel does not show it yet, and selects it.</summary>
+	internal BrowserTab ShowTab( Guid id )
+	{
+		if ( _tabs.Value.FirstOrDefault( tab => tab.Id == id ) is not { } view )
+		{
+			view = new BrowserTab( this, id, isEditing: false );
+			_tabs.Value = [.. _tabs.Value, view];
+		}
+
+		UpdateSelect( view );
+		return view;
+	}
 
 	/// <summary>Loads an address in one of this panel's tabs and shows it.</summary>
 	internal void Navigate( BrowserTab tab, string address )
@@ -216,7 +274,7 @@ internal sealed partial class BrowserContent : PanelContent
 	internal void ApplyPlacement( BrowserTab tab )
 	{
 		if ( _host is var (_, handle) )
-			tab.Place( handle, tab == _selected.Value ? _placement : null );
+			tab.Place( handle, tab == _selected.Value && !_isMenuOpen.Value ? _placement : null );
 	}
 
 	/// <summary>Hands Lokn's shortcuts, such as Ctrl+K and Ctrl+W, back to Lokn while a page has the keyboard; Ctrl+L or F6 leaves the page for the address bar.</summary>
@@ -232,7 +290,7 @@ internal sealed partial class BrowserContent : PanelContent
 			e.Handled = true;
 			BrowserKeys.Focus( handle );
 			_addressBar.Focus();
-			_addressBar.SelectText( 0, _selected.Value.Address.Length );
+			_addressBar.SelectText( 0, _selected.Value?.Address.Length ?? 0 );
 			return;
 		}
 
@@ -263,15 +321,6 @@ internal sealed partial class BrowserContent : PanelContent
 			window.Focus.Clear();
 	}
 
-	/// <summary>Opens an address in a new tab after the others and shows it, with the address bar empty for typing when <paramref name="isEditing"/> is set.</summary>
-	private BrowserTab OpenTab( string address, bool isEditing )
-	{
-		var tab = new BrowserTab( this, address, isEditing );
-		_tabs.Value = [.. _tabs.Value, tab];
-		UpdateSelect( tab );
-		return tab;
-	}
-
 	/// <summary>Shows a tab's page, hiding the one shown before and leaving its address bar edit.</summary>
 	internal void UpdateSelect( BrowserTab tab )
 	{
@@ -279,10 +328,122 @@ internal sealed partial class BrowserContent : PanelContent
 		if ( previous == tab )
 			return;
 
-		if ( previous.IsEditing )
-			previous.EndEditing();
+		previous?.EndEditing();
 		_selected.Value = tab;
 		ApplyPlacements();
+	}
+
+	/// <summary>Creates the view of a new session tab at an address, in this panel's profile; the view loads it itself.</summary>
+	private BrowserTab CreateSessionTab( string address, bool isEditing )
+	{
+		var view = new BrowserTab( this, Guid.NewGuid(), isEditing );
+		Session.Open( address, _profile, view.ViewId, view.Id );
+		return view;
+	}
+
+	/// <summary>Creates the views of restored tabs: by session id, opening a tab again from its saved address when this process owns the session and lost
+	/// it; a mirror that has not synced yet keeps every id until the host's tabs arrive. State saved before tabs were the session's opens its addresses.</summary>
+	private List<BrowserTab> Restore( SavedPage restored )
+	{
+		var addresses = restored.Tabs?.Where( saved => saved.Length > 0 && Session.CanShow( saved ) ).ToArray() is { Length: > 0 } saved ? saved
+			: restored.Address is { Length: > 0 } address && Session.CanShow( address ) ? [address] : [];
+		List<BrowserTab> views = [];
+		if ( restored.Ids is not { Length: > 0 } ids )
+		{
+			views.AddRange( addresses.Select( address => CreateSessionTab( address, isEditing: false ) ) );
+			return views;
+		}
+
+		for ( var index = 0; index < ids.Length; index++ )
+		{
+			var id = ids[index];
+			if ( Session.Find( id ) is not null || !Session.IsSynced )
+			{
+				views.Add( new BrowserTab( this, id, isEditing: false ) );
+			}
+			else if ( !Session.IsMirror && restored.Tabs is { } addressesSaved && index < addressesSaved.Length && addressesSaved[index].Length > 0 )
+			{
+				var view = new BrowserTab( this, id, isEditing: false );
+				Session.Open( addressesSaved[index], _profile, by: null, id );
+				views.Add( view );
+			}
+		}
+
+		return views;
+	}
+
+	/// <summary>Opens an address in a new session tab after the others and shows it, with the address bar empty for typing when <paramref name="isEditing"/> is set.</summary>
+	/// <exception cref="InvalidOperationException">This PC shows a paired host's tabs and may not load the address, such as a file.</exception>
+	private BrowserTab OpenTab( string address, bool isEditing )
+	{
+		if ( !Session.CanShow( address ) )
+			throw new InvalidOperationException( $"This PC shows the host's browser tabs, which open only http and https addresses here, not {address}." );
+
+		var tab = CreateSessionTab( address, isEditing );
+		_tabs.Value = [.. _tabs.Value, tab];
+		UpdateSelect( tab );
+		return tab;
+	}
+
+	/// <summary>Follows a session tab this panel shows: its page loads an address another window set, and a tab closed anywhere leaves the panel.</summary>
+	private void UpdateTabChanged( Guid id, BrowserTabInfo? info )
+	{
+		if ( _tabs.Value.FirstOrDefault( tab => tab.Id == id ) is not { } view )
+			return;
+
+		if ( info is null )
+		{
+			RemoveView( view );
+			return;
+		}
+
+		view.Follow();
+		ApplyPlacement( view );
+	}
+
+	/// <summary>Follows a snapshot of the host's tabs: tabs it no longer has leave the panel, and every page loads the address the session holds.</summary>
+	private void UpdateReset()
+	{
+		foreach ( var view in _tabs.Value.ToArray() )
+		{
+			if ( Session.Find( view.Id ) is null )
+			{
+				if ( Session.IsSynced )
+					RemoveView( view );
+				continue;
+			}
+
+			view.Follow();
+			ApplyPlacement( view );
+		}
+
+		if ( _tabs.Value.Count > 0 && _selected.Value is null )
+			UpdateSelect( _tabs.Value[0] );
+	}
+
+	/// <summary>Removes a closed session tab's view, showing its right neighbor, or the left one at the end; the panel closes with its last tab.</summary>
+	private void RemoveView( BrowserTab tab )
+	{
+		var tabs = _tabs.Value;
+		var index = IndexOf( tab );
+		if ( index < 0 )
+			return;
+
+		tab.Close();
+		BrowserTab[] rest = [.. tabs.Where( candidate => candidate != tab )];
+		_tabs.Value = rest;
+		if ( rest.Length == 0 )
+		{
+			_selected.Value = null;
+			_context.Post( () => _context.App.Panels.Close( _context.Id ) );
+			return;
+		}
+
+		if ( _selected.Value == tab )
+		{
+			_selected.Value = rest[Math.Min( index, rest.Length - 1 )];
+			ApplyPlacements();
+		}
 	}
 
 	/// <summary>Opens the home page in a new tab with the address bar focused for typing.</summary>
@@ -292,28 +453,13 @@ internal sealed partial class BrowserContent : PanelContent
 		_addressBar.Focus();
 	}
 
-	/// <summary>Closes a tab, showing its right neighbor, or the left one at the end; closing the last tab closes the panel.</summary>
+	/// <summary>Closes a tab in the session, and so in every window; closing the panel's last tab closes the panel.</summary>
 	private void UpdateCloseTab( BrowserTab tab )
 	{
-		var tabs = _tabs.Value;
-		var index = IndexOf( tab );
-		if ( index < 0 )
-			return;
-
-		if ( tabs.Count == 1 )
-		{
-			_context.App.Panels.Close( _context.Id );
-			return;
-		}
-
-		tab.Close();
-		BrowserTab[] rest = [.. tabs.Where( candidate => candidate != tab )];
-		_tabs.Value = rest;
-		if ( _selected.Value == tab )
-		{
-			_selected.Value = rest[Math.Min( index, rest.Length - 1 )];
-			ApplyPlacements();
-		}
+		if ( Session.Find( tab.Id ) is null )
+			RemoveView( tab );
+		else
+			Session.Close( tab.Id );
 	}
 
 	/// <summary>Hides every page but the selected tab's, then shows that one at the panel's placement.</summary>
@@ -326,22 +472,42 @@ internal sealed partial class BrowserContent : PanelContent
 				ApplyPlacement( tab );
 		}
 
-		ApplyPlacement( selected );
+		if ( selected is not null )
+			ApplyPlacement( selected );
 	}
 
 	/// <summary>Loads what was typed in the selected tab and gives its page the keyboard.</summary>
 	private void UpdateNavigate( string text )
 	{
-		if ( BrowserAddress.Compute( text, _context.App.Settings.Get( BrowserModule.Search ) ) is { } address )
-			_selected.Value.Submit( address );
+		if ( BrowserAddress.Compute( text, _context.App.Settings.Get( BrowserModule.Search ) ) is not { } address )
+			return;
+
+		if ( _selected.Value is { } tab )
+			tab.Submit( address );
+		else
+			OpenTab( address );
 	}
 
 	/// <summary>Opens the selected tab's page in the user's default browser.</summary>
 	private void UpdateOpenExternal()
 	{
-		if ( Uri.TryCreate( _selected.Value.Source, UriKind.Absolute, out var uri ) && uri.Scheme is "http" or "https" )
+		if ( Uri.TryCreate( _selected.Value?.Source, UriKind.Absolute, out var uri ) && uri.Scheme is "http" or "https" )
 			Process.Start( new ProcessStartInfo( uri.AbsoluteUri ) { UseShellExecute = true } );
 	}
+
+	/// <summary>Opens or closes the session tabs menu, hiding the pages meanwhile, since a native page would cover it.</summary>
+	private void UpdateMenu( bool isOpen )
+	{
+		if ( _isMenuOpen.Value == isOpen )
+			return;
+
+		_isMenuOpen.Value = isOpen;
+		CoverPages( isOpen );
+		ApplyPlacements();
+	}
+
+	/// <summary>Hides or shows native pages while this panel draws over them.</summary>
+	private void CoverPages( bool isCovered ) => _context.App.CoverNativeSurfaces( this, isCovered );
 
 	/// <summary>Returns a tab's position in the strip, or -1 once it was closed.</summary>
 	private int IndexOf( BrowserTab tab )
@@ -360,18 +526,20 @@ internal sealed partial class BrowserContent : PanelContent
 	private string ComputeHome()
 	{
 		var settings = _context.App.Settings;
-		return BrowserAddress.Compute( settings.Get( BrowserModule.Home ), settings.Get( BrowserModule.Search ) ) ?? "about:blank";
+		var home = BrowserAddress.Compute( settings.Get( BrowserModule.Home ), settings.Get( BrowserModule.Search ) );
+		return home is not null && Session.CanShow( home ) ? home : "about:blank";
 	}
 
-	/// <summary>Builds the strip of tabs with the button that opens a new one.</summary>
+	/// <summary>Builds the strip of tabs with the buttons that open a new tab and list the session's other tabs.</summary>
 	private Row BuildTabs( Theme theme )
 	{
 		var tabs = _tabs.Value;
 		var selected = _selected.Value;
-		var children = new Blob[tabs.Count + 1];
+		var children = new Blob[tabs.Count + 2];
 		for ( var index = 0; index < tabs.Count; index++ )
 			children[index] = BuildTab( theme, tabs[index], tabs[index] == selected );
 		children[tabs.Count] = BuildButton( "\uE710", "New tab", true, UpdateNewTab );
+		children[tabs.Count + 1] = BuildSessionTabs();
 		return new Row
 		{
 			Key = "tabs",
@@ -387,10 +555,43 @@ internal sealed partial class BrowserContent : PanelContent
 		};
 	}
 
+	/// <summary>Builds the button whose menu lists the session's tabs this panel does not show, such as those another window opened or a closed panel
+	/// left, to show one here or close it in every window.</summary>
+	private Button BuildSessionTabs()
+	{
+		var button = BuildButton( "\uE8FD", "Session tabs", true, () => UpdateMenu( !_isMenuOpen.Value ) );
+		button.Handle = _sessionButton;
+		if ( !_isMenuOpen.Value )
+			return button;
+
+		var shown = _tabs.Value.Select( tab => tab.Id ).ToHashSet();
+		var others = Session.Tabs.Where( tab => !shown.Contains( tab.Id ) ).ToArray();
+		List<MenuEntry> entries = others.Length == 0
+			? [new MenuNote( "Every tab of the session is open here." )]
+			:
+			[
+				.. others.Select( tab => (MenuEntry)new MenuAction( ComputeName( tab.Title, tab.Url ), () => _context.Run( () => ShowTab( tab.Id ) ) ) ),
+				new MenuSeparator(),
+				.. others.Select( tab => (MenuEntry)new MenuAction( $"Close {ComputeName( tab.Title, tab.Url )}", () => _context.Run( () => Session.Close( tab.Id ) ) )
+				{
+					IsDestructive = true,
+				} ),
+			];
+		button.Children =
+		[
+			.. button.Children,
+			Cell.Mount<ContextMenuInput, ContextMenu>( "session-tabs", new( _sessionButton, "Session tabs", entries, () => _context.Run( () => UpdateMenu( false ) ) )
+			{
+				Width = 280,
+			} ),
+		];
+		return button;
+	}
+
 	/// <summary>Builds one tab: its name, which shows it, and a button that closes it; a middle click closes it too.</summary>
 	private Row BuildTab( Theme theme, BrowserTab tab, bool isSelected )
 	{
-		var name = ComputeTabName( tab );
+		var name = ComputeName( tab.Title, tab.Source );
 		var select = theme.BuildButton( name, () => _context.Run( () => UpdateSelect( tab ) ) );
 		select.FlexGrow = 1;
 		select.FlexShrink = 1;
@@ -438,12 +639,14 @@ internal sealed partial class BrowserContent : PanelContent
 	}
 
 	/// <summary>Names a tab by its page title, or its host or address before the page names itself.</summary>
-	private static string ComputeTabName( BrowserTab tab )
+	private static string ComputeName( string title, string source )
 	{
-		if ( tab.Title.Length > 0 )
-			return tab.Title;
+		if ( title.Length > 0 )
+			return title;
 
-		var source = tab.Source;
+		if ( source.Length == 0 )
+			return "New tab";
+
 		return Uri.TryCreate( source, UriKind.Absolute, out var uri ) && uri.Host.Length > 0 ? uri.Host : source;
 	}
 
@@ -478,7 +681,7 @@ internal sealed partial class BrowserContent : PanelContent
 		return font;
 	}
 
-	/// <summary>Reads the pages saved by <see cref="CaptureState"/>.</summary>
+	/// <summary>Reads the tabs saved by <see cref="CaptureState"/>.</summary>
 	private static SavedPage? ReadRestored( JsonElement? state )
 	{
 		if ( state is not { ValueKind: JsonValueKind.Object } element )
@@ -486,7 +689,7 @@ internal sealed partial class BrowserContent : PanelContent
 
 		try
 		{
-			return element.Deserialize<SavedPage>() is { Address.Length: > 0 } saved ? saved : null;
+			return element.Deserialize<SavedPage>() is { } saved && (saved.Address is { Length: > 0 } || saved.Ids is { Length: > 0 }) ? saved : null;
 		}
 		catch ( JsonException )
 		{
@@ -494,10 +697,39 @@ internal sealed partial class BrowserContent : PanelContent
 		}
 	}
 
-	/// <summary>Holds the pages saved across restarts.</summary>
+	/// <summary>Holds the tabs saved across restarts.</summary>
 	/// <param name="Address">The selected tab's address.</param>
-	/// <param name="Profile">The settings profile whose cookies the pages use.</param>
+	/// <param name="Profile">The settings profile whose cookies the panel's new tabs use.</param>
 	/// <param name="Tabs">Every tab's address in strip order; null in state saved before the panel had tabs.</param>
 	/// <param name="Selected">The selected tab's position in <paramref name="Tabs"/>.</param>
-	private sealed record SavedPage( string Address, SettingsProfile Profile, string[]? Tabs = null, int Selected = 0 );
+	/// <param name="Ids">Every tab's session id in strip order; null in state saved before tabs were the session's.</param>
+	private sealed record SavedPage( string Address, SettingsProfile Profile, string[]? Tabs = null, int Selected = 0, Guid[]? Ids = null );
+
+	/// <summary>Holds the selected tab, which views read to rebuild when it changes; none while the panel shows no tab.</summary>
+	private sealed class SelectedTab
+	{
+		/// <summary>Counts changes, so views reading the tab rebuild.</summary>
+		private readonly State<int> _version = new( 0 );
+
+		/// <summary>Stores the tab, or null.</summary>
+		private BrowserTab? _tab;
+
+		/// <summary>Gets or sets the selected tab, or null.</summary>
+		public BrowserTab? Value
+		{
+			get
+			{
+				_ = _version.Value;
+				return _tab;
+			}
+			set
+			{
+				if ( _tab == value )
+					return;
+
+				_tab = value;
+				_version.Value++;
+			}
+		}
+	}
 }

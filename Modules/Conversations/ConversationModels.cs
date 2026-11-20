@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Lokn.Core;
 
 namespace Lokn.Modules.Conversations;
@@ -43,8 +44,10 @@ public sealed record ConversationMessage(
 	DateTimeOffset CreatedAt,
 	JsonElement? RichContent = null );
 
-/// <summary>Identifies the account-pinned conversation restored or opened in a chat panel.</summary>
+/// <summary>Identifies the account-pinned conversation restored or opened in a chat panel, and the host it lives on.</summary>
 /// <param name="ConversationId">The conversation shown.</param>
 /// <param name="Profile">The account profile the conversation is pinned to.</param>
 /// <param name="ContinueTurn">Whether a module reload stopped the agent mid-turn, so the reopened chat asks it to carry on.</param>
-public readonly record struct ConversationPanelInput( Guid ConversationId, SettingsProfile Profile, bool ContinueTurn = false );
+/// <param name="Host">The paired host the conversation lives on, or null for This PC, so states saved before hosts read as This PC's and This PC's are written as before.</param>
+public readonly record struct ConversationPanelInput( Guid ConversationId, SettingsProfile Profile, bool ContinueTurn = false,
+	[property: JsonIgnore( Condition = JsonIgnoreCondition.WhenWritingNull )] string? Host = null );

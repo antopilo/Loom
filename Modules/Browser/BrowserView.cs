@@ -9,8 +9,9 @@ namespace Lokn.Modules.Browser;
 /// <param name="PanelId">The panel's identifier, to tell whether the current layout shows it.</param>
 internal sealed record BrowserViewInput( BrowserContent Content, Guid PanelId );
 
-/// <summary>Reserves the page area and keeps the native page on it: moved with the panel, hidden while the panel is hidden or a shell overlay is open.</summary>
-/// <remarks>Geometry and shell occlusion are checked on a short timer as well as on direct changes, because a layout switch can hide the panel without moving it.</remarks>
+/// <summary>Reserves the page area and keeps the native page on it: moved with the panel, hidden while the panel is hidden, a shell overlay is open, or the
+/// panel's host is offline or removed, so the shell's offline cover shows instead of the native page.</summary>
+/// <remarks>Geometry, shell occlusion and the host's link are checked on a short timer as well as on direct changes, because a layout switch can hide the panel without moving it.</remarks>
 internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 {
 	/// <summary>Defines how often the placement is checked, in milliseconds.</summary>
@@ -42,6 +43,7 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 	{
 		_area.MetricsChanged += UpdateMetrics;
 		Input.Content.Context.App.NativeSurfaceOcclusionChanged += UpdateOcclusion;
+		Input.Content.Host.Changed += UpdateHost;
 		Every( SyncMs, UpdatePlacement );
 		_ = AcquireHandleAsync();
 	}
@@ -72,6 +74,7 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 	{
 		_area.MetricsChanged -= UpdateMetrics;
 		Input.Content.Context.App.NativeSurfaceOcclusionChanged -= UpdateOcclusion;
+		Input.Content.Host.Changed -= UpdateHost;
 		Send( null );
 		_handle = 0;
 	}
@@ -86,6 +89,9 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 			Send( null );
 	}
 
+	/// <summary>Hides the native page at once when the panel's host goes offline or is removed, and shows it again when it reconnects.</summary>
+	private void UpdateHost() => UpdatePlacement();
+
 	/// <summary>Sends the area in window pixels, or null when the panel is hidden or has no room.</summary>
 	private void UpdatePlacement()
 	{
@@ -94,7 +100,8 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 
 		var input = Input;
 		var box = _area.BorderBox;
-		if ( !_area.IsMounted || box.Width < 1 || box.Height < 1 || !input.Content.IsShown( input.PanelId ) || input.Content.Context.App.NativeSurfacesOccluded )
+		if ( !_area.IsMounted || box.Width < 1 || box.Height < 1 || !input.Content.IsShown( input.PanelId ) || input.Content.Context.App.NativeSurfacesOccluded
+			|| !input.Content.Host.IsOnline )
 		{
 			Send( null );
 			return;

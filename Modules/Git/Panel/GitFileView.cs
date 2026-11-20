@@ -85,6 +85,9 @@ internal sealed partial class GitFileView
 	/// <summary>Reports whether the working tree no longer changes the shown file on either side.</summary>
 	private bool _isGone;
 
+	/// <summary>Reports whether the shown file exists in the working tree, so Edit can open it.</summary>
+	private bool _canEdit;
+
 	/// <summary>Stores why the patch could not load, or null.</summary>
 	private string? _error;
 
@@ -137,6 +140,7 @@ internal sealed partial class GitFileView
 		_layouts = [];
 		_isLoaded = false;
 		_isGone = false;
+		_canEdit = false;
 		_error = null;
 		_hunk = 0;
 		_confirm = null;
@@ -178,6 +182,8 @@ internal sealed partial class GitFileView
 		if ( _target is not { } target || _root() is not { } root )
 			return;
 
+		UpdateCanEdit();
+
 		GitFileChange? change = null;
 		if ( target.Commit is null )
 		{
@@ -211,8 +217,8 @@ internal sealed partial class GitFileView
 			try
 			{
 				var text = target.Commit is { } commit
-					? await GitRepository.ReadCommitPatchAsync( root, commit, target.Path, load.Token ).ConfigureAwait( false )
-					: await GitRepository.ReadWorkingPatchAsync( root, change!, target.Staged, load.Token ).ConfigureAwait( false );
+					? await GitRepository.ReadCommitPatchAsync( _context.Workspace, root, commit, target.Path, load.Token ).ConfigureAwait( false )
+					: await GitRepository.ReadWorkingPatchAsync( _context.Workspace, root, change!, target.Staged, load.Token ).ConfigureAwait( false );
 				var patch = GitPatch.Parse( text ).FirstOrDefault();
 				GitHunkLayout[] layouts = patch is null ? [] : [.. patch.Hunks.Select( GitHunkLayout.Build )];
 				_context.Post( () => Apply( load, target, change, patch, layouts, null ) );
@@ -297,16 +303,16 @@ internal sealed partial class GitFileView
 		if ( _patch is { } patch && (patch.Added > 0 || patch.Removed > 0) )
 			children.Add( BuildCounts( patch.Added, patch.Removed ) );
 		children.Add( new Spacer() );
-		children.Add( BuildAction( "Edit", $"Edit {path}", Edit, icon: GitIcons.Pencil, isEnabled: File.Exists( FullPath ) ) );
+		children.Add( BuildAction( "Edit", $"Edit {path}", Edit, icon: GitIcons.Pencil, isEnabled: _canEdit ) );
 		if ( _target is { Commit: null, Staged: false } && _change is { } unstaged )
 		{
 			children.Add( _confirm == "file"
 				? BuildAction( "Discard file?", $"Confirm discarding every change to {path}", () => DiscardFile( unstaged ), theme.Error, strong: true )
 				: BuildAction( "Discard", $"Discard every change to {path}", () => Confirm( "file" ), theme.Error ) );
-			children.Add( BuildAction( "Stage file", $"Stage {path}", () => RunFile( "Staging", ( root, token ) => GitRepository.StageAsync( root, [unstaged.Path], token ) ), icon: GitIcons.Plus, strong: true ) );
+			children.Add( BuildAction( "Stage file", $"Stage {path}", () => RunFile( "Staging", ( root, token ) => GitRepository.StageAsync( _context.Workspace, root, [unstaged.Path], token ) ), icon: GitIcons.Plus, strong: true ) );
 		}
 		else if ( _target is { Commit: null, Staged: true } && _change is { } staged )
-			children.Add( BuildAction( "Unstage file", $"Unstage {path}", () => RunFile( "Unstaging", ( root, token ) => GitRepository.UnstageAsync( root, [staged.Path], token ) ), icon: GitIcons.Minus, strong: true ) );
+			children.Add( BuildAction( "Unstage file", $"Unstage {path}", () => RunFile( "Unstaging", ( root, token ) => GitRepository.UnstageAsync( _context.Workspace, root, [staged.Path], token ) ), icon: GitIcons.Minus, strong: true ) );
 		children.Add( BuildIcon( GitIcons.Close, "Close the file and show the commit graph", _close ) );
 		return new Row
 		{
@@ -484,7 +490,7 @@ internal sealed partial class GitFileView
 	}
 
 	/// <summary>Discards every change of the shown unstaged file.</summary>
-	private void DiscardFile( GitFileChange change ) => RunFile( "Discarding", ( root, token ) => GitRepository.DiscardAsync( root, [change], token ) );
+	private void DiscardFile( GitFileChange change ) => RunFile( "Discarding", ( root, token ) => GitRepository.DiscardAsync( _context.Workspace, root, [change], token ) );
 
 	/// <summary>Runs a command on the shown file, labelled with its name.</summary>
 	private void RunFile( string verb, Func<string, CancellationToken, Task> operation )
@@ -581,6 +587,21 @@ internal sealed partial class GitFileView
 			AccessibilityName = name,
 			Children = children,
 		};
+	}
+
+	/// <summary>Checks, through the panel's workspace, whether the shown file exists, and enables Edit when it does.</summary>
+	private void UpdateCanEdit()
+	{
+		var path = FullPath;
+		_context.Workspace.FileExistsAsync( path, _context.Lifetime ).WhenDone( _context.Post, done =>
+		{
+			var exists = done.IsCompletedSuccessfully && done.Result;
+			if ( FullPath != path || exists == _canEdit )
+				return;
+
+			_canEdit = exists;
+			MarkChanged();
+		} );
 	}
 
 	/// <summary>Rebuilds the view and every row after a change.</summary>

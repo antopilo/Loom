@@ -28,7 +28,7 @@ public sealed partial class ChatContent
 	/// <summary>Reports whether a message is the reply Omp is streaming now.</summary>
 	private bool IsStreaming( Guid messageId )
 	{
-		if ( !_isBusy )
+		if ( !session.IsBusy )
 			return false;
 
 		var messages = store.GetMessages( conversationId );

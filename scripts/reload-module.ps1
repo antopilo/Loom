@@ -11,13 +11,22 @@ in without restarting. The script then waits for Lokn's outcome and prints it:
   FAILED    the module did not load; the previous version keeps running
   NO CHANGE the build produced the same DLL, so nothing was reloaded
 
-Exits non-zero when the module does not build or does not load.
+A daemon started from the same build (Loom.exe --host, docs/remote.md) reloads the
+module too, but only once none of its chats' agents works. The script prints its
+outcome from the daemon's host.log as well:
+
+  RELOADED  the daemon runs the new code
+  DEFERRED  a chat is working; the daemon reloads once none is, and logs RELOADED or FAILED then
+  FAILED    the module did not load in the daemon; the previous version keeps running there
+
+Exits non-zero when the module does not build or does not load in Lokn or the daemon.
 
 Modules that depend on the rebuilt one reload with it: rebuilding Omp also reloads
 Conversations and Worktrees. Reloading Omp or Conversations closes and reopens the
 chat panels, which stops their running agent turns; conversations resume from their
 saved sessions. An agent working inside a Lokn chat is stopped by such a reload
-before this script can print the outcome, so read the log file afterwards.
+before this script can print the outcome, so read the log file afterwards. In the
+daemon such a reload waits for the turns to end instead.
 
 Only code inside the module is reloaded. A change to Core, the shell or Program.cs
 needs scripts/run.ps1 -Restart.
@@ -53,7 +62,7 @@ if ( -not $project )
 	exit 1
 }
 
-# Lokn only watches the modules folder of the build it was started from.
+# Lokn only watches the modules folder of the build it was started from; so does a daemon started from it.
 $running = @( Get-RunningLokn )
 $configuration = @( Get-LockedConfiguration ) | Select-Object -First 1
 if ( -not $configuration )
@@ -62,7 +71,7 @@ if ( -not $configuration )
 }
 
 $assembly = "$RepoRoot\bin\$configuration\net10.0\modules\$( $project.BaseName ).dll"
-$log = Join-Path ( [IO.Path]::GetTempPath() ) 'Lokn\modules.log'
+$temp = Join-Path ( [IO.Path]::GetTempPath() ) 'Lokn'
 
 function Get-Stamp( [string] $Path )
 {
@@ -75,18 +84,37 @@ function Get-Stamp( [string] $Path )
 	return ''
 }
 
-function Get-LogLineCount
+function Get-LogLineCount( [string] $Path )
 {
-	if ( Test-Path $log )
+	if ( Test-Path $Path )
 	{
-		return @( Get-Content $log ).Count
+		return @( Get-Content $Path ).Count
 	}
 
 	return 0
 }
 
+# A window logs reloads to modules.log; a daemon (--host) to host.log in %TEMP%\Lokn, or in its --bare folder.
+$watches = @( $running | ForEach-Object {
+	$commandLine = "$( ( Get-CimInstance Win32_Process -Filter "ProcessId = $( $_.Id )" ).CommandLine )"
+	if ( $commandLine -notmatch '(^|\s)--host(\s|$)' )
+	{
+		[pscustomobject]@{ Name = 'Lokn'; Log = Join-Path $temp 'modules.log' }
+	}
+	elseif ( $commandLine -match '(^|\s)--bare\s+(?:"([^"]*)"|(\S+))' )
+	{
+		$bare = "$( $Matches[2] )$( $Matches[3] )".TrimEnd( '\' )
+		[pscustomobject]@{ Name = "Daemon ($bare)"; Log = Join-Path $bare 'host.log' }
+	}
+	else
+	{
+		[pscustomobject]@{ Name = 'Daemon'; Log = Join-Path $temp 'host.log' }
+	}
+} | Sort-Object Log -Unique | ForEach-Object {
+	$_ | Add-Member Seen ( Get-LogLineCount $_.Log ) -PassThru | Add-Member Outcome $null -PassThru
+} )
+
 $before = Get-Stamp $assembly
-$seen = Get-LogLineCount
 
 Write-Host "Building $( $project.BaseName ) ($configuration)..."
 dotnet build $project.FullName -c $configuration -nologo -v q
@@ -108,35 +136,59 @@ if ( ( Get-Stamp $assembly ) -eq $before )
 	exit 0
 }
 
-if ( $running.Count -eq 0 )
+if ( $watches.Count -eq 0 )
 {
 	Write-Host "BUILT $Name ($configuration). Lokn is not running; it loads the new build at its next start."
 	exit 0
 }
 
+# A window reports RELOADED or FAILED; a daemon may first report DEFERRED, which is its outcome for now.
 $clock = [Diagnostics.Stopwatch]::StartNew()
-while ( $clock.Elapsed.TotalSeconds -lt $TimeoutSeconds )
+while ( $clock.Elapsed.TotalSeconds -lt $TimeoutSeconds -and @( $watches | Where-Object { -not $_.Outcome } ).Count -gt 0 )
 {
-	$lines = @()
-	if ( Test-Path $log )
+	foreach ( $watch in $watches | Where-Object { -not $_.Outcome } )
 	{
-		$lines = @( Get-Content $log | Select-Object -Skip $seen | Where-Object { $_ -match [regex]::Escape( $project.BaseName ) } )
-	}
-
-	$outcome = $lines | Where-Object { $_ -match ' (RELOADED|FAILED) ' } | Select-Object -Last 1
-	if ( $outcome )
-	{
-		Write-Host $outcome
-		if ( $outcome -match ' FAILED ' )
+		if ( Test-Path $watch.Log )
 		{
-			exit 1
+			$watch.Outcome = Get-Content $watch.Log | Select-Object -Skip $watch.Seen |
+				Where-Object { $_ -match [regex]::Escape( $project.BaseName ) -and $_ -match ' (RELOADED|FAILED|DEFERRED) ' } |
+				Select-Object -Last 1
 		}
-
-		exit 0
 	}
 
 	Start-Sleep -Milliseconds 250
 }
 
-Write-Host "Lokn reported no outcome within $TimeoutSeconds seconds. See $log."
-exit 1
+$exitCode = 0
+foreach ( $watch in $watches )
+{
+	$isDaemon = $watch.Name -ne 'Lokn'
+	if ( $watch.Outcome )
+	{
+		$prefix = ''
+		if ( $isDaemon )
+		{
+			$prefix = "$( $watch.Name ): "
+		}
+		Write-Host "$prefix$( $watch.Outcome )"
+		if ( $watch.Outcome -match ' FAILED ' )
+		{
+			$exitCode = 1
+		}
+		elseif ( $watch.Outcome -match ' DEFERRED ' )
+		{
+			Write-Host "$( $watch.Name ) reloads the module once no chat works, then logs RELOADED or FAILED in $( $watch.Log )."
+		}
+	}
+	elseif ( $isDaemon )
+	{
+		Write-Host "$( $watch.Name ) reported no outcome within $TimeoutSeconds seconds; it reloads when idle. See $( $watch.Log )."
+	}
+	else
+	{
+		Write-Host "Lokn reported no outcome within $TimeoutSeconds seconds. See $( $watch.Log )."
+		$exitCode = 1
+	}
+}
+
+exit $exitCode

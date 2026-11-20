@@ -72,7 +72,11 @@ public sealed partial class PanelWorkspace
 	}
 
 	/// <summary>Opens a visible panel, filling an empty pane or splitting an occupied pane to its right.</summary>
-	public Guid Open( string typeId, Guid? paneId = null, object? input = null )
+	/// <param name="typeId">The panel type to open.</param>
+	/// <param name="paneId">The pane to open in, or null for the active pane.</param>
+	/// <param name="input">The new panel's input.</param>
+	/// <param name="hostId">The host a panel of a host-bound type works on, or null for the current host; ignored for other types.</param>
+	public Guid Open( string typeId, Guid? paneId = null, object? input = null, string? hostId = null )
 	{
 		if ( !_types.TryGetValue( typeId, out var type ) || type.Lifetime.IsCancellationRequested )
 			throw new InvalidOperationException( $"Panel type is not registered: {typeId}" );
@@ -80,9 +84,25 @@ public sealed partial class PanelWorkspace
 		var pane = FindPane( Root, paneId ?? ActivePaneId )
 			?? throw new InvalidOperationException( "The target pane no longer exists." );
 		var id = Guid.NewGuid();
-		_sessions.Add( id, BuildSession( type, id, input ) );
+		_sessions.Add( id, BuildSession( type, id, input, hostId: ResolveHost( type, hostId ) ) );
 		Place( id, pane );
 		return id;
+	}
+
+	/// <summary>Closes every open panel, shown or hidden, that works on a host, such as when the host is removed.</summary>
+	/// <param name="hostId">The host identifier, compared with <see cref="GetHostId"/>.</param>
+	/// <returns>How many panels closed.</returns>
+	public int CloseHost( string hostId )
+	{
+		ArgumentNullException.ThrowIfNull( hostId );
+		var closed = 0;
+		foreach ( var panelId in _sessions.Keys.ToArray() )
+		{
+			// Closing a panel also closes the never-seen panels that waited beside it.
+			if ( _sessions.ContainsKey( panelId ) && GetHostId( panelId ) == hostId && Close( panelId ) )
+				closed++;
+		}
+		return closed;
 	}
 
 	/// <summary>Focuses the pane containing a panel, first bringing a hidden panel back into the layout beside the active pane.</summary>
@@ -258,6 +278,15 @@ public sealed partial class PanelWorkspace
 	/// <summary>Gets the registered panel type a saved identifier names: itself, or the type that took a former identifier over.</summary>
 	private string ResolveTypeId( string typeId ) => !_types.ContainsKey( typeId ) && _formerTypes.TryGetValue( typeId, out var current ) ? current : typeId;
 
+	/// <summary>Gets the host a new panel of a type works on: for a host-bound type the given host, else the current one; null for other types.</summary>
+	private string? ResolveHost( RegisteredPanel type, string? hostId ) =>
+		type.Definition.Info.IsHostBound ? hostId ?? _app.Hosts.Current.Id : null;
+
+	/// <summary>Gets the host a saved panel of a type works on again: for a host-bound type the saved host, This PC when none was saved; null for other
+	/// types.</summary>
+	private static string? RestoreHost( RegisteredPanel type, string? hostId ) =>
+		type.Definition.Info.IsHostBound ? hostId ?? LoknHost.LocalId : null;
+
 	/// <summary>Reports whether an open panel takes a key ahead of the global shortcuts; a throwing panel claims nothing.</summary>
 	internal bool ClaimsKey( Key key, KeyModifiers modifiers )
 	{
@@ -322,8 +351,14 @@ public sealed partial class PanelWorkspace
 }
 
 /// <summary>Owns a panel model for its entire open lifetime, including docking and swapping.</summary>
+/// <param name="Info">The panel's identity and title.</param>
+/// <param name="Content">The panel's content, or null when its factory failed.</param>
+/// <param name="Failure">Why the factory failed, or null.</param>
+/// <param name="Lifetime">The panel's lifetime.</param>
+/// <param name="HostId">The host the panel was opened on; null for a type that is not host-bound.</param>
 internal sealed record PanelSession(
 	PanelInfo Info,
 	PanelContent? Content,
 	string? Failure,
-	CancellationTokenSource Lifetime );
+	CancellationTokenSource Lifetime,
+	string? HostId = null );

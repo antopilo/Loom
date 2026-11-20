@@ -15,9 +15,6 @@ public sealed partial class ChatContent
 	/// <summary>Defines the single-line answer height in logical pixels.</summary>
 	private const int AnswerHeight = 36;
 
-	/// <summary>Retains selected labels for each opt-in multi-question dialog.</summary>
-	private readonly Dictionary<string, HashSet<string>> _answers = [];
-
 	/// <summary>Holds second editors over the dialog editors' documents, for copies of a question shown outside the chat, such as in the notification feed or a banner, by surface and editor key.</summary>
 	/// <remarks>A <see cref="TextEditorController"/> mounts one editor, and the chat's own copy and each outside copy may be on screen at the same time.</remarks>
 	private readonly Dictionary<(string Surface, string Key), TextEditorController> _outsideEditors = [];
@@ -25,97 +22,36 @@ public sealed partial class ChatContent
 	/// <summary>Changes when the pending questions or their selections change, so views outside the chat rebuild only then, not on every streamed frame.</summary>
 	private readonly State<int> _dialogVersion = new( 0 );
 
-	/// <summary>Stores what the pending questions looked like at the last change, to tell when <see cref="_dialogVersion"/> must move.</summary>
-	private string _dialogSignature = "";
-
-	/// <summary>Counts selection changes in questionnaires, which the signature includes.</summary>
-	private int _answerRevision;
-
-	/// <summary>Holds the dialogs answered or cancelled whose exit is playing; they stay in <see cref="_dialogs"/> until it ends but are no longer pending.</summary>
-	private readonly HashSet<string> _leavingDialogs = new( StringComparer.Ordinal );
-
-	/// <summary>Gets the first dialog still waiting for an answer, or null when none is.</summary>
-	private JsonElement? PendingDialog
-	{
-		get
-		{
-			foreach ( var dialog in _dialogs )
-			{
-				if ( !_leavingDialogs.Contains( ReadText( dialog, "id" ) ) )
-					return dialog;
-			}
-			return null;
-		}
-	}
-
-	/// <summary>Counts the dialogs still waiting for an answer.</summary>
-	private int PendingDialogCount => _dialogs.Count - _dialogs.Count( dialog => _leavingDialogs.Contains( ReadText( dialog, "id" ) ) );
-
-	/// <summary>Gets whether the agent is waiting on a question, subscribing the reading view to question changes only.</summary>
-	internal bool HasPendingDialog
-	{
-		get
-		{
-			_ = _dialogVersion.Value;
-			return PendingDialog is not null;
-		}
-	}
+	/// <summary>Holds the questions answered or cancelled whose exit is playing, oldest first; the session no longer counts them as pending.</summary>
+	private readonly List<JsonElement> _leavingDialogs = [];
 
 	/// <summary>Builds the first pending question for a view outside the chat, answering it as the chat would, or null when none is pending.</summary>
 	/// <param name="surface">Names the view, such as <c>feed</c> or <c>banner</c>; views shown at the same time need different names, as each gets its own text editors.</param>
 	internal Blob? BuildPendingDialog( string surface )
 	{
 		_ = _dialogVersion.Value;
-		return PendingDialog is { } dialog ? BuildDialog( dialog, surface ) : null;
+		return session.PendingDialog is { } dialog ? BuildDialog( dialog, surface ) : null;
 	}
 
-	/// <summary>Moves <see cref="_dialogVersion"/> when the pending questions changed since the last change.</summary>
-	private void UpdateDialogSignature()
+	/// <summary>Moves <see cref="_dialogVersion"/> when the session's pending questions or their selections changed.</summary>
+	private void UpdateDialogsChanged() => _dialogVersion.Value++;
+
+	/// <summary>Plays the exit of a question that stopped being pending, then removes it and releases its editors and selections.</summary>
+	private void UpdateDialogLeft( JsonElement dialog )
 	{
-		var signature = PendingDialog is { } dialog ? $"{PendingDialogCount}:{ReadText( dialog, "id" )}:{_answerRevision}" : "";
-		if ( signature == _dialogSignature )
-			return;
-
-		_dialogSignature = signature;
-		_dialogVersion.Value++;
-	}
-
-	/// <summary>Plays a dialog's exit in the chat, then removes it and releases its editors; it stops counting as pending at once.</summary>
-	private void UpdateDialogLeave( string id )
-	{
-		if ( !_leavingDialogs.Add( id ) )
-			return;
-
+		var id = ReadText( dialog, "id" );
+		_leavingDialogs.Add( dialog );
 		UpdateAfterExit( () =>
 		{
-			_leavingDialogs.Remove( id );
-			_dialogs.RemoveAll( dialog => ReadText( dialog, "id" ) == id );
+			_leavingDialogs.RemoveAll( leaving => ReadText( leaving, "id" ) == id );
 			ReleaseDialogEditors( id );
+			session.ReleaseSelections( id );
 			MarkChanged();
 		} );
 	}
 
-	/// <summary>Updates ordered dialog state or applies a backend presentation notification.</summary>
-	private void UpdateDialog( JsonElement frame )
-	{
-		var method = ReadText( frame, "method" );
-		var id = ReadText( frame, "id" );
-		if ( method == "cancel" )
-			UpdateDialogLeave( ReadText( frame, "targetId" ) );
-		else if ( method is "select" or "confirm" or "input" or "editor" or "ask" or "open_url" )
-		{
-			_dialogs.RemoveAll( dialog => ReadText( dialog, "id" ) == id );
-			_dialogs.Add( frame.Clone() );
-			_status = "Waiting for your answer";
-		}
-		else if ( method == "set_editor_text" )
-		{
-			var text = ReadText( frame, "text" );
-			_composer.Document.Apply( new TextChange( new TextRange( 0, _composer.Document.Length ), text ) );
-		}
-		else if ( method is "notify" or "setStatus" && ReadText( frame, "message", ReadText( frame, "text", ReadText( frame, "content" ) ) ) is { Length: > 0 } notice )
-			_status = notice;
-	}
+	/// <summary>Marks this panel read once an answer reached Omp, wherever it came from, such as the notification feed.</summary>
+	private void UpdateDialogAnswered() => context.App.Notifications.MarkPanelRead( context.Id );
 
 	/// <summary>Builds a pending select, confirm, text editor, or questionnaire using native Goo controls.</summary>
 	/// <param name="dialog">The question.</param>
@@ -217,11 +153,7 @@ public sealed partial class ChatContent
 					} ) ) );
 		}
 		var dismiss = method == "open_url"
-			? Theme.Current.BuildButton( "Dismiss", () => context.Run( () =>
-			{
-				UpdateDialogLeave( id );
-				MarkChanged();
-			} ) )
+			? Theme.Current.BuildButton( "Dismiss", () => context.Run( () => session.DismissDialog( id ) ) )
 			: Theme.Current.BuildButton( "Cancel", () => UpdateDialogAnswer( id, new { type = "extension_ui_response", id, cancelled = true } ) );
 		dismiss.Color = Theme.Current.Muted;
 		actions.Insert( 0, dismiss );
@@ -309,27 +241,15 @@ public sealed partial class ChatContent
 	private Blob BuildQuestion( string dialogId, JsonElement question, string? surface )
 	{
 		var key = dialogId + "." + ReadText( question, "id" );
-		if ( !_answers.TryGetValue( key, out var selected ) )
-			_answers.Add( key, selected = [] );
+		var selected = session.ReadSelection( key );
 		var multi = ReadText( question, "multi" ) is "True" or "true";
 		var children = new List<Blob> { MarkdownView.Build( ReadText( question, "question" ), OpenLink ) };
 		foreach ( var option in question.GetProperty( "options" ).EnumerateArray() )
 		{
 			var label = ReadText( option, "label" );
 			var isSelected = selected.Contains( label );
-			children.Add( BuildOptionCard( "option:" + label, label, ReadText( option, "description" ), multi ? (isSelected ? "☑" : "☐") : (isSelected ? "◉" : "○"), isSelected, () => context.Run( () =>
-			{
-				if ( selected.Contains( label ) )
-					selected.Remove( label );
-				else
-				{
-					if ( !multi )
-						selected.Clear();
-					selected.Add( label );
-				}
-				_answerRevision++;
-				MarkChanged();
-			} ) ) );
+			children.Add( BuildOptionCard( "option:" + label, label, ReadText( option, "description" ), multi ? (isSelected ? "☑" : "☐") : (isSelected ? "◉" : "○"), isSelected,
+				() => context.Run( () => session.UpdateSelection( key, label, multi ) ) ) );
 		}
 		// A lone question in the chat takes its own answer from the message box below instead of a second text box.
 		if ( surface is null && ComposerAnswerKey() == key )
@@ -380,7 +300,7 @@ public sealed partial class ChatContent
 	/// questionnaire question, or null when the question takes no typed answer or has several text boxes.</summary>
 	private string? ComposerAnswerKey()
 	{
-		if ( PendingDialog is not { } dialog )
+		if ( session.PendingDialog is not { } dialog )
 			return null;
 
 		var id = ReadText( dialog, "id" );
@@ -396,7 +316,7 @@ public sealed partial class ChatContent
 	/// <summary>Answers the pending question with text typed in the message box; false when the question does not take it there.</summary>
 	private bool UpdateComposerAnswer( string text )
 	{
-		if ( PendingDialog is not { } dialog || ComposerAnswerKey() is not { } key )
+		if ( session.PendingDialog is not { } dialog || ComposerAnswerKey() is not { } key )
 			return false;
 
 		var id = ReadText( dialog, "id" );
@@ -422,7 +342,7 @@ public sealed partial class ChatContent
 			var key = id + "." + questionId;
 			var customInput = EnsureDialogEditor( key, "" ).Document.GetText().Trim();
 			var isMulti = ReadText( question, "multi" ) is "True" or "true";
-			var selectedOptions = !isMulti && customInput.Length > 0 ? [] : _answers.GetValueOrDefault( key )?.ToArray() ?? [];
+			var selectedOptions = !isMulti && customInput.Length > 0 ? [] : session.ReadSelection( key ).ToArray();
 			return new
 			{
 				id = questionId,
@@ -438,48 +358,14 @@ public sealed partial class ChatContent
 		} );
 	}
 
-	/// <summary>Sends one tool answer and removes its dialog only after the pipe accepts it; a dialog already leaving takes no second answer.</summary>
-	private void UpdateDialogAnswer( string id, object response )
-	{
-		if ( _session is not { } session || _leavingDialogs.Contains( id ) )
-			return;
-		_ = UpdateDialogAnswerAsync( session, id, response );
-	}
+	/// <summary>Sends one tool answer through the session, which removes its question only after the pipe accepts it.</summary>
+	private void UpdateDialogAnswer( string id, object response ) => session.AnswerDialog( id, response );
 
-	/// <summary>Contains side-channel write failures and retains unanswered dialogs for retry.</summary>
-	private async Task UpdateDialogAnswerAsync( Omp.OmpSession session, string id, object response )
-	{
-		try
-		{
-			await session.SendAsync( response, context.Lifetime );
-			context.Post( () =>
-			{
-				UpdateDialogLeave( id );
-				_status = "Working…";
-				// Answering is dealing with it, wherever the answer came from, such as the notification feed.
-				context.App.Notifications.MarkPanelRead( context.Id );
-				if ( PendingDialog is null )
-					context.ClearAttention();
-				MarkChanged();
-			} );
-		}
-		catch ( Exception error )
-		{
-			context.Post( () =>
-			{
-				_status = error.Message;
-				MarkChanged();
-			} );
-		}
-	}
-
-	/// <summary>Releases completed dialog text and selections so old prompts do not accumulate.</summary>
+	/// <summary>Releases completed dialog text so old prompts do not accumulate.</summary>
 	private void ReleaseDialogEditors( string id )
 	{
 		foreach ( var key in _dialogEditors.Keys.Where( key => key == id || key.StartsWith( id + ".", StringComparison.Ordinal ) ).ToArray() )
 			_dialogEditors.Remove( key );
-		foreach ( var key in _answers.Keys.Where( key => key.StartsWith( id + ".", StringComparison.Ordinal ) ).ToArray() )
-			_answers.Remove( key );
 		foreach ( var key in _outsideEditors.Keys.Where( key => key.Key == id || key.Key.StartsWith( id + ".", StringComparison.Ordinal ) ).ToArray() )
 			_outsideEditors.Remove( key );
 	}

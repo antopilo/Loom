@@ -39,13 +39,14 @@ internal static class NativeChecks
 				context.App.Panels.Open( "welcome.home" );
 			}, new( Key.U, KeyModifiers.Primary ) ) ) );
 		var panel = app.Panels.Open( "native.editor" );
-		var shell = new ShellView( app );
+		var shell = new ShellView( app ) { AppliesNativeWindowHooks = false };
 		var semantics = new SemanticAdapter();
 		var window = new Window
 		{
 			Title = "Lokn integration checks",
 			Size = new( WindowWidth, WindowHeight ),
 			Decorated = false,
+			Transparent = true,
 			Background = Theme.Current.Canvas,
 			Foreground = Theme.Current.Text,
 			Root = shell,
@@ -58,13 +59,12 @@ internal static class NativeChecks
 		window.Open();
 		Pump( window );
 		if ( !args.Contains( "--settings-only" ) )
-			CheckTitlebarActions( window, shell, app );
+			CheckTitlebarActions( window, shell, app, semantics );
 		CoreChecks.Check( startupPosts == 1, "Module startup work posted before Open reaches the UI thread." );
 		CoreChecks.Check( state.MountCount == 1 && state.Input.IsMounted, "Feature Cell mounts once." );
 		state.Input.Focus();
 		window.PlatformInput.CommitText( "retained through docking" );
-		Pump( window );
-		CoreChecks.Check( state.Text.Value == "retained through docking", "Native text input reaches the feature." );
+		PumpUntil( window, semantics, () => state.Text.Value == "retained through docking", "Native text input reaches the feature." );
 
 		if ( args.Contains( "--settings-only" ) )
 		{
@@ -98,11 +98,12 @@ internal static class NativeChecks
 		var divider = geometry.Dividers[split.Id];
 		var dividerX = workspace.X + divider.X + divider.Width / 2;
 		var dividerY = workspace.Y + divider.Y + divider.Height / 2;
+		// A drag targets no focusable node, so the window first takes native input again if it lost the system focus.
+		UiInput.Activate( window );
 		PointerPress( window, dividerX, dividerY );
 		PointerMove( window, dividerX + 80, dividerY );
 		PointerRelease( window, dividerX + 80, dividerY );
-		Pump( window );
-		CoreChecks.Check( ((DockSplit)app.Panels.Root).Ratio > split.Ratio, "Pointer-captured divider drag updates the native workspace." );
+		PumpUntil( window, semantics, () => ((DockSplit)app.Panels.Root).Ratio > split.Ratio, "Pointer-captured divider drag updates the native workspace." );
 
 		geometry = DockGeometry.Build( app.Panels.Root, new( workspace.Width, workspace.Height ) );
 		var source = geometry.Panes[right];
@@ -113,14 +114,14 @@ internal static class NativeChecks
 		var sourceY = workspace.Y + sourceGrip.Y + sourceGrip.Height / 2;
 		var targetX = workspace.X + target.X + target.Width / 2;
 		var targetY = workspace.Y + target.Y + 24;
+		UiInput.Activate( window );
 		PointerPress( window, sourceX, sourceY );
 		PointerMove( window, sourceX + 20, sourceY + 20 );
 		Pump( window );
 		PointerMove( window, targetX, targetY );
 		Pump( window );
 		PointerRelease( window, targetX, targetY );
-		Pump( window );
-		CoreChecks.Check( app.Panels.Panes.Count == 3, "Native pane-grip drag docks at a target panel edge." );
+		PumpUntil( window, semantics, () => app.Panels.Panes.Count == 3, "Native pane-grip drag docks at a target panel edge." );
 		CoreChecks.Check( state.MountCount == 1, "Pointer docking preserves the nested feature Cell." );
 
 		geometry = DockGeometry.Build( app.Panels.Root, new( workspace.Width, workspace.Height ) );
@@ -132,14 +133,14 @@ internal static class NativeChecks
 		var swapSourceY = workspace.Y + swapSourceBounds.Y + swapSourceBounds.Height / 2;
 		var swapTargetX = workspace.X + swapTargetBounds.X + swapTargetBounds.Width / 2;
 		var swapTargetY = workspace.Y + swapTargetBounds.Y + swapTargetBounds.Height / 2;
+		UiInput.Activate( window );
 		PointerPress( window, swapSourceX, swapSourceY );
 		PointerMove( window, swapSourceX + 20, swapSourceY + 20 );
 		Pump( window );
 		PointerMove( window, swapTargetX, swapTargetY );
 		Pump( window );
 		PointerRelease( window, swapTargetX, swapTargetY );
-		Pump( window );
-		CoreChecks.Check( app.Panels.Panes.Single( pane => pane.Id == swapTarget.Id ).PanelId == panel, "Native center drop swaps the dragged pane into its target." );
+		PumpUntil( window, semantics, () => app.Panels.Panes.Single( pane => pane.Id == swapTarget.Id ).PanelId == panel, "Native center drop swaps the dragged pane into its target." );
 		CoreChecks.Check( app.Panels.Panes.Single( pane => pane.Id == swapSourceId ).PanelId == swapTarget.PanelId, "Native center drop preserves the displaced pane." );
 		CoreChecks.Check( state.MountCount == 1 && state.Text.Value == "retained through docking", "Swapping retains feature Cells and editor state." );
 		CoreChecks.CheckInvariants( app.Panels );
@@ -150,16 +151,18 @@ internal static class NativeChecks
 		var gripX = workspace.X + grip.X + grip.Width / 2;
 		var gripY = workspace.Y + grip.Y + grip.Height / 2;
 		var menuField = typeof( ShellView ).GetField( "_menuPaneId", BindingFlags.Instance | BindingFlags.NonPublic )!;
+		UiInput.Activate( window );
 		PointerMove( window, gripX, gripY );
 		Pump( window );
 		PointerPress( window, gripX, gripY );
 		PointerRelease( window, gripX, gripY );
-		Pump( window );
-		CoreChecks.Check( (Guid?)menuField.GetValue( shell ) == menuPaneId && app.Panels.ActivePaneId == menuPaneId, "Clicking a pane grip activates the pane and opens its actions menu." );
-		window.PlatformInput.KeyPress( Key.Escape, KeyModifiers.None );
-		window.PlatformInput.KeyRelease( Key.Escape );
-		Pump( window );
-		CoreChecks.Check( menuField.GetValue( shell ) is null, "Escape dismisses the pane actions menu." );
+		PumpUntil( window, semantics, () => (Guid?)menuField.GetValue( shell ) == menuPaneId && app.Panels.ActivePaneId == menuPaneId,
+			"Clicking a pane grip activates the pane and opens its actions menu." );
+		// Goo dismisses a native popup only on real OS input (Window.Host.gs configureHost: a native pointer press calls DismissChildMenus with
+		// OutsideInteraction, a native Escape calls popup.Dismiss with Escape); PlatformInput bypasses both, so this check cannot exercise dismissal and
+		// closes the menu in code, through the shell's own close.
+		typeof( ShellView ).GetMethod( "ReleasePaneMenu", BindingFlags.Instance | BindingFlags.NonPublic )!.Invoke( shell, null );
+		PumpUntil( window, semantics, () => menuField.GetValue( shell ) is null, "The pane actions menu closes." );
 		CoreChecks.CheckInvariants( app.Panels );
 
 		// Agent tools arrive on a transport thread, as Omp's host_tool_call frames do.
@@ -168,25 +171,21 @@ internal static class NativeChecks
 			Pump( window );
 		CoreChecks.Check( toolCall.Result is { IsError: false } && app.Panels.ActivePanelId == panel, $"An agent tool called from another thread runs on the UI thread ({toolCall.Result.Text})." );
 
-		window.PlatformInput.KeyPress( Key.P, KeyModifiers.PrimaryShift );
-		window.PlatformInput.KeyRelease( Key.P );
-		Pump( window );
-		CoreChecks.Check( app.NativeSurfacesOccluded, "The command palette hides native child surfaces while it is open." );
+		Shortcut( window, Key.P, KeyModifiers.PrimaryShift );
+		PumpUntil( window, semantics, () => app.NativeSurfacesOccluded, "The command palette hides native child surfaces while it is open." );
 		window.PlatformInput.CommitText( "Open Welcome" );
 		Pump( window );
 		var count = app.Panels.Panels.Count;
+		// The palette's search entry has the focus; the Enter goes to it as typed.
 		window.PlatformInput.KeyPress( Key.Enter, KeyModifiers.None );
 		window.PlatformInput.KeyRelease( Key.Enter );
-		Pump( window );
-		CoreChecks.Check( app.Panels.Panels.Count == count + 1, "Global palette shortcut, search input, and Enter execute a registered command." );
+		PumpUntil( window, semantics, () => app.Panels.Panels.Count == count + 1, "Global palette shortcut, search input, and Enter execute a registered command." );
 		CoreChecks.Check( !app.NativeSurfacesOccluded, "Closing the command palette restores native child surfaces." );
 
 		var asyncPanelCount = app.Panels.Panels.Count;
-		window.PlatformInput.KeyPress( Key.U, KeyModifiers.Primary );
-		window.PlatformInput.KeyRelease( Key.U );
-		Pump( window );
+		Shortcut( window, Key.U, KeyModifiers.Primary );
+		PumpUntil( window, semantics, () => app.Panels.Panels.Count == asyncPanelCount + 1, "Async commands can safely open panels after awaiting." );
 		CoreChecks.Check( commandThread != 0 && commandThread == continuationThread, "Async global commands resume on the native UI thread." );
-		CoreChecks.Check( app.Panels.Panels.Count == asyncPanelCount + 1, "Async commands can safely open panels after awaiting." );
 
 		var brokenRender = app.Panels.Open( "native.broken-render" );
 		Pump( window );
@@ -202,11 +201,12 @@ internal static class NativeChecks
 		Pump( window );
 		CoreChecks.Check( state.UnmountCount == 1, "Module unload unmounts its nested feature exactly once." );
 		CoreChecks.Check( app.Panels.Panels.Any( item => item.Id == other ), "Module unload preserves unrelated native panels." );
-		var manager = app.Panels.Open( "workspace.modules" );
+		// Modules are turned on and off on the Settings panel's Modules tab.
+		var manager = app.Panels.Open( "shell.settings" );
 		Pump( window );
 		app.Unload( "welcome" );
 		Pump( window );
-		CoreChecks.Check( app.Panels.Panels.Single().Id == manager, "Optional feature removal leaves the essential shell and manager running." );
+		CoreChecks.Check( app.Panels.Panels.Single().Id == manager, "Optional feature removal leaves the essential shell and its Settings panel running." );
 		app.Enable( "welcome" );
 		Pump( window );
 
@@ -225,14 +225,15 @@ internal static class NativeChecks
 			BuildCapture( window, args[captureIndex + 1], "settings" );
 			app.Panels.Close( preferences );
 			Pump( window );
-			PointerMove( window, FirstActionCenterX, CaptionCenterY );
+			var (tipX, tipY) = ComputeTitlebarAction( semantics, "Toggle sidebar" );
+			UiInput.Activate( window );
+			PointerMove( window, tipX, tipY );
 			Pump( window );
 			BuildCapture( window, args[captureIndex + 1], "titlebar-tooltip" );
-			PointerMove( window, window.Size.Width / 2, CaptionCenterY * 2 );
+			PointerMove( window, window.Size.Width / 2, TitleBar.BarHeight );
 			Pump( window );
-			window.PlatformInput.KeyPress( Key.K, KeyModifiers.Primary );
-			window.PlatformInput.KeyRelease( Key.K );
-			Pump( window );
+			Shortcut( window, Key.K, KeyModifiers.Primary );
+			PumpUntil( window, semantics, () => app.NativeSurfacesOccluded, "Ctrl+K opens the command palette for its capture." );
 			BuildCapture( window, args[captureIndex + 1], "palette" );
 		}
 
@@ -242,8 +243,8 @@ internal static class NativeChecks
 		Console.WriteLine( "PASS native rendering, retained Cell state, pane swaps, pointer resizing, pointer docking, palette routing, module unload, and shutdown." );
 	}
 
-	/// <summary>Checks icon clicks, panel palette filtering, split commands, and reclaimed toolbar space.</summary>
-	private static void CheckTitlebarActions( Window window, ShellView shell, LoknApplication app )
+	/// <summary>Checks the titlebar's icons, found by their accessible names, the split shortcuts, and reclaimed toolbar space.</summary>
+	private static void CheckTitlebarActions( Window window, ShellView shell, LoknApplication app, SemanticAdapter semantics )
 	{
 		var active = app.Panels.ActivePanelId;
 		var paneCount = app.Panels.Panes.Count;
@@ -251,63 +252,85 @@ internal static class NativeChecks
 		var handle = (ElementHandle)typeof( ShellView )
 			.GetField( "_workspaceHandle", BindingFlags.Instance | BindingFlags.NonPublic )!
 			.GetValue( shell )!;
-		CoreChecks.Check( handle.BorderBox.Y == CaptionCenterY * 2, "The workspace starts immediately below the titlebar." );
+		CoreChecks.Check( handle.BorderBox.Y == TitleBar.BarHeight, "The workspace starts immediately below the titlebar." );
 
-		ClickTitlebarAction( window, 1 );
-		CoreChecks.Check( app.Panels.Panes.Count == paneCount + 1, "The titlebar split-right icon creates a pane." );
-		app.Panels.CloseActive();
-		Pump( window );
-		ClickTitlebarAction( window, 2 );
-		CoreChecks.Check( app.Panels.Panes.Count == paneCount + 1, "The titlebar split-down icon creates a pane." );
-		app.Panels.CloseActive();
-		Pump( window );
+		var isSidebarShown = app.Settings.Get( ShellSettings.ShowSidebar );
+		ClickTitlebarAction( window, semantics, "Toggle sidebar" );
+		PumpUntil( window, semantics, () => app.Settings.Get( ShellSettings.ShowSidebar ) != isSidebarShown, "The titlebar sidebar icon shows or hides the sidebar." );
+		ClickTitlebarAction( window, semantics, "Toggle sidebar" );
+		PumpUntil( window, semantics, () => app.Settings.Get( ShellSettings.ShowSidebar ) == isSidebarShown, "The titlebar sidebar icon toggles back." );
 
-		ClickTitlebarAction( window, 0 );
-		var query = (string)typeof( ShellView ).GetField( "_query", BindingFlags.Instance | BindingFlags.NonPublic )!.GetValue( shell )!;
-		CoreChecks.Check( query == "Open ", "The titlebar Add icon opens panel-filtered commands." );
-		window.PlatformInput.KeyPress( Key.A, KeyModifiers.Primary );
-		window.PlatformInput.KeyRelease( Key.A );
-		window.PlatformInput.CommitText( "Open Welcome" );
-		Pump( window );
-		window.PlatformInput.KeyPress( Key.Enter, KeyModifiers.None );
-		window.PlatformInput.KeyRelease( Key.Enter );
-		Pump( window );
-		CoreChecks.Check( app.Panels.Panels.Count == panelCount + 1, "The Add icon's palette executes panel commands." );
+		ClickTitlebarAction( window, semantics, "Settings" );
+		PumpUntil( window, semantics, () => app.Panels.Panels.Count == panelCount + 1 && app.Panels.Panels.Single( item => item.Id == app.Panels.ActivePanelId ).TypeId == "shell.settings",
+			"The titlebar Settings icon opens the Settings panel." );
 		app.Panels.CloseActive();
 		Pump( window );
 
-		ClickTitlebarAction( window, 3 );
-		query = (string)typeof( ShellView ).GetField( "_query", BindingFlags.Instance | BindingFlags.NonPublic )!.GetValue( shell )!;
-		CoreChecks.Check( query == "", "The titlebar search icon opens the global command palette." );
-		window.PlatformInput.KeyPress( Key.Escape, KeyModifiers.None );
-		window.PlatformInput.KeyRelease( Key.Escape );
+		Shortcut( window, Key.BackSlash, KeyModifiers.Primary );
+		PumpUntil( window, semantics, () => app.Panels.Panes.Count == paneCount + 1, "The split-right shortcut creates a pane." );
+		app.Panels.CloseActive();
+		Pump( window );
+		Shortcut( window, Key.BackSlash, KeyModifiers.PrimaryShift );
+		PumpUntil( window, semantics, () => app.Panels.Panes.Count == paneCount + 1, "The split-down shortcut creates a pane." );
+		app.Panels.CloseActive();
 		Pump( window );
 		if ( active is { } panel )
 			app.Panels.Activate( panel );
 
-		PointerMove( window, window.Size.Width / 2, CaptionCenterY * 2 );
+		PointerMove( window, window.Size.Width / 2, TitleBar.BarHeight );
 		Pump( window );
 		CoreChecks.Check( window.State == WindowState.Normal, "Workspace titlebar icons leave native window state unchanged." );
 	}
 
-	/// <summary>Defines the first workspace icon center in logical pixels.</summary>
-	private const int FirstActionCenterX = 24;
-
-	/// <summary>Defines the distance between workspace icon centers in logical pixels.</summary>
-	private const int ActionCenterStep = 36;
-
-	/// <summary>Defines the titlebar center height in logical pixels.</summary>
-	private const int CaptionCenterY = 18;
-
-	/// <summary>Clicks a titlebar icon using native Goo pointer routing.</summary>
-	private static void ClickTitlebarAction( Window window, int index )
+	/// <summary>Finds the center of the titlebar button with the accessible name, in layout coordinates.</summary>
+	private static (double X, double Y) ComputeTitlebarAction( SemanticAdapter semantics, string name )
 	{
-		var x = FirstActionCenterX + index * ActionCenterStep;
-		PointerMove( window, x, CaptionCenterY );
+		var node = Flatten( semantics.Tree!.Root! ).Single( node => node.Role == AccessibilityRole.Button && node.Name == name && node.Bounds.Y < TitleBar.BarHeight );
+		var bounds = node.VisibleBounds ?? node.Bounds;
+		return (bounds.X + bounds.Width / 2, bounds.Y + bounds.Height / 2);
+	}
+
+	/// <summary>Clicks a titlebar icon, found by its accessible name, through native pointer input after focusing it in code (<see cref="UiInput"/>).</summary>
+	private static void ClickTitlebarAction( Window window, SemanticAdapter semantics, string name ) =>
+		UiInput.Click( window, () => semantics.Tree?.Root is { } root
+			? Flatten( root ).SingleOrDefault( node => node.Role == AccessibilityRole.Button && node.Name == name && node.Bounds.Y < TitleBar.BarHeight )
+			: null, () => Pump( window ), $"The titlebar's {name} icon" );
+
+	/// <summary>Presses and releases a window shortcut through native input, after letting the window take native input again if it lost the system focus.</summary>
+	private static void Shortcut( Window window, Key key, KeyModifiers modifiers )
+	{
+		UiInput.Activate( window );
+		window.PlatformInput.KeyPress( key, modifiers );
+		window.PlatformInput.KeyRelease( key );
+	}
+
+	/// <summary>Pumps until the state an action changes holds, failing with what was expected and what shows after 20 seconds.</summary>
+	private static void PumpUntil( Window window, SemanticAdapter semantics, Func<bool> predicate, string what )
+	{
+		var timer = System.Diagnostics.Stopwatch.StartNew();
+		while ( !predicate() )
+		{
+			if ( timer.Elapsed > TimeSpan.FromSeconds( 20 ) )
+			{
+				var shown = semantics.Tree?.Root is { } root
+					? string.Join( " | ", Flatten( root ).Select( node => node.Name ).Where( name => name is { Length: > 0 } ).Distinct() )
+					: "no accessibility tree";
+				CoreChecks.Check( false, $"{what} (timed out; focused: {window.IsFocused}; showing: {shown[..Math.Min( shown.Length, 3000 )]})" );
+			}
+			Pump( window );
+		}
 		Pump( window );
-		PointerPress( window, x, CaptionCenterY );
-		PointerRelease( window, x, CaptionCenterY );
-		Pump( window );
+	}
+
+	/// <summary>Enumerates a semantic subtree.</summary>
+	private static IEnumerable<AccessibilityNode> Flatten( AccessibilityNode node )
+	{
+		yield return node;
+		foreach ( var child in node.Children )
+		{
+			foreach ( var descendant in Flatten( child ) )
+				yield return descendant;
+		}
 	}
 
 	/// <summary>Processes a bounded sequence of real native frames.</summary>

@@ -37,7 +37,7 @@ public sealed class FilesModule : ILoknModule, IFileSideView
 			.ExtensionPoint<FileTreeButton>( "buttons" )
 			.ExtensionPoint<FileTreeMode>( "modes" )
 			// No task icon: the file tree is a side view beside any task, not what the task is about.
-			.Panel( "tree", "Files", context => _trees[context.Id] = new FileTreeContent( context ) )
+			.Panel( "tree", "Files", context => _trees[context.Id] = new FileTreeContent( context ), onHost: true )
 			// Drawn like the sidebar's own actions, right under New project; highlighted while the tree shows.
 			.Contribute( SidebarAction.Point, new SidebarAction( "Files", FileTreeContent.FolderGlyph, Toggle )
 			{

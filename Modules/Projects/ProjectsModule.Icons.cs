@@ -12,10 +12,17 @@ public sealed partial class ProjectsModule
 	/// <summary>Caches one lazy image provider per project directory; null records a directory with no resolved icon.</summary>
 	private readonly Dictionary<string, AsyncImageSource?> _icons = new( StringComparer.OrdinalIgnoreCase );
 
-	/// <summary>Gets the shared lazy icon source for a project, or null when its directory has no supported icon.</summary>
-	/// <remarks>The source is released when this module stops, so a view resolves it again on each build.</remarks>
-	public AsyncImageSource? GetIcon( ProjectInfo project )
+	/// <summary>Gets the shared lazy icon source for a project, or null when its directory has no supported icon or the project is on a paired host.</summary>
+	/// <param name="project">The project.</param>
+	/// <param name="hostId">The host the project is on, or null or <see cref="LoknHost.LocalId"/> for This PC.</param>
+	/// <remarks>
+	/// A paired host's directory names a folder on that host, never on This PC, so its projects show their letter icon. The source is released when
+	/// this module stops, so a view resolves it again on each build.
+	/// </remarks>
+	public AsyncImageSource? GetIcon( ProjectInfo project, string? hostId )
 	{
+		if ( hostId is not null && hostId != LoknHost.LocalId )
+			return null;
 		if ( _icons.TryGetValue( project.Directory, out var known ) )
 			return known;
 

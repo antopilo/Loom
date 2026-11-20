@@ -79,10 +79,8 @@ public sealed partial class ConversationStore
 	/// <summary>Gets the most recent history read or write error.</summary>
 	public string? LastError => _lastError;
 
-	/// <summary>Gets the per-user conversation history index file path.</summary>
-	public static string DefaultPath => Path.Combine(
-		Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ),
-		"Lokn", "conversations.json" );
+	/// <summary>Gets the per-user conversation history index file path, under the process's data folder.</summary>
+	public static string DefaultPath => LoknPaths.Combine( "conversations.json" );
 
 	/// <summary>Saves every change not saved yet; the files are written off the UI thread after a short quiet period.</summary>
 	public void Save()
@@ -102,6 +100,46 @@ public sealed partial class ConversationStore
 	{
 		TakeChanges();
 		WritePending();
+	}
+
+	/// <summary>Reads the history files again in place of what was read, such as after another process that kept them, a daemon, wrote them and exited.</summary>
+	/// <remarks>
+	/// Call it on the UI thread. Changes this store had not written yet were made to the copy the other process replaced, so they are dropped rather than
+	/// written over its files. Messages read so far are read again on their next use, readers of the conversations and of each conversation's messages
+	/// rebuild, and <see cref="Deleted"/> is raised for each conversation the files no longer hold. A mirror or an in-memory store has no files and is left alone.
+	/// </remarks>
+	public void Reload()
+	{
+		if ( _path is null || _isMirror )
+			return;
+
+		ClearChanges();
+		_saveTimer.Change( Timeout.Infinite, Timeout.Infinite );
+		// A write under way finishes first; what it had not taken yet is dropped.
+		lock ( _writeLock )
+		{
+			lock ( _pendingLock )
+			{
+				_pending = new();
+				_pendingSince = 0;
+			}
+		}
+
+		var previous = _conversations.Keys.ToArray();
+		_conversations.Clear();
+		_messages.Clear();
+		_snapshots.Clear();
+		_unreadable.Clear();
+		_legacyProjects = null;
+		_canSave = true;
+		_lastError = null;
+		_isLoaded = false;
+		EnsureLoaded();
+		foreach ( var version in _messageVersions.Values )
+			version.Value++;
+		_version.Value++;
+		foreach ( var id in previous.Where( id => !_conversations.ContainsKey( id ) ) )
+			Deleted?.Invoke( id );
 	}
 
 	/// <summary>Reads the index file once, before the first query or change.</summary>
@@ -191,7 +229,7 @@ public sealed partial class ConversationStore
 	/// <summary>Reads one conversation's messages file, or none when it has none or it cannot be read.</summary>
 	private List<ConversationMessage> ReadMessages( Guid conversationId )
 	{
-		if ( _path is null || BuildMessagesPath( conversationId ) is not { } path || !File.Exists( path ) )
+		if ( _path is null || _isMirror || BuildMessagesPath( conversationId ) is not { } path || !File.Exists( path ) )
 			return [];
 
 		try
@@ -225,7 +263,7 @@ public sealed partial class ConversationStore
 		{
 			if ( _messages.TryGetValue( id, out var messages ) )
 				prompts[id] = [.. messages.Where( message => message.Role == "user" && message.Text.Length > 0 ).Select( message => message.Text )];
-			else if ( BuildMessagesPath( id ) is { } path )
+			else if ( !_isMirror && BuildMessagesPath( id ) is { } path )
 				unread.Add( (id, path) );
 		}
 
@@ -299,7 +337,7 @@ public sealed partial class ConversationStore
 	private bool TakeChanges()
 	{
 		var isDirty = _isIndexDirty || _dirtyMessages.Count > 0 || _deletedMessages.Count > 0;
-		if ( _path is null || !isDirty )
+		if ( _path is null || _isMirror || !isDirty )
 		{
 			ClearChanges();
 			return false;

@@ -132,14 +132,35 @@ public sealed class PanelContext
 		get;
 	}
 
+	/// <summary>Gets the identifier of the host this panel works on, set when it opened; null for panels of types that are not host-bound
+	/// (<see cref="PanelTypeInfo.IsHostBound"/>) and for slots.</summary>
+	public string? HostId
+	{
+		get;
+	}
+
+	/// <summary>Gets the host this panel works on: its <see cref="HostId"/>, a placeholder in the <see cref="LoknHostState.Removed"/> state for a host no
+	/// longer paired, or This PC for a panel that is not host-bound.</summary>
+	public LoknHost Host => HostId is null ? App.Hosts.Local : App.Hosts.Get( HostId );
+
+	/// <summary>Gets where this panel's host's disk, processes and terminals are reached; follow <see cref="LoknHost.WorkspaceChanged"/> of
+	/// <see cref="Host"/> to read and watch through a replaced one.</summary>
+	public IWorkspaceHost Workspace => Host.Workspace;
+
+	/// <summary>Gets the folder the user works in now (<see cref="IWorkingFolder.Current"/>) when it is on this panel's host, else null.</summary>
+	/// <remarks>The working folder is the open session's, whose host is the current one (<see cref="LoknHosts.Current"/>); a panel on another host,
+	/// such as one kept open while the user went to This PC's project, gets null rather than a path of another PC's disk.</remarks>
+	public string? WorkingFolder => ReferenceEquals( Host, App.Hosts.Current ) ? App.Services.Get<IWorkingFolder>()?.Current : null;
+
 	/// <summary>Creates the context for one owned panel instance.</summary>
-	internal PanelContext( LoknApplication app, Guid id, CancellationToken lifetime, object? input, JsonElement? restoredState = null )
+	internal PanelContext( LoknApplication app, Guid id, CancellationToken lifetime, object? input, JsonElement? restoredState = null, string? hostId = null )
 	{
 		App = app;
 		Id = id;
 		Lifetime = lifetime;
 		Input = input;
 		RestoredState = restoredState;
+		HostId = hostId;
 	}
 
 	/// <summary>Runs a panel callback on the UI thread and contains feature exceptions.</summary>
@@ -165,11 +186,11 @@ public sealed class PanelContext
 	}
 
 	/// <summary>Creates a context for content this content shows inside itself, such as a popover, that lives until the returned source is cancelled or this context ends.</summary>
-	/// <returns>The child context and the source the caller cancels and disposes when the child closes.</returns>
+	/// <returns>The child context, on this context's host, and the source the caller cancels and disposes when the child closes.</returns>
 	public (PanelContext Context, CancellationTokenSource Lifetime) CreateChild()
 	{
 		var lifetime = CancellationTokenSource.CreateLinkedTokenSource( Lifetime );
-		return (new PanelContext( App, Guid.NewGuid(), lifetime.Token, input: null ), lifetime);
+		return (new PanelContext( App, Guid.NewGuid(), lifetime.Token, input: null, hostId: HostId ), lifetime);
 	}
 
 	/// <summary>Highlights this panel and tells the user it is waiting for them, until they activate it or the panel clears the request.</summary>
@@ -193,6 +214,10 @@ public abstract class PanelContent
 	/// <summary>Gets the settings profile this panel works in, such as a chat's account, so what it opens uses the same one; null follows the active profile.</summary>
 	public virtual SettingsProfile? Profile => null;
 
+	/// <summary>Gets the host this panel works on now when it differs from its context's, such as a conversation panel showing another host's chat; null
+	/// keeps the context's <see cref="PanelContext.HostId"/>.</summary>
+	public virtual string? HostId => null;
+
 	/// <summary>Reports whether this panel handles a key itself instead of the global shortcut or palette key bound to it.</summary>
 	/// <remarks>Queried on the UI thread for every key press, before focused controls receive it. Claim only while the panel's own input element has focus; Ctrl+Shift+P always opens the palette.</remarks>
 	public virtual bool ClaimsKey( Key key, KeyModifiers modifiers ) => false;
@@ -211,6 +236,12 @@ public sealed record PanelTypeInfo( string Id, string Title, string ModuleId )
 {
 	/// <summary>Gets the type's tiny icon, a Segoe Fluent Icons code point, such as on the tasks that hold it; null has none.</summary>
 	public string? Glyph
+	{
+		get; init;
+	}
+
+	/// <summary>Gets whether each panel of this type works on one host, This PC or a paired host, which it keeps across restarts and shows in its pane.</summary>
+	public bool IsHostBound
 	{
 		get; init;
 	}

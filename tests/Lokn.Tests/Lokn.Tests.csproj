@@ -22,8 +22,19 @@
 		<ProjectReference Include="..\..\Modules\Notifications\Lokn.Modules.Notifications.csproj" />
 		<ProjectReference Include="..\..\Modules\Markdown\Lokn.Modules.Markdown.csproj" />
 		<ProjectReference Include="..\..\Modules\Setup\Lokn.Modules.Setup.csproj" />
+		<ProjectReference Include="..\..\Modules\Remote\Lokn.Modules.Remote.csproj" />
+		<!-- The relay is a separate server; RelayChecks starts it in process. -->
+		<ProjectReference Include="..\..\Relay\Lokn.Relay.csproj" />
 		<!-- The application ships WebView2's core API; this executable runs the Browser module, so it ships it too. -->
 		<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
 		<Reference Include="$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll" />
+		<!-- The application ships the Windows SDK projection; the stream checks encode JPEG with it in this process, so it ships it too. -->
+		<PackageReference Include="Microsoft.Windows.SDK.NET.Ref" Version="10.0.19041.87" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
+		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\Microsoft.Windows.SDK.NET.dll" />
+		<Reference Include="$(PkgMicrosoft_Windows_SDK_NET_Ref)\lib\net9.0\WinRT.Runtime.dll" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- Data folders written by released versions, for the upgrade and downgrade checks. -->
+		<None Include="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
 	</ItemGroup>
 </Project>

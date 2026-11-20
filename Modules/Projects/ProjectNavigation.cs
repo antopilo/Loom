@@ -49,7 +49,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 		if ( workspaces is not null )
 			children.Add( _sidebar.BuildNewTask( workspaces ) );
 		children.Add( _sidebar.BuildSearch() );
-		children.Add( Projects.BuildNewProjectAction( project => module.OpenProject( context.App, project.Id ) ) );
+		children.Add( Projects.BuildNewProjectAction( project => module.OpenProject( context.App, project ) ) );
 		_sidebar.AddContributedActions( children );
 		if ( module.BuildModulePrompt( context, isNarrow: true ) is { } prompt )
 			children.Add( prompt );
@@ -82,11 +82,11 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 	{
 		var isCollapsed = _sidebar.IsCollapsed( project.Id );
 		var isOpen = module.FindCurrentProject( context.App ) == project.Id;
-		var heading = Projects.BuildHeading( project, module.GetIcon( project ), isCollapsed,
+		var heading = Projects.BuildHeading( project, module.GetIcon( project, LoknHost.LocalId ), isCollapsed,
 			$"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}{(isOpen ? ", open" : "")}" );
 		// Row actions stay out of sight until the pointer is on the row, or its menu or + grid is open.
 		var isRevealed = _sidebar.IsRevealed( project.Id );
-		void NewTask( string name ) => module.NewTask( context.App, project.Id, name );
+		void NewTask( string name ) => module.NewTask( context.App, project, name: name );
 		var children = new List<Blob>
 		{
 			_sidebar.BuildHoverRow( project.Id, isSelected: false,
@@ -102,7 +102,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 		{
 			children.Add( _sidebar.BuildMenu( project.Id, $"{project.Name} options",
 			[
-				new MenuAction( "New task", () => context.Run( () => module.NewTask( context.App, project.Id ) ) ) { AccessKey = Key.T },
+				new MenuAction( "New task", () => context.Run( () => module.NewTask( context.App, project ) ) ) { AccessKey = Key.T },
 				new MenuAction( "Rename", () => context.Run( () => Projects.BeginRename( project ) ) ) { AccessKey = Key.R },
 				new MenuAction( "Change folder…", () => context.Run( () => Projects.BeginChangeFolder( project ) ) ) { AccessKey = Key.F },
 				new MenuSeparator(),
@@ -116,7 +116,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 			for ( var index = 0; index < tasks.Count; index++ )
 			{
 				var task = tasks[index];
-				children.Add( _sidebar.BuildTask( workspaces, session, task, index, () => module.OpenTask( context.App, project.Id, task.Id ) ) );
+				children.Add( _sidebar.BuildTask( workspaces, session, task, index, () => module.OpenTask( context.App, project, task.Id ) ) );
 			}
 		}
 
@@ -142,18 +142,18 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 	/// <summary>Builds a project's group: its icon and name, which open the project, its shown tasks, and the + that starts a task in it.</summary>
 	private Row BuildGroup( WorkspacesModule workspaces, RecentTabGroup group, ProjectInfo project )
 	{
-		var icon = module.GetIcon( project ) is { } source ? ProjectsModule.BuildIcon( source, project.Name, TabIconSize ) : null;
+		var icon = module.GetIcon( project, LoknHost.LocalId ) is { } source ? ProjectsModule.BuildIcon( source, project.Name, TabIconSize ) : null;
 		return _tabs.BuildTasks( workspaces, group, project.Name, icon,
-			() => module.OpenProject( context.App, project.Id ),
-			task => module.OpenTask( context.App, project.Id, task ),
-			() => module.NewTask( context.App, project.Id ) );
+			() => module.OpenProject( context.App, project ),
+			task => module.OpenTask( context.App, project, task ),
+			() => module.NewTask( context.App, project ) );
 	}
 
 	/// <summary>Builds the tab strip's small new-project button, which opens the folder chooser, then the chosen folder's project.</summary>
 	private Button BuildAdd()
 	{
 		var theme = Theme.Current;
-		var button = theme.BuildButton( "New project", () => context.Run( () => Projects.BeginCreate( project => module.OpenProject( context.App, project.Id ) ) ) );
+		var button = theme.BuildButton( "New project", () => context.Run( () => Projects.BeginCreate( project => module.OpenProject( context.App, project ) ) ) );
 		button.Key = "add";
 		button.Width = theme.ControlHeight;
 		button.Padding = 0;

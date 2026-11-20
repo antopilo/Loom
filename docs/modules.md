@@ -6,7 +6,9 @@ supplies the settings and the Core reference. Reference the project from
 `Lokn.csproj` with `ReferenceOutputAssembly="false"` so it builds with the
 application, and from the test project if checks use it. The application loads the
 DLL at startup and `scripts/reload-module.ps1 -Name Notes` rebuilds and swaps it
-while Lokn runs. The module class needs a parameterless constructor. Features use
+while Lokn runs. A daemon (`Loom.exe --host`, [remote.md](remote.md#roles)) started from the
+same build swaps it too, but only once none of its chats' agents works; the script reports both.
+The module class needs a parameterless constructor. Features use
 Goo and `Lokn.Core`; they do not need shell implementation types.
 
 A minimal feature looks like this:
@@ -168,6 +170,37 @@ and refuses it after unload. If startup throws, the new module's commands, panel
 are rolled back. `Stop()` runs during rollback, unload, and shutdown. Keep startup
 side effects confined to the module's owned contributions.
 
+## Files, processes and terminals
+
+Reach the user's files, programs and terminals through an `IWorkspaceHost` (in Core), never
+through `File`, `Directory`, `FileSystemWatcher`, `Process` or a pseudoconsole of the module's
+own: `StatAsync`, `ListAsync`, `ReadAsync`, `WriteAsync`, `DeleteAsync`, `MoveAsync`,
+`CreateDirectoryAsync`, `Watch`, `RunAsync` (a program, without a shell) and `OpenPty` (a
+terminal). Loom shows This PC and any number of paired hosts at once (`app.Hosts`); each
+`LoknHost` has its own `Workspace` and `BrowserTabs`, and a direct call would act on this PC,
+at a path that may not exist here.
+
+- **A panel that works on files, a repository or a terminal is host-bound**:
+  `builder.Panel( "tree", "Files", create, onHost: true )`. Each panel of the type is bound to
+  a host when it opens (`Panels.Open( …, hostId )`, else the host of the panel it opens beside
+  with `OpenBeside`, else `app.Hosts.Current`), keeps it across restarts, saved workspaces
+  and reloads, and the shell names a paired host on its pane and covers the panel while that
+  host is offline. Use `context.Workspace` (its host's workspace), `context.Host` (its
+  `LoknHost`, such as `context.Host.BrowserTabs`) and `context.Host.WorkspaceChanged`, which
+  fires when the Remote module connects or disconnects the host. A panel that shows another
+  host's content than its context's, like a chat panel, reports it through
+  `PanelContent.HostId`; `app.Panels.GetHostId( panelId )` reads either.
+- **Work that follows the host the user is on**, such as a command, uses `app.Workspace`,
+  `app.BrowserTabs` and `app.WorkspaceChanged`: those of `app.Hosts.Current`. Read them on
+  each use.
+- **Tools** see the host whose agent called in `AgentToolContext.Host` (null for This PC);
+  `context.App.Hosts.Get( context.Host )` is that host.
+
+A host that is not connected has an `OfflineWorkspaceHost`, whose calls fail with an
+`IOException`. File operations may finish after they return; `task.WhenDone( post, done )`
+goes on at once when one already finished. A module's own files, such as a cache in the data
+folder, are this PC's and may use `File`.
+
 ## Extending the window and other modules
 
 Five registrations let a module extend the shell and other modules. All of them end
@@ -251,7 +284,9 @@ another module's contributions. Load dependencies first. A required module canno
 be disabled while a dependent is loaded. Independent modules never need references
 to each other. The Shell module and Workspaces cannot be disabled; the **Modules** tab in
 Settings turns the rest on and off, turns on what a module needs with it, and keeps the
-choice in `%LOCALAPPDATA%\Lokn\modules.json`.
+choice in `%LOCALAPPDATA%\Lokn\modules.json`. The daemon reads the same file and follows it
+live: a module turned off stops there too, with the modules that need it, except Remote and
+the modules it needs ([remote.md](remote.md#roles)).
 
 `app.Unload(id)` removes the module's commands and panel types, closes its open
 panels, and cancels its token. `app.Enable(id)` registers a previously composed
@@ -504,6 +539,12 @@ builder.Tool(
 - `app.Tools.Items` lists the tools and `app.Tools.InvokeAsync` runs one, from any
   thread, which is what a bridge to an agent does. Unloading the module removes its
   tools and raises `app.Tools.Changed`.
+- Chats that run in the daemon (Remote access, role `daemon`) get the tools of the modules the
+  daemon loads ([remote.md](remote.md#roles)). The tools of every other module, source modules
+  included, reach those chats only while Loom on the daemon's PC is open and connected to it:
+  that window lends the daemon its tools and runs their calls ([Host tools](remote.md#host-tools)).
+  A paired host's chats get only this PC's browser tools; their calls carry the host in
+  `context.Host`.
 
 The Shell module's own tools (`shell_state`, `shell_open_panel`,
 `shell_focus_panel`, `shell_move_panel`, `shell_close_panel`,
@@ -696,10 +737,10 @@ so those modules cannot unload underneath them. Git is optional: without it a ch
 branch and **View changes** is greyed out. Workspaces is always on. The Projects module owns projects, their file
 and their `ProjectStore` (`GetModule<ProjectsModule>().Store`): Conversations attaches it to its
 `ConversationStore` when it starts, groups chats by `ProjectId`, and takes a deleted
-project's chats out of it through `ProjectStore.Deleted`. While Git is loaded, each chat holds a `GitModule.Watch( folder )`
-for its working folder; holders of one folder share a single reader and its file watchers.
-Worktrees reads the project list from `GetModule<ConversationsModule>().Store.ProjectStore` the same
-way, and runs git through `GitProcess`, as every feature does.
+project's chats out of it through `ProjectStore.Deleted`. While Git is loaded, each chat holds a `GitModule.Watch( host, folder )`
+for its working folder on its host; holders of one folder on one host share a single reader and its file watchers.
+Worktrees reads This PC's project list from `GetModule<ConversationsModule>().Hosts.Local.Store.ProjectStore` the same
+way, and runs git through `GitProcess`, as every feature does; `GitProcess` runs it through the `IWorkspaceHost` it is given.
 
 **Worktrees in the chat sidebar.** Conversations declares `conversations.worktrees`
 (`WorktreeActions.Point`) and Worktrees contributes one `WorktreeActions`: list a repository's

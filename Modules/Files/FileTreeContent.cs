@@ -72,7 +72,7 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	private string? _root;
 
 	/// <summary>Follows changes under the shown folder.</summary>
-	private FileSystemWatcher? _watcher;
+	private IDisposable? _watcher;
 
 	/// <summary>Stores the file states the status sources reported, by full path.</summary>
 	private Dictionary<string, FileState> _states = new( StringComparer.OrdinalIgnoreCase );
@@ -92,6 +92,7 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 		_context = context;
 		_statusDelay = new( _ => _context.Post( RequestStates ), null, Timeout.Infinite, Timeout.Infinite );
 		RestoreModes( context.RestoredState );
+		context.Host.WorkspaceChanged += ReloadRoot;
 	}
 
 	/// <summary>Gets the folder the tree shows.</summary>
@@ -115,10 +116,13 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	{
 		_ = _version.Value;
 		var theme = Theme.Current;
-		// Without a project, the tree shows the folder Lokn runs in, the same one a new terminal starts in.
-		var root = _context.App.Services.Get<IWorkingFolder>()?.Current ?? Environment.CurrentDirectory;
-		if ( !string.Equals( root, _root, StringComparison.OrdinalIgnoreCase ) )
-			UpdateRoot( root );
+		// The tree shows the open session's folder when that session is on the tree's host. Without one, a tree on This PC shows the folder Lokn runs in,
+		// the same one a new terminal starts in, and a tree on a paired host shows none, as that folder is not on its disk. A hidden tree keeps its folder,
+		// so it never lists or watches the folders of sessions it is not shown in.
+		var next = _context.WorkingFolder ?? (_context.Host.IsLocal ? Environment.CurrentDirectory : null);
+		if ( !string.Equals( next, _root, StringComparison.OrdinalIgnoreCase ) && (_root is null || _context.App.Panels.IsShown( _context.Id )) )
+			UpdateRoot( next );
+		var root = _root;
 
 		var modes = ListModes();
 		var mode = FindSelectedMode( modes );
@@ -176,6 +180,7 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	/// <summary>Stops following file changes and closes the modes' content.</summary>
 	public override void Closed()
 	{
+		_context.Host.WorkspaceChanged -= ReloadRoot;
 		_watcher?.Dispose();
 		_statusDelay.Dispose();
 		CloseModes();
@@ -353,34 +358,58 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	}
 
 	/// <summary>Lists a folder's folders, then its files, by name; a folder that cannot be read lists nothing.</summary>
+	/// <remarks>A host that answers later lists nothing until its answer arrives, then rebuilds the tree.</remarks>
 	private Entry[] List( string folder )
 	{
 		if ( _listings.TryGetValue( folder, out var cached ) )
 			return cached;
 
-		Entry[] entries;
-		try
+		var workspace = _context.Workspace;
+		var read = workspace.ListAsync( folder, _context.Lifetime );
+		if ( read.IsCompleted )
+			return _listings[folder] = BuildEntries( folder, read );
+
+		_listings[folder] = [];
+		read.WhenDone( _context.Post, done =>
 		{
-			var info = new DirectoryInfo( folder );
-			entries =
-			[
-				.. info.EnumerateDirectories()
-					.Where( item => item.Name != ".git" )
-					.OrderBy( item => item.Name, StringComparer.OrdinalIgnoreCase )
-					.Select( item => new Entry( item.FullName, item.Name, IsFolder: true ) ),
-				.. info.EnumerateFiles()
-					.OrderBy( item => item.Name, StringComparer.OrdinalIgnoreCase )
-					.Select( item => new Entry( item.FullName, item.Name, IsFolder: false ) ),
-			];
-			if ( entries.Length > MaxEntries )
-				entries = [.. entries.Take( MaxEntries )];
-		}
-		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException or System.Security.SecurityException )
+			if ( workspace != _context.Workspace || !_listings.ContainsKey( folder ) )
+				return;
+
+			_listings[folder] = BuildEntries( folder, done );
+			_version.Value++;
+		} );
+		return [];
+	}
+
+	/// <summary>Orders a finished listing's folders, then its files, by name, leaving out <c>.git</c>; a failed listing has no entries.</summary>
+	private static Entry[] BuildEntries( string folder, Task<IReadOnlyList<WorkspaceEntry>> read )
+	{
+		if ( !read.IsCompletedSuccessfully )
 		{
-			entries = [];
+			// A folder that cannot be read lists nothing.
+			_ = read.Exception;
+			return [];
 		}
 
-		return _listings[folder] = entries;
+		Entry[] entries =
+		[
+			.. read.Result
+				.Where( item => item.IsDirectory && item.Name != ".git" )
+				.OrderBy( item => item.Name, StringComparer.OrdinalIgnoreCase )
+				.Select( item => new Entry( Path.Combine( folder, item.Name ), item.Name, IsFolder: true ) ),
+			.. read.Result
+				.Where( item => !item.IsDirectory )
+				.OrderBy( item => item.Name, StringComparer.OrdinalIgnoreCase )
+				.Select( item => new Entry( Path.Combine( folder, item.Name ), item.Name, IsFolder: false ) ),
+		];
+		return entries.Length > MaxEntries ? [.. entries.Take( MaxEntries )] : entries;
+	}
+
+	/// <summary>Reads the shown folder again through a replaced workspace host.</summary>
+	private void ReloadRoot()
+	{
+		_root = null;
+		_version.Value++;
 	}
 
 	/// <summary>Shows another folder: forgets the old listings and follows changes under the new one.</summary>
@@ -394,23 +423,18 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 		_filter = null;
 		_watcher?.Dispose();
 		_watcher = null;
-		if ( root is null || !Directory.Exists( root ) )
+		if ( root is null )
 			return;
 
 		try
 		{
-			_watcher = new FileSystemWatcher( root )
-			{
-				IncludeSubdirectories = true,
-				NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite,
-			};
-			_watcher.Created += MarkChanged;
-			_watcher.Deleted += MarkChanged;
-			_watcher.Renamed += MarkChanged;
-			_watcher.Changed += MarkChanged;
-			_watcher.EnableRaisingEvents = true;
+			_watcher = _context.Workspace.Watch( root, recursive: true, MarkChanged );
 		}
-		catch ( Exception error ) when ( error is IOException or ArgumentException or PlatformNotSupportedException )
+		catch ( DirectoryNotFoundException )
+		{
+			return;
+		}
+		catch ( Exception error ) when ( error is IOException or ArgumentException or PlatformNotSupportedException or UnauthorizedAccessException )
 		{
 			_watcher = null;
 		}
@@ -419,11 +443,12 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	}
 
 	/// <summary>Asks the status sources, such as Git, for the states under the folder, and colors the tree with the first state each file gets.</summary>
+	/// <remarks>Status sources read this PC's disk, so a tree on a paired host stays uncolored rather than showing another PC's states.</remarks>
 	private void RequestStates()
 	{
 		var root = _root;
 		var sources = _context.App.Extensions.Get<FileStatusSource>( FileStatusSource.Point );
-		if ( root is null || sources.Count == 0 )
+		if ( root is null || sources.Count == 0 || !_context.Host.IsLocal )
 			return;
 
 		_ = Task.Run( async () =>
@@ -477,20 +502,26 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	};
 
 	/// <summary>Drops the listing of the folder that changed, on the UI thread, so it is read again, and asks for states again once changes settle.</summary>
-	private void MarkChanged( object sender, FileSystemEventArgs change )
+	/// <remarks>Runs on a watcher thread.</remarks>
+	private void MarkChanged( string path, WorkspaceChange kind )
 	{
-		if ( change.FullPath.Contains( $"{Path.DirectorySeparatorChar}.git", StringComparison.OrdinalIgnoreCase ) && !change.FullPath.EndsWith( "index", StringComparison.OrdinalIgnoreCase ) )
+		if ( path.Contains( $"{Path.DirectorySeparatorChar}.git", StringComparison.OrdinalIgnoreCase ) && !path.EndsWith( "index", StringComparison.OrdinalIgnoreCase ) )
 			return;
 
 		_statusDelay.Change( 500, Timeout.Infinite );
-		if ( change.ChangeType == WatcherChangeTypes.Changed )
+		if ( kind == WorkspaceChange.Changed )
 			return;
 
-		var folder = Path.GetDirectoryName( change.FullPath );
+		// Lost changes drop every listing.
+		var folder = kind == WorkspaceChange.Lost ? null : Path.GetDirectoryName( path );
 		_context.Post( () =>
 		{
-			if ( folder is not null && _listings.Remove( folder ) )
-				_version.Value++;
+			if ( folder is null )
+				_listings.Clear();
+			else if ( !_listings.Remove( folder ) )
+				return;
+
+			_version.Value++;
 		} );
 	}
 

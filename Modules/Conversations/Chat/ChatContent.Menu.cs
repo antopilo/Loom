@@ -13,32 +13,36 @@ public sealed partial class ChatContent
 	/// <summary>Defines the message menu's width in logical pixels.</summary>
 	private const int MessageMenuWidth = 220;
 
-	/// <summary>Targets the bubble whose menu is open; only that bubble carries it.</summary>
-	private readonly ElementHandle _messageMenuHandle = new();
-
 	/// <summary>Stores the open message menu, or null when none is.</summary>
 	private MessageMenu? _messageMenu;
 
 	/// <summary>Describes an open message menu: the bubble it belongs to, where it was opened, and the text selected then.</summary>
 	/// <param name="MessageId">The message whose bubble was right-clicked.</param>
 	/// <param name="Start">The first block of the bubble's part, telling apart bubbles of one message split around activity.</param>
-	/// <param name="At">The pointer position in the bubble's coordinates.</param>
+	/// <param name="At">The pointer position in the transcript viewport's coordinates.</param>
 	/// <param name="Selection">The read-only text selected when the menu opened; empty when none was.</param>
 	private readonly record struct MessageMenu( Guid MessageId, int Start, Point At, string Selection );
 
 	/// <summary>Opens the message menu at the pointer on a secondary press.</summary>
+	/// <remarks>
+	/// A handler's own pointer position inside the virtual transcript leaves out its scroll offset, which put the menu far off screen
+	/// in a scrolled transcript; the window position against the transcript viewport does not.
+	/// </remarks>
 	private Action<PointerEvent> BuildMessageMenuOpener( TranscriptPart part ) => pointer => context.Run( () =>
 	{
 		if ( pointer.Button == PointerButton.Secondary )
-			OpenMessageMenu( part, pointer.Position );
+			OpenMessageMenu( part, pointer.WindowPosition );
 	} );
 
 	/// <summary>Opens a bubble's menu, capturing the selection before the menu takes focus, and rebuilds the rows involved.</summary>
+	/// <param name="part">The bubble's part.</param>
+	/// <param name="at">The pointer position in window coordinates.</param>
 	private void OpenMessageMenu( TranscriptPart part, Point at )
 	{
 		if ( _messageMenu is { } previous )
 			MarkRowChanged( previous.MessageId );
-		_messageMenu = new( part.Message.Id, part.Start, at, ReadSelectedText() );
+		var viewport = _transcript.Handle.BorderBox;
+		_messageMenu = new( part.Message.Id, part.Start, new Point { X = at.X - viewport.X, Y = at.Y - viewport.Y }, ReadSelectedText() );
 		MarkRowChanged( part.Message.Id );
 	}
 
@@ -93,7 +97,7 @@ public sealed partial class ChatContent
 			Height = 0,
 			Children =
 			[
-				Cell.Mount<ContextMenuInput, ContextMenu>( "message-menu", new( _messageMenuHandle, title + " message options", entries, () => context.Run( CloseMessageMenu ) )
+				Cell.Mount<ContextMenuInput, ContextMenu>( "message-menu", new( _transcript.Handle, title + " message options", entries, () => context.Run( CloseMessageMenu ) )
 				{
 					AnchorRect = new ElementRect { X = menu.At.X, Y = menu.At.Y },
 					Width = MessageMenuWidth,

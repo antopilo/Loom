@@ -24,6 +24,10 @@ internal sealed partial class ShellView : Cell
 	/// <summary>Creates a shell for an explicitly composed application.</summary>
 	internal ShellView( LoknApplication app ) => _app = app;
 
+	/// <summary>Whether mounting gives the window the executable's icon and the input guard. Only check windows turn it off: both borrow the native
+	/// handle through Goo's dialog owner lease, and a lease taken once the window pumps leaves Goo's simulated pointer input dead for the window.</summary>
+	internal bool AppliesNativeWindowHooks { get; init; } = true;
+
 	/// <summary>Builds the window chrome, docking surface, and overlays.</summary>
 	public override Blob Build()
 	{
@@ -69,7 +73,7 @@ internal sealed partial class ShellView : Cell
 		_app.Tools.BindDispatcher( operation => window.InvokeAsync( operation ) );
 		Host.PreviewKeyPressed += UpdateGlobalKey;
 		_app.Search.OpenRequested += OpenSearch;
-		if ( OperatingSystem.IsWindows() )
+		if ( OperatingSystem.IsWindows() && AppliesNativeWindowHooks )
 		{
 			_ = WindowIcon.ApplyAsync( window, Lifetime );
 			_ = InputGuard.ApplyAsync( window, Lifetime );

@@ -10,7 +10,8 @@ namespace Lokn.Modules.Editor;
 /// <remarks>
 /// Each file the panel opened stays open behind back and forward with its unsaved changes, its encoding and its line endings,
 /// until the panel closes. The panel remembers its history across restarts; unsaved changes are not kept. Ctrl+S saves,
-/// Ctrl+Shift+S saves as, Alt+Left and Alt+Right go back and forward. Closing the panel loses unsaved changes.
+/// Ctrl+Shift+S saves as, Alt+Left and Alt+Right go back and forward. Closing the panel loses unsaved changes. On a paired host, whose disk no native
+/// file chooser shows, Save as asks for the path in a bar under the header and checks it on the host.
 /// </remarks>
 internal sealed class EditorContent : PanelContent
 {
@@ -57,6 +58,15 @@ internal sealed class EditorContent : PanelContent
 
 	/// <summary>Stores the last error, shown in the header until the next change, or null.</summary>
 	private string? _error;
+
+	/// <summary>Stores the path typed in the Save as bar of a file on a paired host, or null while the bar is closed.</summary>
+	private string? _saveAsPath;
+
+	/// <summary>Stores why the host refused the Save as bar's path, or null.</summary>
+	private string? _saveAsError;
+
+	/// <summary>Stores whether the host is checking the Save as bar's path.</summary>
+	private bool _isSaveAsChecking;
 
 	/// <summary>Stores the module, which picks the editor a link opens in.</summary>
 	private readonly EditorModule _module;
@@ -169,8 +179,127 @@ internal sealed class EditorContent : PanelContent
 		{
 			Width = Length.Percent( 100 ),
 			Height = Length.Percent( 100 ),
-			Children = [header, editor],
+			Children = _saveAsPath is { } typed ? [header, BuildSaveAs( typed ), editor] : [header, editor],
 		};
+	}
+
+	/// <summary>Builds the Save as bar of a file on a paired host: the path on the host, why it was refused, Save and Cancel; Enter saves, Escape cancels.</summary>
+	private Container BuildSaveAs( string typed )
+	{
+		var theme = Theme.Current;
+		var host = _context.Host.Name;
+		var save = theme.BuildButton( _isSaveAsChecking ? "Checking…" : "Save", () => _context.Run( ConfirmSaveAs ), !_isSaveAsChecking && typed.Trim().Length > 0 );
+		save.Key = "save-as-save";
+		var cancel = theme.BuildButton( "Cancel", () => _context.Run( CloseSaveAs ), !_isSaveAsChecking );
+		cancel.Key = "save-as-cancel";
+		var children = new List<Blob>
+		{
+			new Row
+			{
+				Key = "save-as-row",
+				AlignItems = AlignItems.Center,
+				Gap = theme.Spacing,
+				Children =
+				[
+					new Text { Content = $"Save as on {host}", FlexShrink = 0 },
+					new TextEntry
+					{
+						Key = "save-as-path",
+						Value = typed,
+						Controlled = true,
+						AutoFocus = true,
+						Placeholder = @"C:\path\to\file.txt",
+						AccessibilityName = $"Path on {host}",
+						FlexGrow = 1,
+						MinWidth = 0,
+						Height = theme.ControlHeight,
+						Padding = new Edges( 0, theme.Spacing ),
+						BackgroundColor = theme.Raised,
+						BorderColor = theme.Border,
+						BorderWidth = theme.BorderWidth,
+						BorderRadius = theme.Radius,
+						FocusStyle = new Style { BorderColor = theme.Accent },
+						OnChange = text => _context.Run( () =>
+						{
+							_saveAsPath = text;
+							_saveAsError = null;
+							_version.Value++;
+						} ),
+						OnSubmit = _ => _context.Run( ConfirmSaveAs ),
+						KeyBindings = [new( Key.Escape, KeyModifiers.None, () => _context.Run( CloseSaveAs ) )],
+					},
+					save,
+					cancel,
+				],
+			},
+		};
+		if ( _saveAsError is { } refusal )
+			children.Add( new Text { Key = "save-as-error", Content = refusal, Color = theme.Error, Selectable = true, TextWrap = TextWrap.Wrap } );
+
+		return new Container
+		{
+			Key = "save-as",
+			Gap = theme.Spacing / 2,
+			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
+			BorderColor = theme.Border,
+			BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
+			Children = children,
+		};
+	}
+
+	/// <summary>Checks the Save as bar's path on the paired host, off the UI thread, then saves the file there or says why not.</summary>
+	private void ConfirmSaveAs()
+	{
+		if ( _isSaveAsChecking || _saveAsPath?.Trim() is not { Length: > 0 } typed )
+			return;
+
+		var host = _context.Host;
+		if ( !Path.IsPathFullyQualified( typed ) )
+		{
+			_saveAsError = $"Type the full path of a file on {host.Name}, such as C:\\folder\\file.txt.";
+			_version.Value++;
+			return;
+		}
+
+		var path = Path.GetFullPath( typed );
+		_isSaveAsChecking = true;
+		_saveAsError = null;
+		_version.Value++;
+		CheckSaveAsAsync( host.Workspace, host.Name, path, _context.Lifetime ).WhenDone( _context.Post, done =>
+		{
+			_isSaveAsChecking = false;
+			var refusal = done.IsCompletedSuccessfully ? done.Result : done.Exception?.GetBaseException().Message ?? "The check was cancelled.";
+			if ( refusal is not null )
+			{
+				_saveAsError = refusal;
+				_version.Value++;
+				return;
+			}
+
+			CloseSaveAs();
+			Save( path );
+		} );
+	}
+
+	/// <summary>Closes the Save as bar without saving.</summary>
+	private void CloseSaveAs()
+	{
+		if ( _isSaveAsChecking )
+			return;
+
+		_saveAsPath = null;
+		_saveAsError = null;
+		_version.Value++;
+	}
+
+	/// <summary>Checks on a host that a path can take a saved file: its folder exists there and the path is not a folder.</summary>
+	/// <returns>Why the path cannot take the file, or null when it can.</returns>
+	private static async Task<string?> CheckSaveAsAsync( IWorkspaceHost workspace, string hostName, string path, CancellationToken cancellationToken )
+	{
+		if ( Path.GetDirectoryName( path ) is not { } folder || !await workspace.DirectoryExistsAsync( folder, cancellationToken ).ConfigureAwait( false ) )
+			return $"{hostName} has no folder at {Path.GetDirectoryName( path ) ?? path}.";
+
+		return (await workspace.StatAsync( path, cancellationToken ).ConfigureAwait( false )).IsDirectory ? $"{path} is a folder on {hostName}." : null;
 	}
 
 	/// <summary>Saves the history so the panel reopens its files after a restart; a new file not saved yet is left out.</summary>
@@ -259,7 +388,7 @@ internal sealed class EditorContent : PanelContent
 			return button;
 
 		var hasPath = Current.Length > 0;
-		var root = hasPath ? FindRepository( Current ) : null;
+		var root = hasPath ? File.Repository : null;
 		var wraps = _context.App.Settings.Get( EditorModule.WrapLines );
 		MenuEntry[] entries =
 		[
@@ -268,7 +397,7 @@ internal sealed class EditorContent : PanelContent
 			new MenuSeparator(),
 			new MenuAction( wraps ? "✓ Wrap lines" : "Wrap lines", () => Choose( () => _context.App.Settings.Set( EditorModule.WrapLines, SettingsScope.Global, !wraps ) ) ),
 			new MenuSeparator(),
-			new MenuAction( "Show in Explorer", () => Choose( () => ShowInExplorer( Current ) ) ) { IsEnabled = hasPath },
+			new MenuAction( "Show in Explorer", () => Choose( () => ShowInExplorer( Current ) ) ) { IsEnabled = hasPath && _context.Host.IsLocal },
 			new MenuAction( "Copy path", () => Choose( () => Copy( Current ) ) ) { IsEnabled = hasPath },
 			new MenuAction( "Copy relative path", () => Choose( () => Copy( Path.GetRelativePath( root!, Current ) ) ) ) { IsEnabled = root is not null },
 		];
@@ -324,11 +453,11 @@ internal sealed class EditorContent : PanelContent
 	}
 
 	/// <summary>Finds the nearest folder above a file that holds a git repository, which relative paths start from; null when there is none.</summary>
-	private static string? FindRepository( string path )
+	private static async Task<string?> FindRepositoryAsync( IWorkspaceHost workspace, string path, CancellationToken cancellationToken )
 	{
 		for ( var directory = Path.GetDirectoryName( path ); directory is not null; directory = Path.GetDirectoryName( directory ) )
 		{
-			if ( Directory.Exists( Path.Combine( directory, ".git" ) ) || System.IO.File.Exists( Path.Combine( directory, ".git" ) ) )
+			if ( (await workspace.StatAsync( Path.Combine( directory, ".git" ), cancellationToken ).ConfigureAwait( false )).Exists )
 				return directory;
 		}
 		return null;
@@ -347,12 +476,21 @@ internal sealed class EditorContent : PanelContent
 		_version.Value++;
 	}
 
-	/// <summary>Saves the shown file, asking for a path for a new file or Save as.</summary>
+	/// <summary>Saves the shown file, asking for a path for a new file or Save as: in the native file chooser on This PC, in the Save as bar on a paired host.</summary>
 	private async Task SaveAsync( bool saveAs )
 	{
 		var path = Current;
 		if ( saveAs || path.Length == 0 )
 		{
+			// A paired host's disk shows in no native file chooser, which would pick a path on This PC's.
+			if ( !_context.Host.IsLocal )
+			{
+				_saveAsPath = path;
+				_saveAsError = null;
+				_version.Value++;
+				return;
+			}
+
 			if ( _context.App.Window is not { } window )
 				return;
 
@@ -373,25 +511,59 @@ internal sealed class EditorContent : PanelContent
 	private void Save( string path )
 	{
 		var file = File;
+		if ( file.IsLoading )
+		{
+			Fail( "Could not save: the file is still loading." );
+			return;
+		}
+
+		var text = file.Editor.Document.GetText();
+		if ( file.NewLine != "\n" )
+			text = text.Replace( "\n", file.NewLine, StringComparison.Ordinal );
+		byte[] bytes = [.. file.Encoding.GetPreamble(), .. file.Encoding.GetBytes( text )];
+		var version = file.Editor.Document.Version;
+		// A remote host answers later, when the editor may show another file; the save belongs to the file and path it started from.
+		var origin = Current;
+		WriteAsync( _context.Workspace, path, bytes, _context.Lifetime ).WhenDone( _context.Post, done => UpdateSaved( file, origin, path, version, done ) );
+	}
+
+	/// <summary>Writes the bytes to a temporary file beside the path, then moves it over the path.</summary>
+	private static async Task WriteAsync( IWorkspaceHost workspace, string path, byte[] bytes, CancellationToken cancellationToken )
+	{
+		var temporary = path + ".lokn-save";
+		await workspace.WriteAsync( temporary, bytes, cancellationToken ).ConfigureAwait( false );
+		await workspace.MoveAsync( temporary, path, cancellationToken ).ConfigureAwait( false );
+	}
+
+	/// <summary>Marks a finished save, moving the file to its new path after Save as, or shows why it failed.</summary>
+	/// <param name="file">The file saved.</param>
+	/// <param name="origin">The path the file was shown under when the save started.</param>
+	/// <param name="path">The path it was saved to.</param>
+	/// <param name="version">The document version written.</param>
+	/// <param name="write">The finished write.</param>
+	private void UpdateSaved( OpenFile file, string origin, string path, long version, Task write )
+	{
 		try
 		{
-			var text = file.Editor.Document.GetText();
-			if ( file.NewLine != "\n" )
-				text = text.Replace( "\n", file.NewLine, StringComparison.Ordinal );
-			var temporary = path + ".lokn-save";
-			System.IO.File.WriteAllText( temporary, text, file.Encoding );
-			System.IO.File.Move( temporary, path, overwrite: true );
-			file.SavedVersion = file.Editor.Document.Version;
-			file.ShownDirty = false;
+			write.GetAwaiter().GetResult();
+			file.SavedVersion = version;
+			file.ShownDirty = file.IsDirty;
 			RequestMarks( file, path );
-			if ( !path.Equals( Current, StringComparison.OrdinalIgnoreCase ) )
+			if ( !path.Equals( origin, StringComparison.OrdinalIgnoreCase ) )
 			{
-				// Save as keeps the edits under the new path and goes to it.
-				_files.Remove( Current );
-				if ( _files.Remove( path, out var replaced ) )
+				// Save as keeps the edits under the new path, and goes to it unless the editor moved on to another file meanwhile.
+				if ( _files.GetValueOrDefault( origin ) == file )
+					_files.Remove( origin );
+				if ( _files.Remove( path, out var replaced ) && replaced != file )
 					replaced.Dispose();
 				_files[path] = file;
-				Navigate( path );
+				if ( origin.Equals( Current, StringComparison.OrdinalIgnoreCase ) )
+					Navigate( path );
+				FindRepositoryAsync( _context.Workspace, path, _context.Lifetime ).WhenDone( _context.Post, found =>
+				{
+					file.Repository = found.IsCompletedSuccessfully ? found.Result : null;
+					_version.Value++;
+				} );
 			}
 			_error = null;
 		}
@@ -403,32 +575,88 @@ internal sealed class EditorContent : PanelContent
 		_version.Value++;
 	}
 
-	/// <summary>Reads a file, keeping its encoding and line endings for the next save; a missing path or a new file starts empty.</summary>
+	/// <summary>Reads a file through the workspace, keeping its encoding and line endings for the next save; a missing path or a new file starts empty.</summary>
+	/// <remarks>A host that answers later shows the file empty and unsavable until its answer arrives, then swaps in the read file.</remarks>
 	private OpenFile Read( string path )
 	{
+		var load = LoadAsync( _context.Workspace, path, _context.Lifetime );
+		if ( load.IsCompleted )
+			return BuildFile( path, load );
+
+		var loading = BuildFile( path, null );
+		loading.IsLoading = true;
+		load.WhenDone( _context.Post, done =>
+		{
+			if ( !_files.TryGetValue( path, out var shown ) || shown != loading )
+				return;
+
+			_files[path] = BuildFile( path, done );
+			loading.Dispose();
+			_version.Value++;
+		} );
+		return loading;
+	}
+
+	/// <summary>Reads a file's text, its encoding and its repository; a missing path or a new file is empty.</summary>
+	private static async Task<LoadedFile> LoadAsync( IWorkspaceHost workspace, string path, CancellationToken cancellationToken )
+	{
 		var encoding = (Encoding)new UTF8Encoding( encoderShouldEmitUTF8Identifier: false );
+		if ( path.Length == 0 )
+			return new( "", encoding, null, null );
+
 		var text = "";
+		string? error = null;
 		try
 		{
-			if ( path.Length > 0 && System.IO.File.Exists( path ) )
+			var stat = await workspace.StatAsync( path, cancellationToken ).ConfigureAwait( false );
+			if ( stat.IsFile )
 			{
-				if ( new FileInfo( path ).Length > MaxBytes )
+				if ( stat.Size > MaxBytes )
 					throw new IOException( $"The file is larger than {MaxBytes / 1024 / 1024} MB." );
 
-				using var reader = new StreamReader( path, encoding, detectEncodingFromByteOrderMarks: true );
+				var bytes = await workspace.ReadAsync( path, cancellationToken ).ConfigureAwait( false );
+				using var reader = new StreamReader( new MemoryStream( bytes ), encoding, detectEncodingFromByteOrderMarks: true );
 				text = reader.ReadToEnd();
 				encoding = reader.CurrentEncoding;
 			}
 		}
-		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException )
+		catch ( Exception failure ) when ( failure is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException )
 		{
-			_error = $"Could not open {Path.GetFileName( path )}: {error.Message}";
+			error = $"Could not open {Path.GetFileName( path )}: {failure.Message}";
 		}
 
+		string? repository;
+		try
+		{
+			repository = await FindRepositoryAsync( workspace, path, cancellationToken ).ConfigureAwait( false );
+		}
+		catch ( Exception failure ) when ( failure is IOException or UnauthorizedAccessException or ArgumentException )
+		{
+			repository = null;
+		}
+		return new( text, encoding, repository, error );
+	}
+
+	/// <summary>Builds the open file from a finished read, or an empty one while it is still loading, and asks for its line marks.</summary>
+	private OpenFile BuildFile( string path, Task<LoadedFile>? load )
+	{
+		// Expected read failures come back as the error; anything else surfaces as it did when the read ran here.
+		if ( load is { IsFaulted: true } )
+			load.GetAwaiter().GetResult();
+
+		var loaded = load is { IsCompletedSuccessfully: true } ? load.Result : new LoadedFile( "", new UTF8Encoding( encoderShouldEmitUTF8Identifier: false ), null, null );
+		if ( loaded.Error is { } error )
+			_error = error;
+
+		var text = loaded.Text;
 		var newLine = text.Contains( "\r\n", StringComparison.Ordinal ) ? "\r\n" : text.Contains( '\n' ) ? "\n" : Environment.NewLine;
 		var editor = new TextEditorController( new TextDocument( text.Replace( "\r\n", "\n", StringComparison.Ordinal ) ) );
-		var file = new OpenFile( editor, encoding, newLine, path.Length == 0 ? null : CodeHighlighter.FindForPath( path ) ) { SavedVersion = editor.Document.Version };
-		if ( path.Length > 0 )
+		var file = new OpenFile( editor, loaded.Encoding, newLine, path.Length == 0 ? null : CodeHighlighter.FindForPath( path ) )
+		{
+			SavedVersion = editor.Document.Version,
+			Repository = loaded.Repository,
+		};
+		if ( path.Length > 0 && load is not null )
 			RequestMarks( file, path );
 		return file;
 	}
@@ -440,6 +668,7 @@ internal sealed class EditorContent : PanelContent
 		if ( sources.Count == 0 )
 			return;
 
+		var workspace = _context.Workspace;
 		_ = Task.Run( async () =>
 		{
 			foreach ( var source in sources )
@@ -447,7 +676,7 @@ internal sealed class EditorContent : PanelContent
 				IReadOnlyList<LineMark> marks;
 				try
 				{
-					marks = await source.Compute( path, _context.Lifetime );
+					marks = await source.Compute( workspace, path, _context.Lifetime );
 				}
 				catch ( Exception error ) when ( error is not OperationCanceledException )
 				{
@@ -494,6 +723,13 @@ internal sealed class EditorContent : PanelContent
 		_version.Value++;
 	}
 
+	/// <summary>Holds what reading a file found.</summary>
+	/// <param name="Text">The text, with its own line endings.</param>
+	/// <param name="Encoding">The encoding to write it back with.</param>
+	/// <param name="Repository">The folder of the nearest repository above it, or null.</param>
+	/// <param name="Error">Why it could not be read, or null.</param>
+	private sealed record LoadedFile( string Text, Encoding Encoding, string? Repository, string? Error );
+
 	/// <summary>Holds one open file: its text, how to write it back, the version last saved, and its colors and line marks.</summary>
 	private sealed class OpenFile( TextEditorController editor, Encoding encoding, string newLine, CodeHighlighter.Grammar? grammar ) : IDisposable
 	{
@@ -514,6 +750,12 @@ internal sealed class EditorContent : PanelContent
 
 		/// <summary>Gets or sets whether the header shows the unsaved mark.</summary>
 		internal bool ShownDirty { get; set; }
+
+		/// <summary>Gets or sets whether the file is still being read, which keeps it from being saved.</summary>
+		internal bool IsLoading { get; set; }
+
+		/// <summary>Gets or sets the nearest folder above the file that holds a git repository, which relative paths start from; null when there is none.</summary>
+		internal string? Repository { get; set; }
 
 		/// <summary>Gets whether the text differs from the file.</summary>
 		internal bool IsDirty => Editor.Document.Version != SavedVersion;

@@ -1,0 +1,17 @@
+{
+  "Version": 1,
+  "Projects": [
+    {
+      "Id": "be044984-e24d-4e86-a5a9-ea1da66d8cfe",
+      "Profile": "Personal",
+      "Name": "Demo app",
+      "Directory": "C:\\LoomFixture\\demo-app"
+    },
+    {
+      "Id": "adfd3d98-7b7a-43df-b0ce-88f6a2c9b5c3",
+      "Profile": "Personal",
+      "Name": "Notes",
+      "Directory": "C:\\LoomFixture\\notes"
+    }
+  ]
+}

@@ -24,9 +24,10 @@ internal static class SettingsChecks
 		CheckInheritance();
 		CheckPersistence();
 		CheckInvalidFiles();
+		CheckSharedFile();
 		CheckOwnership();
 		CheckShellBackdrop();
-		Console.WriteLine( "PASS settings inheritance, explicit reset, profile persistence, invalid input, failed writes, module ownership, and shell backdrop choices." );
+		Console.WriteLine( "PASS settings inheritance, explicit reset, profile persistence, invalid input, failed writes, a file shared by two processes, module ownership, and shell backdrop choices." );
 	}
 
 	/// <summary>Checks profile isolation and true inheritance rather than copied defaults.</summary>
@@ -114,6 +115,61 @@ internal static class SettingsChecks
 		CoreChecks.Check( app.Settings.Set( Number, SettingsScope.Global, 35 ), "Submitting the same live value retries a previously failed save." );
 		CoreChecks.Check( File.Exists( Path.Combine( blocked, "settings.json" ) ), "A corrected storage path receives the retried save." );
 		app.Shutdown();
+	}
+
+	/// <summary>Checks two applications on one file, as the desktop and the daemon are: each save merges only its own changes, an unchanged value
+	/// writes nothing, and a reload takes the other's changes.</summary>
+	private static void CheckSharedFile()
+	{
+		var directory = Path.Combine( Path.GetTempPath(), "lokn-settings-shared-" + Guid.NewGuid().ToString( "N" ) );
+		var path = Path.Combine( directory, "settings.json" );
+		var desktop = BuildApp( path );
+		var daemon = BuildApp( path );
+		try
+		{
+			desktop.Settings.Set( Number, SettingsScope.Global, 30 );
+			desktop.Settings.SetActiveProfile( SettingsProfile.Work );
+			daemon.Settings.Set( Name, SettingsScope.Global, "Daemon" );
+			using ( var document = JsonDocument.Parse( File.ReadAllText( path ) ) )
+			{
+				var global = document.RootElement.GetProperty( "Global" );
+				CoreChecks.Check( global.GetProperty( Number.Id ).GetInt32() == 30 && global.GetProperty( Name.Id ).GetString() == "Daemon"
+					&& document.RootElement.GetProperty( "ActiveProfile" ).GetString() == "Work",
+					"A save keeps the values and the profile another process saved since this one read the file." );
+			}
+			CoreChecks.Check( daemon.Settings.Get( Number, SettingsScope.Global ) == 30, "A save takes the other process's values it found in the file." );
+
+			var written = File.GetLastWriteTimeUtc( path );
+			var text = File.ReadAllText( path );
+			CoreChecks.Check( desktop.Settings.Set( Number, SettingsScope.Global, 30 ) && File.GetLastWriteTimeUtc( path ) == written && File.ReadAllText( path ) == text,
+				"Setting a value to what it already is writes nothing." );
+
+			var changes = 0;
+			desktop.Settings.Changed += () => changes++;
+			desktop.Settings.Reload();
+			CoreChecks.Check( desktop.Settings.Get( Name, SettingsScope.Global ) == "Daemon" && changes > 0, "A reload takes another process's saved values and tells the views." );
+
+			daemon.Settings.Reset( Number, SettingsScope.Global );
+			desktop.Settings.Reload();
+			CoreChecks.Check( desktop.Settings.Get( Number, SettingsScope.Global ) == Number.DefaultValue && desktop.Settings.Get( Name, SettingsScope.Global ) == "Daemon",
+				"A value another process reset is gone after a reload, and the others stay." );
+
+			changes = 0;
+			desktop.Settings.Reload();
+			CoreChecks.Check( changes == 0, "A reload that finds nothing new changes nothing." );
+		}
+		finally
+		{
+			desktop.Shutdown();
+			daemon.Shutdown();
+			try
+			{
+				Directory.Delete( directory, recursive: true );
+			}
+			catch ( IOException )
+			{
+			}
+		}
 	}
 
 	/// <summary>Checks registration rollback and value retention when a feature is disabled.</summary>

@@ -141,6 +141,12 @@ internal static class WorktreeChecks
 		var panelId = app.Panels.Open( "worktrees.list" );
 		var panel = app.Panels.Sessions.Single( session => session.Info.Id == panelId ).Content!;
 		CoreChecks.Check( panel.Build() is not null && panel.CaptureState()!.Value.GetString() == repository, "The panel builds and starts on the active profile's first project." );
+		var desk = app.Hosts.Add( "worktree-host-id-00000", "Desk" );
+		var deskPanelId = app.Panels.Open( "worktrees.list", hostId: desk.Id );
+		var deskPanel = app.Panels.Sessions.Single( session => session.Info.Id == deskPanelId ).Content!;
+		CoreChecks.Check( app.Panels.GetHostId( deskPanelId ) == desk.Id && Walk( deskPanel.Build() ).OfType<Goo.Text>().Any( text => text.Content == "Worktrees work on this PC only." ),
+			"A Worktrees panel on a paired host says worktrees work on this PC only." );
+		app.Panels.Close( deskPanelId );
 		await CheckEnterAsync( app, store, project, repository, panelId );
 		await CheckSidebarAsync( app, store, project, repository, created );
 		app.Shutdown();
@@ -154,7 +160,7 @@ internal static class WorktreeChecks
 		var conversations = new ConversationsModule( store, ( _, _, _ ) => new ChatStandIn() );
 		CoreChecks.Check( ProjectChecks.LoadProjects( app, store ) && app.Load( conversations ), "The conversations module loads beside worktrees." );
 		var chat = store.CreateConversation( SettingsProfile.Personal, project.Id );
-		var chatPanel = conversations.OpenConversation( app, chat.Id );
+		var chatPanel = conversations.OpenConversation( app, ChatRef.Local( chat.Id ) );
 		Task<AgentToolResult> Enter( string json, Guid caller ) => app.Tools.InvokeAsync( "worktrees_enter", System.Text.Json.JsonDocument.Parse( json ).RootElement, caller, CancellationToken.None );
 
 		var result = await Enter( """{ "branch": "parallel" }""", chatPanel );
@@ -170,8 +176,21 @@ internal static class WorktreeChecks
 		result = await Enter( """{ "main": true }""", chatPanel );
 		CoreChecks.Check( !result.IsError && store.GetDirectory( chat.Id ) == project.Directory && store.Get( chat.Id ).Worktree is null, $"main: true moves the chat back to the project's directory ({result.Text})." );
 
+		// During a turn no panel shows, the call names the chat by its conversation instead.
+		result = await app.Tools.InvokeAsync( "worktrees_enter", System.Text.Json.JsonDocument.Parse( """{ "branch": "parallel" }""" ).RootElement, null, CancellationToken.None, conversation: chat.Id );
+		CoreChecks.Check( !result.IsError && ConversationStore.IsSameFolder( store.GetDirectory( chat.Id ), GitWorktrees.BuildPath( repository, "parallel" ) ),
+			$"An agent whose chat no panel shows moves its chat by the conversation its call names ({result.Text})." );
+		result = await Enter( """{ "main": true }""", chatPanel );
+		CoreChecks.Check( !result.IsError && store.Get( chat.Id ).Worktree is null, $"The chat moves back to the project's directory ({result.Text})." );
+
 		CoreChecks.Check( (await Enter( """{ "branch": "parallel" }""", otherPanelId )).IsError && (await Enter( """{ "branch": "x", "main": true }""", chatPanel )).IsError,
 			"Only a chat's agent can move, and a branch with main: true is refused." );
+
+		var desk = conversations.Hosts.Add( app.Hosts.Add( "enter-host-id-00000000", "Desk" ) );
+		var remote = desk.Store.CreateConversation( SettingsProfile.Personal );
+		var refused = await app.Tools.InvokeAsync( "worktrees_enter", System.Text.Json.JsonDocument.Parse( """{ "branch": "parallel" }""" ).RootElement, null, CancellationToken.None,
+			conversation: remote.Id, host: desk.Id );
+		CoreChecks.Check( refused.IsError && refused.Text.Contains( "Worktrees work on this PC only.", StringComparison.Ordinal ), $"A paired host's chat cannot move into a worktree ({refused.Text})." );
 	}
 
 	/// <summary>Stands in for a chat panel, so a conversation panel has content without an agent.</summary>
@@ -275,7 +294,7 @@ internal static class WorktreeChecks
 			"Remove worktree deletes it once confirmed and moves its chats back to the main checkout." );
 
 		var follower = store.CreateConversation( SettingsProfile.Personal, project.Id );
-		var shell = new ChatContent( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, follower.Id, app.GetModule<OmpModule>().Service );
+		var shell = new ChatSession( app, store, follower.Id, app.GetModule<OmpModule>().Service, app.Post );
 		var outside = Path.GetDirectoryName( repository )!;
 		shell.UpdateFrame( JsonDocument.Parse( """{"type":"agent_start"}""" ).RootElement.Clone() );
 		foreach ( var folder in new[] { changed, Path.Combine( changed, "engine" ), repository, outside, outside, outside } )
@@ -288,7 +307,7 @@ internal static class WorktreeChecks
 		shell.UpdateFrame( JsonDocument.Parse( """{"type":"agent_end"}""" ).RootElement.Clone() );
 		CoreChecks.Check( PumpUntil( () => store.Get( follower.Id ).Worktree is { } worktree && ConversationStore.IsSameFolder( worktree, changed ) && Label( changed ) is not null ),
 			"A project chat whose turn ran most of its commands in a linked worktree moves there and lists under its label; folders outside the repository do not count." );
-		shell.Closed();
+		shell.Dispose();
 
 		var vanishing = await GitWorktrees.AddAsync( repository, "vanishing", "", [], CancellationToken.None );
 		var stranded = store.CreateConversation( SettingsProfile.Personal, project.Id );

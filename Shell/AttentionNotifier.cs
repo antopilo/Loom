@@ -3,15 +3,21 @@ using Lokn.Core;
 
 namespace Lokn;
 
-/// <summary>Acknowledges a panel's request once the user looks at it, and opens the notifications Windows hands back to Lokn.</summary>
+/// <summary>Acknowledges a panel's request once the user looks at it, opens the notifications Windows hands back to Lokn, and opens the panel a
+/// launch asks for with <see cref="OpenPanelArgument"/>.</summary>
 /// <remarks>
 /// A request for the panel the user is already looking at is acknowledged at once, and returning to Lokn acknowledges the active panel's.
 /// Recording requests, the chime and Windows notifications belong to the Notifications module. A click on a Windows notification relaunches
-/// Lokn, which hands it to the running window; it opens the panel's newest feed entry where the panel belongs, else activates the panel.
+/// Lokn, which hands it to the running window; it opens the panel's newest feed entry where the panel belongs, else activates the panel. A launch
+/// with <c>--open-panel &lt;panel type&gt;</c>, such as Remote access from the daemon's notification-area menu, activates an open panel of that
+/// type or opens one, in this window or the running one it is forwarded to.
 /// It subscribes before the single-instance election, so a click that starts Lokn is not missed.
 /// </remarks>
 internal sealed class AttentionNotifier : IDisposable
 {
+	/// <summary>Defines the launch argument followed by the panel type to open, such as <c>remote.access</c>.</summary>
+	internal const string OpenPanelArgument = "--open-panel";
+
 	/// <summary>Stores the application whose panels are watched.</summary>
 	private readonly LoknApplication _app;
 
@@ -50,7 +56,8 @@ internal sealed class AttentionNotifier : IDisposable
 			_app.Panels.ClearAttention( panelId );
 	}
 
-	/// <summary>Brings Lokn forward for a notification click or a second launch, opening the clicked notification where its panel belongs.</summary>
+	/// <summary>Brings Lokn forward for a notification click or a second launch, opening the clicked notification where its panel belongs, or the
+	/// panel the launch asks for.</summary>
 	private void UpdateActivated( ApplicationActivation activation )
 	{
 		if ( activation.Kind == ApplicationActivationKind.Notification && Guid.TryParse( activation.Payload, out var panelId ) )
@@ -60,9 +67,31 @@ internal sealed class AttentionNotifier : IDisposable
 			else
 				_app.Panels.Activate( _app.Panels.ResolvePanelId( panelId ) );
 		}
+		else if ( ReadPanelType( activation.Arguments ) is { } typeId )
+			OpenPanel( typeId );
 		else if ( activation.IsInitial )
 			return;
 
 		_window.RequestActivation();
+	}
+
+	/// <summary>Reads the panel type after <see cref="OpenPanelArgument"/> in launch arguments, or null.</summary>
+	internal static string? ReadPanelType( IReadOnlyList<string> arguments )
+	{
+		for ( var index = 0; index + 1 < arguments.Count; index++ )
+		{
+			if ( arguments[index] == OpenPanelArgument )
+				return arguments[index + 1];
+		}
+		return null;
+	}
+
+	/// <summary>Activates an open panel of a type, else opens one when the type is registered; an unknown type, such as a module that is off, opens nothing.</summary>
+	private void OpenPanel( string typeId )
+	{
+		if ( _app.Panels.Panels.FirstOrDefault( panel => panel.TypeId == typeId ) is { } open )
+			_app.Panels.Activate( open.Id );
+		else if ( _app.Panels.Types.Any( type => type.Id == typeId ) )
+			_app.Panels.Open( typeId );
 	}
 }

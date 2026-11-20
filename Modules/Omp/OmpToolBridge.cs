@@ -19,8 +19,11 @@ public sealed class OmpToolBridge : IDisposable
 	/// <summary>Stores the application whose tools are offered.</summary>
 	private readonly LoknApplication _app;
 
-	/// <summary>Stores the panel hosting the agent, passed to every call as its caller.</summary>
-	private readonly Guid? _caller;
+	/// <summary>Gets the panel showing the agent, read for every call as its caller; null while no panel shows it. Called on the session's reader thread.</summary>
+	private readonly Func<Guid?> _caller;
+
+	/// <summary>Stores the conversation whose agent the session runs, which every call names whether or not a panel shows it, or null.</summary>
+	private readonly Guid? _conversation;
 
 	/// <summary>Defines the synthetic tool that reveals hidden Lokn tool groups for this chat.</summary>
 	private const string LoaderName = "lokn_load_tools";
@@ -58,8 +61,8 @@ public sealed class OmpToolBridge : IDisposable
 	/// <summary>Attaches to a session's frames and to tool and setting changes, using the application's active profile and immediate metadata reads.</summary>
 	/// <param name="session">The connected session.</param>
 	/// <param name="app">The application whose tools are offered.</param>
-	/// <param name="caller">The panel hosting the agent, such as its chat.</param>
-	public OmpToolBridge( OmpSession session, LoknApplication app, Guid? caller )
+	/// <param name="caller">Gets the panel showing the agent, such as its chat, or null; read on the session's reader thread for every call.</param>
+	public OmpToolBridge( OmpSession session, LoknApplication app, Func<Guid?> caller )
 		: this( session, app, caller, app.Settings.ActiveProfile, action =>
 		{
 			action();
@@ -71,14 +74,16 @@ public sealed class OmpToolBridge : IDisposable
 	/// <summary>Attaches to one profile's session and uses the panel dispatcher for reader-thread tool-group loads.</summary>
 	/// <param name="session">The connected session.</param>
 	/// <param name="app">The application whose tools are offered.</param>
-	/// <param name="caller">The panel hosting the agent, such as its chat.</param>
+	/// <param name="caller">Gets the panel showing the agent, such as its chat, or null; read on the session's reader thread for every call.</param>
 	/// <param name="profile">The account profile captured by the chat.</param>
 	/// <param name="post">Posts an action to the chat's UI thread and reports whether it was accepted.</param>
-	public OmpToolBridge( OmpSession session, LoknApplication app, Guid? caller, SettingsProfile profile, Func<Action, bool> post )
+	/// <param name="conversation">The conversation whose agent the session runs, which tools find the chat by while no panel shows it; null for an agent of no chat.</param>
+	public OmpToolBridge( OmpSession session, LoknApplication app, Func<Guid?> caller, SettingsProfile profile, Func<Action, bool> post, Guid? conversation = null )
 	{
 		_session = session;
 		_app = app;
 		_caller = caller;
+		_conversation = conversation;
 		_scope = profile == SettingsProfile.Work ? SettingsScope.Work : SettingsScope.Personal;
 		_post = post;
 		_session.FrameReceived += UpdateFrame;
@@ -245,7 +250,7 @@ public sealed class OmpToolBridge : IDisposable
 			else if ( name == LoaderName )
 				result = await LoadGroupsAsync( arguments, call.Token ).ConfigureAwait( false );
 			else
-				result = await _app.Tools.InvokeAsync( name, arguments, _caller, call.Token, Read( frame, "toolCallId" ), progress.Report ).ConfigureAwait( false );
+				result = await _app.Tools.InvokeAsync( name, arguments, _caller(), call.Token, Read( frame, "toolCallId" ), progress.Report, _conversation ).ConfigureAwait( false );
 		}
 		catch ( Exception error )
 		{

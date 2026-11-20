@@ -52,6 +52,15 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	/// <summary>Stores the module updates last announced, so a background check announces them once.</summary>
 	private string _announcedModules = "";
 
+	/// <summary>Stores what holds the app update back while agents work on This PC, while the module runs.</summary>
+	private UpdateGate? _gate;
+
+	/// <summary>Stores the timer that checks the agents' work while the update waits for them to finish, or null.</summary>
+	private Timer? _waitTimer;
+
+	/// <summary>Defines how often a waiting update checks whether the agents finished.</summary>
+	private static readonly TimeSpan _waitInterval = TimeSpan.FromSeconds( 2 );
+
 	/// <summary>Gets the module identifier.</summary>
 	public string Id => "updates";
 
@@ -68,7 +77,9 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 			.Setting( Automatic )
 			.Setting( Source )
 			.Command( "check", "Updates: check for updates", _ => StartCheck( isManual: true ) )
-			.Route( "restart", request => Restart( request.App ) )
+			.Route( "restart", request => RequestRestart( request.App, isForced: false ) )
+			.Route( "restart-when-idle", request => WaitForAgents( request.App ) )
+			.Route( "restart-now", request => RequestRestart( request.App, isForced: true ) )
 			.Route( "apply-modules", request => ApplyModules( request.App ) );
 	}
 
@@ -76,6 +87,7 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	public void Start( ModuleContext context )
 	{
 		_context = context;
+		_gate = new UpdateGate( () => CountWorking( context.App ), () => Restart( context.App ) );
 		host.Refused += ReportRefused;
 		if ( Installation.IsInstalled )
 			_timer = new( _ => context.Post( () => StartCheck( isManual: false ) ), null, _firstCheck, _interval );
@@ -86,6 +98,10 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	{
 		_timer?.Dispose();
 		_timer = null;
+		_waitTimer?.Dispose();
+		_waitTimer = null;
+		_gate?.Cancel();
+		_gate = null;
 		host.Refused -= ReportRefused;
 	}
 
@@ -168,12 +184,68 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 			Post( app, $"Loom {CurrentVersion} and its modules are up to date." );
 	}
 
-	/// <summary>Closes Loom and restarts it on the downloaded version.</summary>
+	/// <summary>Restarts into the downloaded version when no agent works on This PC, or when <paramref name="isForced"/>; otherwise asks whether to update
+	/// when the agents finish or now, which stops them.</summary>
+	private void RequestRestart( LoknApplication app, bool isForced )
+	{
+		if ( _gate is not { } gate || !_appUpdater.IsPending )
+		{
+			Post( app, "No new version of Loom is waiting. Run Updates: check for updates." );
+			return;
+		}
+
+		var working = CountWorking( app );
+		switch ( gate.Request( isForced ) )
+		{
+			case UpdateDecision.Ask:
+				Post( app, $"{DescribeWorking( working )} on this PC. Loom can update once they finish, or now, which stops them.",
+					new NotificationAction( "Update when agents finish", LoknLinks.Create( Id, "restart-when-idle" ) ),
+					new NotificationAction( UpdateGate.DescribeForce( working ), LoknLinks.Create( Id, "restart-now" ) ) );
+				break;
+			case UpdateDecision.Wait:
+				Post( app, $"Loom updates once the agents on this PC finish; {DescribeWorking( working ).ToLowerInvariant()}.",
+					new NotificationAction( UpdateGate.DescribeForce( working ), LoknLinks.Create( Id, "restart-now" ) ) );
+				break;
+		}
+	}
+
+	/// <summary>Restarts into the downloaded version as soon as no agent works on This PC, checking every few seconds meanwhile.</summary>
+	private void WaitForAgents( LoknApplication app )
+	{
+		if ( _gate is not { } gate || _context is not { } context || !_appUpdater.IsPending )
+		{
+			Post( app, "No new version of Loom is waiting. Run Updates: check for updates." );
+			return;
+		}
+
+		gate.WaitForAgents();
+		if ( !gate.IsWaiting )
+			return;
+
+		Post( app, "Loom updates once the agents on this PC finish.", new NotificationAction( UpdateGate.DescribeForce( CountWorking( app ) ), LoknLinks.Create( Id, "restart-now" ) ) );
+		_waitTimer?.Dispose();
+		_waitTimer = new( _ => context.Post( () =>
+		{
+			if ( _gate is { } current && !current.Update() && current.IsWaiting )
+				return;
+
+			_waitTimer?.Dispose();
+			_waitTimer = null;
+		} ), null, _waitInterval, _waitInterval );
+	}
+
+	/// <summary>Closes Loom and restarts it on the downloaded version; the update's hook stops the daemon gracefully and starts it again afterwards.</summary>
 	private void Restart( LoknApplication app )
 	{
 		if ( app.Window is not { } window || !_appUpdater.Restart( window ) )
 			Post( app, "No new version of Loom is waiting. Run Updates: check for updates." );
 	}
+
+	/// <summary>Counts the agents working on This PC, in this Loom or its daemon; none when no module reports them.</summary>
+	private static int CountWorking( LoknApplication app ) => app.Services.Get<IAgentActivity>()?.Working ?? 0;
+
+	/// <summary>Describes how many agents work: <c>1 agent is working</c>, <c>2 agents are working</c>.</summary>
+	private static string DescribeWorking( int working ) => working == 1 ? "1 agent is working" : $"{working} agents are working";
 
 	/// <summary>Moves the staged module updates into use, which reloads their modules.</summary>
 	private void ApplyModules( LoknApplication app )

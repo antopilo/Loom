@@ -95,6 +95,19 @@ internal sealed class NoteContent( PanelContext context ) : PanelContent
   in Lokn's window, not a crash.
 - **Public API only.** Shell types such as `ShellView` are internal and will not
   compile here.
+- **Reach files, processes and terminals through an `IWorkspaceHost`**, never
+  `File`, `Directory`, `FileSystemWatcher` or `Process`: `ReadAsync`, `WriteAsync`,
+  `ListAsync`, `StatAsync`, `DeleteAsync`, `MoveAsync`, `CreateDirectoryAsync`, `Watch`,
+  `RunAsync` and `OpenPty`. Lokn shows This PC and paired hosts at once (`App.Hosts`),
+  each with its own workspace; a direct call would act on the wrong PC. A panel that works
+  on files or terminals registers with `onHost: true` and uses `context.Workspace` (its
+  host's) and `context.Host.WorkspaceChanged`, which fires when the host connects or
+  disconnects. A command uses `context.App.Workspace`, the current host's; read it on each
+  use. Only the module's own data, such as a cache, may use `File`.
+- **Agent tools and the daemon.** When chats run in Lokn's daemon (Remote access, role
+  `daemon`), the daemon loads only built-in modules. A source module's tools reach those
+  chats only while Lokn on the daemon's PC is open and connected to it, and their calls run
+  in that window.
 - **Use the theme for colors, fonts and spacing.** Read `Theme.Current` inside
   `Build()`, for example `Color = Theme.Current.Muted` or
   `Theme.Current.BuildButton( "Save", Save )`. The user's `theme.json` replaces it
@@ -134,11 +147,11 @@ From `Lokn.Core`:
 | Type | Use |
 |---|---|
 | `ILoknModule` | `Id`, `Title`, `Register`, optional `Start`, `Stop`, `Dependencies`, `CanUnload` |
-| `ModuleBuilder` | `.Panel( id, title, factory )`, `.Command( id, title, execute, shortcut, canExecute )`, `.CommandAsync( … )`, `.Setting( setting )`, `.Tool( id, description, jsonSchema, execute )` and `.ToolAsync( … )` for tools agents can call (named `{module}_{id}`), `.ToolCard( id, card => blob )` to draw calls to one of those tools as a card in the chat; `.Slot( ShellSlots.StatusRight, order, context => content )` to add content to the sidebar, titlebar or status bar (`ShellSlots.Sidebar`, `TitleLeft`, `TitleRight`, `StatusLeft`, `StatusRight`) or to another module's slot; `.ExtensionPoint<T>( name )` and `.Contribute( "module.name", value )` to let modules extend yours or to extend theirs, such as `.Contribute( TaskStarter.Point, new TaskStarter( "Notes", glyph, order, app => app.Panels.Open( "notes.page" ) ) )` to offer your panel as an icon in the grid a project's + opens, which starts a task with it; `.Service<TContract>( implementation )` to publish an API; `.Route( name, request => … )` to open `lokn://module/name/…` links; `.SearchProvider( type, title, order, context => items )` to list `SearchItem`s in the Search palette (Ctrl+K) under a type's tab, such as `notes`; all chain |
-| `AgentToolContext` | `App`, `Caller` (the panel whose agent called), `Cancellation`, `CallId`, `Report( progress )` (any thread; latest wins, shown in the card); return `new AgentToolResult( text, IsError, Details )`, `AgentToolResult.Json( value )` or `AgentToolResult.Error( message )`; `Details` is what the card draws, and Omp drops it when `IsError` is true, so a card that shows a failure needs `IsError: false` |
+| `ModuleBuilder` | `.Panel( id, title, factory, glyph: null, onHost: false )` (`onHost: true` binds each panel to the host it opens on, This PC or a paired host), `.Command( id, title, execute, shortcut, canExecute )`, `.CommandAsync( … )`, `.Setting( setting )`, `.Tool( id, description, jsonSchema, execute )` and `.ToolAsync( … )` for tools agents can call (named `{module}_{id}`), `.ToolCard( id, card => blob )` to draw calls to one of those tools as a card in the chat; `.Slot( ShellSlots.StatusRight, order, context => content )` to add content to the sidebar, titlebar or status bar (`ShellSlots.Sidebar`, `TitleLeft`, `TitleRight`, `StatusLeft`, `StatusRight`) or to another module's slot; `.ExtensionPoint<T>( name )` and `.Contribute( "module.name", value )` to let modules extend yours or to extend theirs, such as `.Contribute( TaskStarter.Point, new TaskStarter( "Notes", glyph, order, app => app.Panels.Open( "notes.page" ) ) )` to offer your panel as an icon in the grid a project's + opens, which starts a task with it; `.Service<TContract>( implementation )` to publish an API; `.Route( name, request => … )` to open `lokn://module/name/…` links; `.SearchProvider( type, title, order, context => items )` to list `SearchItem`s in the Search palette (Ctrl+K) under a type's tab, such as `notes`; all chain |
+| `AgentToolContext` | `App`, `Caller` (the panel whose agent called), `Host` (the paired host whose agent called, null for This PC), `Cancellation`, `CallId`, `Report( progress )` (any thread; latest wins, shown in the card); return `new AgentToolResult( text, IsError, Details )`, `AgentToolResult.Json( value )` or `AgentToolResult.Error( message )`; `Details` is what the card draws, and Omp drops it when `IsError` is true, so a card that shows a failure needs `IsError: false` |
 | `ToolCardContext` | `Status` (`AgentToolStatus`), `Arguments`, `Text`, `Details` (latest report, then the result's), `CallId`, `App`, `State<T>()` view state, `Run( change )` to change it and redraw, `Prompt( message )` to message the agent; draw only from these so the card is the same live and in history |
-| `PanelContent` | Override `Build()`; optionally `CaptureState()` and `Closed()` |
-| `PanelContext` | `App`, `Id`, `Input`, `RestoredState`, `Lifetime`, `Run( action )`, `Post( action )` |
+| `PanelContent` | Override `Build()`; optionally `CaptureState()`, `Closed()`, and `HostId` when the panel shows another host's content than its context's |
+| `PanelContext` | `App`, `Id`, `Input`, `RestoredState`, `Lifetime`, `Run( action )`, `Post( action )`; for a panel registered `onHost: true`, `HostId`, `Host` (`LoknHost`: `Name`, `State`, `IsOnline`, `BrowserTabs`, `WorkspaceChanged`) and `Workspace` |
 | `ModuleContext` | `App`, `Lifetime`, `Post( action )` |
 | `CommandContext` | `App`, `Lifetime` |
 | `CommandShortcut` | `new( Key.N, KeyModifiers.Primary )`; Ctrl+K and Ctrl+Shift+P are reserved |
@@ -150,12 +163,14 @@ Through `context.App`:
 
 | Member | Use |
 |---|---|
-| `Panels.Open( typeId, paneId: null, input: null )` | Opens a panel; `input` arrives as `PanelContext.Input` |
+| `Panels.Open( typeId, paneId: null, input: null, hostId: null )` | Opens a panel; `input` arrives as `PanelContext.Input`; a host-bound panel opens on `hostId`, else the current host. `Panels.OpenBeside( typeId, panelId )` opens beside a panel, on its host |
 | `Panels.Close( panelId )`, `Panels.Activate( panelId )` | Closes or focuses a panel |
 | `Panels.Panels`, `Panels.Types`, `Panels.Panes` | Read-only views of what is open and registered |
 | `Commands.ExecuteAsync( id )` | Runs any registered command by its full ID |
 | `Settings.Get( setting )` | Effective value for the active profile; reading it in `Build()` rebuilds the panel when it changes |
 | `Slots.Get( slot )`, `Extensions.Get<T>( "module.name" )`, `Services.Get<TContract>()` | What modules contribute and publish; resolve services on each use, since a reload replaces them |
+| `Hosts` | This PC (`Hosts.Local`), the paired hosts (`Hosts.All`) and the one the user is on (`Hosts.Current`), each a `LoknHost` with its `Workspace` and `BrowserTabs` |
+| `Workspace`, `BrowserTabs` | The current host's files, programs and terminals (`IWorkspaceHost`) and browser tabs; `WorkspaceChanged` fires when the current host's workspace is replaced or another host becomes current. Panels use their own host's (`context.Workspace`) |
 | `OpenLink( LoknLinks.Create( module, route, …path ), panelId )` | Opens a `lokn://` route, or any web link |
 
 From Goo, panels are built from declarations such as `Container`, `Row`, `Text` and

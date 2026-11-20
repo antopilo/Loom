@@ -22,6 +22,12 @@ public sealed record ConfirmDialogInput( LoknApplication App, string Title, stri
 
 	/// <summary>Gets why the accepted work failed, shown above the buttons, or null.</summary>
 	public string? Error { get; init; }
+
+	/// <summary>Gets the cancel button's label, such as "View only" when cancelling is itself an answer; null for "Cancel", or "Close" on a notice.</summary>
+	public string? CancelLabel
+	{
+		get; init;
+	}
 }
 
 /// <summary>The app's one confirmation dialog: a card in the middle of the window over a scrim, which takes all input until it closes.</summary>
@@ -73,7 +79,7 @@ public sealed class ConfirmDialog : GuardedCell<ConfirmDialogInput>
 		if ( input.Error is { Length: > 0 } error )
 			card.Add( new Text { Key = "error", Content = error, Color = theme.Error, Selectable = true } );
 
-		var cancel = theme.BuildButton( input.Accept is null ? "Close" : "Cancel", () => InvokeInputCallback( input.Cancel ), !input.IsBusy );
+		var cancel = theme.BuildButton( input.CancelLabel ?? (input.Accept is null ? "Close" : "Cancel"), () => InvokeInputCallback( input.Cancel ), !input.IsBusy );
 		cancel.Key = "cancel";
 		cancel.Handle = _cancel;
 		var buttons = new List<Blob> { cancel };

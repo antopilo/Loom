@@ -63,7 +63,7 @@ public sealed class EditorModule : ILoknModule
 			.Setting( WrapLines )
 			// Modules such as Git mark changed lines in the gutter; the editor asks them when a file opens or is saved.
 			.ExtensionPoint<LineMarkSource>( "marks" )
-			.Panel( "file", "Editor", context => new EditorContent( context, this ), "\uE8A5" )
+			.Panel( "file", "Editor", context => new EditorContent( context, this ), "\uE8A5", onHost: true )
 			.CommandAsync( "open-file", "Editor: open file", context => OpenFile( context.App ), new( Key.O, KeyModifiers.Primary ) )
 			// lokn://editor/open?path=C%3A%5Cnotes.txt opens a file, so a file tree, chats and other modules can link to it.
 			.Route( "open", request =>
@@ -75,15 +75,19 @@ public sealed class EditorModule : ILoknModule
 
 	/// <summary>Opens a file where the user expects it: its editor when one shows it already; else the last used editor on screen, which swaps
 	/// to it when it has no unsaved changes; else a new editor beside that one, or beside the panel the link came from.</summary>
+	/// <remarks>The file is on the host of the panel the link came from (else the current host); only editors on that host show it, since the
+	/// same path on another host is another file.</remarks>
 	internal void Open( LoknApplication app, string path, Guid? sourcePanelId )
 	{
-		if ( _editors.LastOrDefault( editor => editor.Shows( path ) && app.Panels.IsShown( editor.Id ) ) is { } showing )
+		var host = (sourcePanelId is { } panel ? app.Panels.GetHostId( panel ) : null) ?? app.Hosts.Current.Id;
+		var onHost = _editors.Where( editor => app.Panels.IsShown( editor.Id ) && app.Panels.GetHostId( editor.Id ) == host ).ToList();
+		if ( onHost.LastOrDefault( editor => editor.Shows( path ) ) is { } showing )
 		{
 			app.Panels.Activate( showing.Id );
 			return;
 		}
 
-		if ( _editors.LastOrDefault( editor => app.Panels.IsShown( editor.Id ) ) is { } last )
+		if ( onHost.LastOrDefault() is { } last )
 		{
 			if ( last.IsDirty )
 				app.Panels.Activate( app.Panels.OpenBeside( PanelType, last.Id, path ) );
@@ -95,7 +99,7 @@ public sealed class EditorModule : ILoknModule
 			return;
 		}
 
-		app.Panels.Activate( sourcePanelId is { } source ? app.Panels.OpenBeside( PanelType, source, path ) : app.Panels.Open( PanelType, input: path ) );
+		app.Panels.Activate( sourcePanelId is { } source ? app.Panels.OpenBeside( PanelType, source, path, host ) : app.Panels.Open( PanelType, input: path, hostId: host ) );
 	}
 
 	/// <summary>Records an editor as the most recently used.</summary>
@@ -108,15 +112,16 @@ public sealed class EditorModule : ILoknModule
 	/// <summary>Forgets a closed editor.</summary>
 	internal void Forget( EditorContent editor ) => _editors.Remove( editor );
 
-	/// <summary>Asks for a file and opens it in a new editor panel.</summary>
+	/// <summary>Asks for a file on this PC and opens it in a new editor panel on this PC.</summary>
 	private static async Task OpenFile( LoknApplication app )
 	{
 		if ( app.Window is not { } window )
 			return;
 
 		var result = await window.ShowFileDialogAsync( FileDialogKind.OpenFile, new FileDialogOptions { Title = "Open file" } );
+		// The file chooser lists this PC's disk, whichever host is current.
 		if ( result.Status == FileDialogStatus.Success && result.Paths is [var path, ..] )
-			app.Panels.Open( PanelType, input: path );
+			app.Panels.Open( PanelType, input: path, hostId: LoknHost.LocalId );
 		else if ( result.Status != FileDialogStatus.Cancelled )
 			app.ReportError( "Editor", new IOException( $"Could not open the file chooser: {result.Error}" ) );
 	}

@@ -42,9 +42,9 @@ public sealed partial class ProjectsModule
 			return [];
 
 		var opened = (FindWorkspaces( app )?.Sessions ?? []).ToDictionary( session => session.Key, session => session.LastOpened, StringComparer.Ordinal );
-		return _store.Projects( app.Settings.ActiveProfile ).Select( project => BuildProjectItem( project, () => OpenProject( app, project.Id ),
+		return _store.Projects( app.Settings.ActiveProfile ).Select( project => BuildProjectItem( project, () => OpenProject( app, project ),
 			opened.TryGetValue( SessionKey( project.Id ), out var last ) ? last : null,
-			[new MenuAction( "New task", () => NewTask( app, project.Id ) ) { AccessKey = Key.T }] ) );
+			[new MenuAction( "New task", () => NewTask( app, project ) ) { AccessKey = Key.T }] ) );
 	}
 
 	/// <summary>Lists the tasks of the active profile's projects, each with its project's name; nothing while Conversations is loaded, whose chats are the tasks then.</summary>
@@ -54,6 +54,6 @@ public sealed partial class ProjectsModule
 			return [];
 
 		return _store.Projects( app.Settings.ActiveProfile ).SelectMany( project => GetTasks( app, project.Id ).Select( task =>
-			workspaces.BuildTaskItem( app, SessionKey( project.Id ), task, project.Name, () => OpenTask( app, project.Id, task.Id ) ) ) );
+			workspaces.BuildTaskItem( app, SessionKey( project.Id ), task, project.Name, () => OpenTask( app, project, task.Id ) ) ) );
 	}
 }

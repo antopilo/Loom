@@ -13,54 +13,22 @@ namespace Lokn.Modules.Chat;
 /// </remarks>
 public sealed partial class ChatContent
 {
-	/// <summary>Stores the steering messages Omp holds, as their queue text, oldest first.</summary>
-	private string[] _queuedSteering = [];
-
-	/// <summary>Stores the follow-up messages Omp holds, as their queue text, oldest first.</summary>
-	private string[] _queuedFollowUps = [];
-
-	/// <summary>Stores how many leading steering messages the model already received.</summary>
-	private int _liveSteered;
-
 	/// <summary>Stores whether Enter steers the running turn rather than queuing for after it; Ctrl+Enter does the other.</summary>
 	private bool _isSteerMode;
-
-	/// <summary>Reads Omp's queue snapshot.</summary>
-	private void UpdateQueue( JsonElement frame )
-	{
-		_queuedSteering = ReadQueue( frame, "steering" );
-		_queuedFollowUps = ReadQueue( frame, "followUp" );
-		_liveSteered = frame.TryGetProperty( "liveSteered", out var live ) && live.TryGetInt32( out var count ) ? count : 0;
-	}
-
-	/// <summary>Forgets the queue, when the turn settles or the connection ends.</summary>
-	private void ClearQueue()
-	{
-		_queuedSteering = [];
-		_queuedFollowUps = [];
-		_liveSteered = 0;
-	}
-
-	/// <summary>Shows a message the moment it is sent, before Omp reports its queue.</summary>
-	private void UpdateQueueSent( string text, bool steer )
-	{
-		if ( steer )
-			_queuedSteering = [.. _queuedSteering, text];
-		else
-			_queuedFollowUps = [.. _queuedFollowUps, text];
-	}
 
 	/// <summary>Builds the waiting messages, steering first, at the top of the prompt box; null when none wait.</summary>
 	private Blob? BuildQueue()
 	{
-		if ( _queuedSteering.Length == 0 && _queuedFollowUps.Length == 0 )
+		var steering = session.QueuedSteering;
+		var followUps = session.QueuedFollowUps;
+		if ( steering.Length == 0 && followUps.Length == 0 )
 			return null;
 
 		var rows = new List<Blob>();
-		for ( var i = 0; i < _queuedSteering.Length; i++ )
-			rows.Add( BuildQueuedRow( $"queued-steer-{i}", _queuedSteering[i], i < _liveSteered ? QueuedKind.Delivered : QueuedKind.Steering ) );
-		for ( var i = 0; i < _queuedFollowUps.Length; i++ )
-			rows.Add( BuildQueuedRow( $"queued-follow-{i}", _queuedFollowUps[i], QueuedKind.FollowUp ) );
+		for ( var i = 0; i < steering.Length; i++ )
+			rows.Add( BuildQueuedRow( $"queued-steer-{i}", steering[i], i < session.LiveSteered ? QueuedKind.Delivered : QueuedKind.Steering ) );
+		for ( var i = 0; i < followUps.Length; i++ )
+			rows.Add( BuildQueuedRow( $"queued-follow-{i}", followUps[i], QueuedKind.FollowUp ) );
 		return new Column
 		{
 			Key = "conversation-queue",
@@ -107,13 +75,13 @@ public sealed partial class ChatContent
 		};
 		if ( kind == QueuedKind.FollowUp )
 		{
-			var promote = BuildRailButton( "Steer now", () => context.Run( () => UpdatePromote( text ) ) );
+			var promote = BuildRailButton( "Steer now", () => context.Run( () => session.UpdatePromote( text ) ) );
 			promote.AccessibilityName = $"Steer now: {line}";
 			children.Add( promote );
 		}
 		if ( kind != QueuedKind.Delivered )
 		{
-			var remove = BuildRailButton( "×", () => context.Run( () => UpdateUnqueue( text, kind == QueuedKind.Steering ) ) );
+			var remove = BuildRailButton( "×", () => context.Run( () => session.UpdateUnqueue( text, kind == QueuedKind.Steering ) ) );
 			remove.AccessibilityName = $"Take back: {line}";
 			children.Add( remove );
 		}
@@ -144,55 +112,6 @@ public sealed partial class ChatContent
 			: "Enter queues for after this turn. Switch to steer the running turn";
 		return button;
 	}
-
-	/// <summary>Moves a waiting follow-up into the steering queue, so the agent reads it at its next step.</summary>
-	private void UpdatePromote( string text )
-	{
-		if ( _session is { } session )
-			_ = UpdateQueueRequestAsync( session, "promote_queued_message", new { message = text }, restore: null );
-	}
-
-	/// <summary>Takes a waiting message back from Omp, and puts it in the prompt when the prompt is empty.</summary>
-	private void UpdateUnqueue( string text, bool steering )
-	{
-		if ( _session is { } session )
-			_ = UpdateQueueRequestAsync( session, "remove_queued_message", new { message = text, queue = steering ? "steering" : "followUp" }, restore: text );
-	}
-
-	/// <summary>Sends a queue request; Omp answers with a new <c>queue_update</c>, and a refusal shows in the status line.</summary>
-	private async Task UpdateQueueRequestAsync( OmpSession session, string type, object fields, string? restore )
-	{
-		try
-		{
-			await session.RequestAsync( type, fields, context.Lifetime );
-			if ( restore is null )
-				return;
-
-			context.Post( () =>
-			{
-				if ( _composer.Document.Length > 0 )
-					return;
-
-				_composer.Document.Apply( new TextChange( new TextRange( 0, 0 ), restore ) );
-				store.SaveDraft( conversationId, restore );
-				MarkChanged();
-			} );
-		}
-		catch ( Exception error )
-		{
-			context.Post( () =>
-			{
-				_status = error is OperationCanceledException ? "Stopped" : DescribeFailure( error );
-				MarkChanged();
-			} );
-		}
-	}
-
-	/// <summary>Reads one queue's messages.</summary>
-	private static string[] ReadQueue( JsonElement frame, string name ) =>
-		frame.TryGetProperty( name, out var queue ) && queue.ValueKind == JsonValueKind.Array
-			? [.. queue.EnumerateArray().Where( item => item.ValueKind == JsonValueKind.String ).Select( item => item.GetString()! )]
-			: [];
 
 	/// <summary>Names what a waiting message will do.</summary>
 	private enum QueuedKind

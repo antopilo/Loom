@@ -1,0 +1,14 @@
+{
+  "Version": 1,
+  "ActiveProfile": "Personal",
+  "Global": {
+    "theme.name": "dark-catppuccin",
+    "terminal.shell": "pwsh -NoLogo"
+  },
+  "Work": {
+    "shell.profile-icon": "W"
+  },
+  "Personal": {
+    "omp.model": "anthropic/claude-sonnet-4-5"
+  }
+}

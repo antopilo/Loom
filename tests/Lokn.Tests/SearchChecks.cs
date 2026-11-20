@@ -191,7 +191,7 @@ internal static class SearchChecks
 		var task = workspaces.NewTask( app, WorkspacesModule.HomeSession, WorkspacesModule.HomeTitle, app.Panels.HideAll );
 		workspaces.RenameTask( WorkspacesModule.HomeSession, task, "Fix the build" );
 		var project = store.ProjectStore.Create( profile, "Ferrite", Path.Combine( directory, "ferrite" ) );
-		projects.OpenProject( app, project.Id );
+		projects.OpenProject( app, project );
 		var projectTask = workspaces.CurrentTask;
 		workspaces.RenameTask( ProjectsModule.SessionKey( project.Id ), projectTask, "Bindless meshlets" );
 		CoreChecks.Check( app.Search.ComputeTypes().Select( type => type.Id ).ToArray() is ["tasks", "projects", "panels", "actions", "settings"],

@@ -228,8 +228,7 @@ public sealed partial class ChatContent
 			}
 			else if ( result.Status != FileDialogStatus.Cancelled )
 			{
-				_status = $"Could not open the file chooser: {result.Error}";
-				MarkChanged();
+				session.UpdateStatus( $"Could not open the file chooser: {result.Error}" );
 			}
 		} );
 	}
@@ -255,8 +254,7 @@ public sealed partial class ChatContent
 			}
 			else
 			{
-				_status = $"Could not paste the image: {image.Error}";
-				MarkChanged();
+				session.UpdateStatus( $"Could not paste the image: {image.Error}" );
 			}
 			return;
 		}

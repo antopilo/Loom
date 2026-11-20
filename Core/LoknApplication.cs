@@ -56,6 +56,17 @@ public sealed class LoknApplication
 		get;
 	}
 
+	/// <summary>Gets This PC and every paired host, and the host the user is on now.</summary>
+	public LoknHosts Hosts
+	{
+		get;
+	}
+
+	/// <summary>Gets the browser tabs of the current host, <see cref="LoknHosts.Current"/>: page state without web views, which the authority saves and
+	/// clients mirror (docs/remote.md, Browser frames).</summary>
+	/// <remarks>A panel bound to a host uses <c>context.Host.BrowserTabs</c> instead, so it keeps its host's tabs when the user switches hosts.</remarks>
+	public BrowserTabs BrowserTabs => Hosts.Current.BrowserTabs;
+
 	/// <summary>Gets the latest contained module or command error.</summary>
 	public string? LastError
 	{
@@ -75,6 +86,39 @@ public sealed class LoknApplication
 	public SearchRegistry Search
 	{
 		get;
+	}
+
+	/// <summary>Gets where the current host's disk, processes and terminals are reached: the workspace of <see cref="LoknHosts.Current"/>, This PC's by
+	/// default.</summary>
+	/// <remarks>For work that follows the host the user is on, such as a source module's command. A panel bound to a host uses
+	/// <see cref="PanelContext.Workspace"/> instead, so it keeps working on its own host when the user switches hosts.</remarks>
+	public IWorkspaceHost Workspace => Hosts.Current.Workspace;
+
+	/// <summary>Raised on the UI thread after <see cref="Workspace"/> changed: the current host's workspace was replaced, or another host became current.</summary>
+	public event Action? WorkspaceChanged;
+
+	/// <summary>Raises <see cref="WorkspaceChanged"/>.</summary>
+	internal void RaiseWorkspaceChanged() => WorkspaceChanged?.Invoke();
+
+	/// <summary>Gets what the daemon shows in the notification area, published by the Remote module while this process is the daemon; else null.</summary>
+	public HostStatus? HostStatus
+	{
+		get; private set;
+	}
+
+	/// <summary>Raised on the UI thread after <see cref="HostStatus"/> changed.</summary>
+	public event Action? HostStatusChanged;
+
+	/// <summary>Publishes what the daemon shows in the notification area, or null when nothing publishes it any more; on the UI thread.
+	/// Publishing a status equal to the current one raises nothing.</summary>
+	/// <param name="status">The new status, or null.</param>
+	public void PublishHostStatus( HostStatus? status )
+	{
+		if ( status == HostStatus )
+			return;
+
+		HostStatus = status;
+		HostStatusChanged?.Invoke();
 	}
 
 	/// <summary>Opens a notification the user clicked, such as in the feed or the Windows notification center: marks it read, then asks the
@@ -128,6 +172,9 @@ public sealed class LoknApplication
 	/// <summary>Gets the Windows app ID the application runs under, which its Windows notifications use; empty in tests and headless apps.</summary>
 	public string ApplicationId { get; internal set; } = "";
 
+	/// <summary>Gets whether this process is the headless daemon, <c>Loom.exe --host</c>, which runs chats for its clients and shows no window.</summary>
+	public bool IsHost { get; init; }
+
 	/// <summary>Gets whether an overlay requires native child surfaces, such as browser pages, to stay hidden.</summary>
 	public bool NativeSurfacesOccluded => _nativeCovers.Count > 0;
 
@@ -159,7 +206,8 @@ public sealed class LoknApplication
 	/// <param name="settingsPath">The settings file, or null to keep settings in memory.</param>
 	/// <param name="workspacePath">The workspace file saved at shutdown, or null.</param>
 	/// <param name="notificationsPath">The notification feed file, or null to keep the feed in memory.</param>
-	public LoknApplication( string? settingsPath = null, string? workspacePath = null, string? notificationsPath = null )
+	/// <param name="browserTabsPath">The browser tabs file, or null to keep the session's tabs in memory.</param>
+	public LoknApplication( string? settingsPath = null, string? workspacePath = null, string? notificationsPath = null, string? browserTabsPath = null )
 	{
 		_workspacePath = workspacePath;
 		Commands = new( this );
@@ -176,6 +224,12 @@ public sealed class LoknApplication
 		Notifications.Failed += MarkNotificationsFailed;
 		if ( Notifications.LoadError is { } notificationsError )
 			MarkNotificationsFailed( notificationsError );
+
+		var browserTabs = new BrowserTabs( browserTabsPath );
+		browserTabs.Failed += MarkBrowserTabsFailed;
+		if ( browserTabs.LoadError is { } tabsError )
+			MarkBrowserTabsFailed( tabsError );
+		Hosts = new( this, browserTabs );
 	}
 
 	/// <summary>Atomically registers and starts a module after checking required modules.</summary>
@@ -399,6 +453,8 @@ public sealed class LoknApplication
 		Tools.BindDispatcher( null );
 		foreach ( var module in _modules.Values.Reverse().ToArray() )
 			ReleaseModule( module );
+		foreach ( var host in Hosts.All )
+			host.BrowserTabs.Stop();
 
 		_post = null;
 		BindWindow( null );
@@ -417,25 +473,25 @@ public sealed class LoknApplication
 	/// <summary>Binds or detaches the window that hosts the shell.</summary>
 	internal void BindWindow( Window? window )
 	{
-		lock ( Hosts )
+		lock ( WindowApps )
 		{
 			if ( Window is { } previous )
-				Hosts.Remove( previous );
+				WindowApps.Remove( previous );
 			if ( window is not null )
-				Hosts[window] = this;
+				WindowApps[window] = this;
 		}
 
 		Window = window;
 	}
 
 	/// <summary>Maps each shell window to the application it hosts.</summary>
-	private static readonly Dictionary<Window, LoknApplication> Hosts = [];
+	private static readonly Dictionary<Window, LoknApplication> WindowApps = [];
 
 	/// <summary>Finds the application a window hosts, or null for a window no shell is bound to.</summary>
 	internal static LoknApplication? Find( Window window )
 	{
-		lock ( Hosts )
-			return Hosts.GetValueOrDefault( window );
+		lock ( WindowApps )
+			return WindowApps.GetValueOrDefault( window );
 	}
 
 	/// <summary>Posts work only while the shell remains mounted.</summary>
@@ -462,6 +518,13 @@ public sealed class LoknApplication
 	private void MarkNotificationsFailed( string error )
 	{
 		LastError = $"Notifications: {error}";
+		MarkChanged();
+	}
+
+	/// <summary>Exposes a browser tabs load or save failure through the existing shell notice.</summary>
+	private void MarkBrowserTabsFailed( string error )
+	{
+		LastError = $"Browser tabs: {error}";
 		MarkChanged();
 	}
 

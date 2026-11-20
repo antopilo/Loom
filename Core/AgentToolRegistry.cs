@@ -45,9 +45,11 @@ public sealed partial class AgentToolRegistry
 	/// <param name="cancellation">Cancelled when the agent abandons the call.</param>
 	/// <param name="callId">The agent's identifier for the call, which its tool card sees too; empty when the agent has none.</param>
 	/// <param name="report">Receives the tool's progress while it runs, from any thread; null when the caller shows none.</param>
-	public async Task<AgentToolResult> InvokeAsync( string name, JsonElement arguments, Guid? caller, CancellationToken cancellation, string callId = "", Action<AgentToolResult>? report = null )
+	/// <param name="conversation">The conversation whose agent made the call, whether or not a panel shows it; null when the caller is no chat agent.</param>
+	/// <param name="host">The host whose agent made the call, such as a paired host whose chat runs a tool of this PC; null for This PC.</param>
+	public async Task<AgentToolResult> InvokeAsync( string name, JsonElement arguments, Guid? caller, CancellationToken cancellation, string callId = "", Action<AgentToolResult>? report = null, Guid? conversation = null, string? host = null )
 	{
-		var context = new AgentToolContext( _app, caller, cancellation ) { CallId = callId, Reporter = report };
+		var context = new AgentToolContext( _app, caller, cancellation ) { CallId = callId, Reporter = report, Conversation = conversation, Host = host };
 		if ( _dispatch is null )
 			return await InvokeCoreAsync( name, arguments, context );
 
@@ -89,6 +91,40 @@ public sealed partial class AgentToolRegistry
 		}
 	}
 
+	/// <summary>Adds tools another process runs, such as Loom attached to a daemon, until the returned handle is disposed; on the UI thread.</summary>
+	/// <param name="tools">The tools offered, with the names and schemas the other process gives them.</param>
+	/// <param name="execute">Runs a call to one of them: the call's context, the tool name and the arguments.</param>
+	/// <returns>The offer; disposing it, on the UI thread, removes the tools it still holds and cancels their running calls.</returns>
+	/// <remarks>This application's own tools always win: a name a module's tool or an earlier offer holds is skipped, as is a name providers
+	/// would refuse, and a module that registers a tool of an offered name later takes it over.</remarks>
+	public IDisposable Offer( IReadOnlyList<AgentToolInfo> tools, Func<AgentToolContext, string, JsonElement, Task<AgentToolResult>> execute )
+	{
+		var offer = new ToolOffer( this );
+		var added = 0;
+		foreach ( var info in tools )
+		{
+			var name = info.Name;
+			if ( name.Length is 0 or > MaximumNameLength || InvalidCharacters().IsMatch( name ) || _tools.ContainsKey( name ) )
+				continue;
+
+			_tools.Add( name, new( new( info, ( context, arguments ) => execute( context, name, arguments ) ), offer.Lifetime.Token ) { Offer = offer } );
+			added++;
+		}
+		if ( added > 0 )
+			Changed?.Invoke();
+		return offer;
+	}
+
+	/// <summary>Removes the tools an offer still holds.</summary>
+	private void RemoveOffer( ToolOffer offer )
+	{
+		var names = _tools.Where( pair => pair.Value.Offer == offer ).Select( pair => pair.Key ).ToArray();
+		foreach ( var name in names )
+			_tools.Remove( name );
+		if ( names.Length > 0 )
+			Changed?.Invoke();
+	}
+
 	/// <summary>Builds the qualified name of a module's tool, or throws when it cannot be a provider tool name.</summary>
 	internal static string ComputeName( string moduleId, string id )
 	{
@@ -105,7 +141,7 @@ public sealed partial class AgentToolRegistry
 	/// <summary>Rejects duplicate tool names, and cards for tools their module does not offer, before registration.</summary>
 	internal void EnsureAvailable( IReadOnlyList<AgentToolDefinition> definitions, IReadOnlyList<ToolCardDefinition> cards )
 	{
-		var names = _tools.Keys.ToHashSet( StringComparer.Ordinal );
+		var names = _tools.Where( pair => pair.Value.Offer is null ).Select( pair => pair.Key ).ToHashSet( StringComparer.Ordinal );
 		foreach ( var definition in definitions )
 		{
 			if ( !names.Add( definition.Info.Name ) )
@@ -126,7 +162,7 @@ public sealed partial class AgentToolRegistry
 	internal void Register( IReadOnlyList<AgentToolDefinition> definitions, IReadOnlyList<ToolCardDefinition> cards, CancellationToken lifetime )
 	{
 		foreach ( var definition in definitions )
-			_tools.Add( definition.Info.Name, new( definition, lifetime ) );
+			_tools[definition.Info.Name] = new( definition, lifetime );
 		foreach ( var card in cards )
 		{
 			_cards.Add( card.Name, new( card, lifetime ) );
@@ -141,7 +177,7 @@ public sealed partial class AgentToolRegistry
 	/// <summary>Removes every tool and tool card owned by a module.</summary>
 	internal void RemoveModule( string moduleId )
 	{
-		var names = _tools.Values.Where( tool => tool.Definition.Info.ModuleId == moduleId ).Select( tool => tool.Definition.Info.Name ).ToArray();
+		var names = _tools.Values.Where( tool => tool.Offer is null && tool.Definition.Info.ModuleId == moduleId ).Select( tool => tool.Definition.Info.Name ).ToArray();
 		foreach ( var name in names )
 		{
 			_tools.Remove( name );
@@ -184,7 +220,29 @@ public sealed partial class AgentToolRegistry
 	private static partial Regex InvalidCharacters();
 
 	/// <summary>Stores one registration with its owning module lifetime.</summary>
-	private sealed record RegisteredTool( AgentToolDefinition Definition, CancellationToken Lifetime );
+	private sealed record RegisteredTool( AgentToolDefinition Definition, CancellationToken Lifetime )
+	{
+		/// <summary>Gets the offer that added the tool, or null for a module's own tool.</summary>
+		public ToolOffer? Offer { get; init; }
+	}
+
+	/// <summary>Holds the tools of one <see cref="Offer"/> until disposed.</summary>
+	/// <param name="registry">The registry the tools are in.</param>
+	private sealed class ToolOffer( AgentToolRegistry registry ) : IDisposable
+	{
+		/// <summary>Gets the offer's lifetime, cancelled when it is disposed.</summary>
+		public CancellationTokenSource Lifetime { get; } = new();
+
+		/// <summary>Removes the offer's tools and cancels their running calls; on the UI thread.</summary>
+		public void Dispose()
+		{
+			if ( Lifetime.IsCancellationRequested )
+				return;
+
+			Lifetime.Cancel();
+			registry.RemoveOffer( this );
+		}
+	}
 
 	/// <summary>Stores one tool card with its owning module lifetime.</summary>
 	private sealed record RegisteredCard( ToolCardDefinition Definition, CancellationToken Lifetime );
@@ -205,6 +263,12 @@ public sealed record AgentToolContext( LoknApplication App, Guid? Caller, Cancel
 {
 	/// <summary>Gets the agent's identifier for this call, which the call's card sees as <see cref="ToolCardContext.CallId"/>; empty when the agent has none.</summary>
 	public string CallId { get; init; } = "";
+
+	/// <summary>Gets the conversation whose agent made the call, the same whether or not a panel shows it; null when the caller is no chat agent.</summary>
+	public Guid? Conversation { get; init; }
+
+	/// <summary>Gets the host whose agent made the call, a paired host's identifier; null for This PC.</summary>
+	public string? Host { get; init; }
 
 	/// <summary>Stores where progress goes, such as the agent bridge; null when the caller shows none.</summary>
 	internal Action<AgentToolResult>? Reporter { get; init; }

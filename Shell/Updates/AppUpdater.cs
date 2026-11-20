@@ -13,6 +13,9 @@ internal sealed class AppUpdater
 	/// <summary>Stores the manager of the last check, which knows the downloaded release.</summary>
 	private UpdateManager? _manager;
 
+	/// <summary>Gets whether a downloaded release waits for a restart.</summary>
+	internal bool IsPending => _manager?.UpdatePendingRestart is not null;
+
 	/// <summary>Downloads the newest release when there is one; runs off the UI thread.</summary>
 	/// <returns>The version waiting for a restart, or null when Loom is up to date or does not run from an install.</returns>
 	internal async Task<string?> DownloadAsync( UpdateFeed feed, CancellationToken cancellationToken )

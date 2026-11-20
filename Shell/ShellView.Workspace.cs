@@ -165,7 +165,7 @@ internal sealed partial class ShellView
 			Key = $"grip:{pane.Id}",
 			Handle = isMenuOpen ? _menuAnchor : null,
 			Focusable = true,
-			AccessibilityName = panel is null ? "Empty pane options" : $"{panel.Title} options",
+			AccessibilityName = panel is null ? "Empty pane options" : $"{ComputePanelLabel( panel )} options",
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
 			Gap = GripDotGap,
@@ -320,12 +320,136 @@ internal sealed partial class ShellView
 			OnPointerMove = item => UpdateGripZone( pane.Id, handle, item ),
 			OnPointerLeave = _ => ReleaseGripZone( pane.Id ),
 			DropTarget = new DropTarget( QueryPanelDrop, item => UpdateBodyDrop( item, pane.Id, handle ) ),
+			Children = BuildPanelLayers( session ),
+		};
+	}
+
+	/// <summary>Builds a shown panel's content, and for a panel on a paired host its host chip and, while the host is not online, the overlay that says so.</summary>
+	private List<Blob> BuildPanelLayers( PanelSession session )
+	{
+		var layers = new List<Blob>
+		{
+			Mount<PanelSurface>( session.Info.Id.ToString(), () => new( session ) ),
+		};
+		if ( FindPanelHost( session.Info.Id ) is not { } host )
+			return layers;
+
+		// The content stays mounted under the overlay, so it keeps its state and comes back as it was once the host reconnects.
+		if ( !host.IsOnline )
+			layers.Add( BuildHostOverlay( session, host ) );
+		layers.Add( BuildHostChip( host ) );
+		return layers;
+	}
+
+	/// <summary>Builds the small chip in a pane's top-right corner that names the paired host its panel works on, with the host's status dot.</summary>
+	private static Blob BuildHostChip( LoknHost host )
+	{
+		var theme = Theme.Current;
+		var color = ComputeHostColor( host );
+		var isFilled = host.State is LoknHostState.Connected && host.CanControl;
+		return new Container
+		{
+			Key = "host-chip",
+			Position = PositionType.Absolute,
+			Top = theme.Spacing / 2,
+			Right = theme.Spacing,
+			FlexDirection = FlexDirection.Row,
+			AlignItems = AlignItems.Center,
+			Gap = theme.Spacing / 2,
+			Padding = new Edges( HostChipPadding, theme.Spacing ),
+			BorderRadius = theme.Radius,
+			BackgroundColor = theme.Raised,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			// The chip names the host; clicks reach the panel controls under it.
+			HitTestSelf = false,
+			AccessibilityName = $"On {host.Name}",
 			Children =
 			[
-				Mount<PanelSurface>( session.Info.Id.ToString(), () => new( session ) ),
+				new Container
+				{
+					Width = HostDotSize,
+					Height = HostDotSize,
+					BorderRadius = HostDotSize / 2.0,
+					BackgroundColor = isFilled ? color : color.WithAlpha( 0 ),
+					BorderColor = color,
+					BorderWidth = theme.BorderWidth,
+				},
+				new Text
+				{
+					Content = host.Name,
+					Color = theme.Muted,
+					FontSize = ViewStyle.SmallSize,
+					TextWrap = TextWrap.NoWrap,
+					TextTrimming = TextTrimming.Ellipsis,
+					MaxWidth = HostChipMaxWidth,
+				},
 			],
 		};
 	}
+
+	/// <summary>Builds the cover over a panel whose paired host is not online: offline with the link's status, or removed with a way to close the panel.</summary>
+	private Blob BuildHostOverlay( PanelSession session, LoknHost host )
+	{
+		var theme = Theme.Current;
+		var isRemoved = host.State is LoknHostState.Removed;
+		var title = isRemoved ? $"{host.Name} was removed" : $"{host.Name} is offline";
+		var children = new List<Blob>
+		{
+			new Text { Content = title, Color = theme.Text },
+		};
+		if ( host.StatusText.Length > 0 )
+			children.Add( new Text { Content = host.StatusText, Color = theme.Muted, FontSize = ViewStyle.SmallSize, TextWrap = TextWrap.Wrap } );
+		if ( isRemoved )
+		{
+			var panelId = session.Info.Id;
+			children.Add( theme.BuildButton( "Close panel", () => _app.Panels.Close( panelId ) ) );
+		}
+
+		return new Container
+		{
+			Key = "host-overlay",
+			Position = PositionType.Absolute,
+			Left = 0,
+			Top = 0,
+			Right = 0,
+			Bottom = 0,
+			AlignItems = AlignItems.Center,
+			JustifyContent = JustifyContent.Center,
+			Gap = theme.Spacing,
+			Padding = theme.Spacing * 3,
+			BackgroundColor = theme.Panel.WithAlpha( HostOverlayAlpha ),
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = title,
+			Children = children,
+		};
+	}
+
+	/// <summary>Picks a host's status color: green while usable, the error color after a failed attempt, muted otherwise.</summary>
+	private static Color ComputeHostColor( LoknHost host ) => host.State switch
+	{
+		LoknHostState.Local or LoknHostState.Connected => Theme.Current.Success,
+		LoknHostState.Failed => Theme.Current.Error,
+		_ => Theme.Current.Muted,
+	};
+
+	/// <summary>Gets the paired host a panel works on, or null for This PC and for panels that are not host-bound.</summary>
+	private LoknHost? FindPanelHost( Guid panelId ) => _app.Panels.GetHost( panelId ) is { IsLocal: false } host ? host : null;
+
+	/// <summary>Gets the label of a panel in pane menus and accessibility names: its title, followed by its host when that is a paired host.</summary>
+	private string ComputePanelLabel( PanelInfo panel ) => FindPanelHost( panel.Id ) is { } host ? $"{panel.Title} · {host.Name}" : panel.Title;
+
+	/// <summary>Defines the diameter of a host chip's status dot in logical pixels.</summary>
+	private const int HostDotSize = 7;
+
+	/// <summary>Defines a host chip's vertical padding in logical pixels.</summary>
+	private const int HostChipPadding = 2;
+
+	/// <summary>Defines the widest a host chip's name grows before it is cut, in logical pixels.</summary>
+	private const int HostChipMaxWidth = 160;
+
+	/// <summary>Defines the opacity of the cover over a panel whose host is not online.</summary>
+	private const double HostOverlayAlpha = 0.92;
 
 	/// <summary>Builds a panel the current layout hides: same key and content, so it keeps its state, but not drawn and not hit.</summary>
 	private static Blob BuildHiddenBody( PanelSession session ) => new Container

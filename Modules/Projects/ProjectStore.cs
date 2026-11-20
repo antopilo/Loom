@@ -14,7 +14,7 @@ public sealed record ProjectInfo( Guid Id, SettingsProfile Profile, string Name,
 /// Projects used to live in Conversations' <c>conversations.json</c>; while the projects file does not exist yet, they are read
 /// from there once and written to it, so nothing is lost. A file that fails to read is never overwritten.
 /// </remarks>
-public sealed class ProjectStore
+public sealed partial class ProjectStore
 {
 	/// <summary>Defines the projects file format version.</summary>
 	private const int FileVersion = 1;
@@ -62,11 +62,11 @@ public sealed class ProjectStore
 		_legacyPath = legacyPath is null ? null : Path.GetFullPath( legacyPath );
 	}
 
-	/// <summary>Gets the per-user projects file.</summary>
-	public static string DefaultPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "projects.json" );
+	/// <summary>Gets the per-user projects file, under the process's data folder.</summary>
+	public static string DefaultPath => LoknPaths.Combine( "projects.json" );
 
 	/// <summary>Gets the per-user conversation history file that held projects before this file existed.</summary>
-	public static string LegacyPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "conversations.json" );
+	public static string LegacyPath => LoknPaths.Combine( "conversations.json" );
 
 	/// <summary>Raised on the UI thread after a project is deleted, so features can let go of what belonged to it.</summary>
 	public event Action<ProjectInfo>? Deleted;
@@ -90,13 +90,13 @@ public sealed class ProjectStore
 		}
 	}
 
-	/// <summary>Gets whether the projects file holds the projects, so the copy in an older conversation history file is no longer needed; always true in memory.</summary>
+	/// <summary>Gets whether the projects file holds the projects, so the copy in an older conversation history file is no longer needed; always true in memory and in a mirror.</summary>
 	public bool IsSaved
 	{
 		get
 		{
 			EnsureLoaded();
-			return _path is null || _isSaved;
+			return _path is null || _isMirror || _isSaved;
 		}
 	}
 
@@ -124,15 +124,26 @@ public sealed class ProjectStore
 	public ProjectInfo Get( Guid id ) =>
 		Find( id ) ?? throw new KeyNotFoundException( "The project no longer exists." );
 
-	/// <summary>Creates a named project with a working directory in one profile.</summary>
+	/// <summary>Creates a named project with a working directory in one profile; a mirror adds it at once and sends it to the host, which keeps its identifier.</summary>
 	public ProjectInfo Create( SettingsProfile profile, string name, string directory )
 	{
 		EnsureLoaded();
 		ArgumentException.ThrowIfNullOrWhiteSpace( name );
 		ArgumentException.ThrowIfNullOrWhiteSpace( directory );
-		var project = new ProjectInfo( Guid.NewGuid(), profile, name.Trim(), Path.GetFullPath( directory ) );
+		return Create( new ProjectInfo( Guid.NewGuid(), profile, name.Trim(), Path.GetFullPath( directory ) ) );
+	}
+
+	/// <summary>Adds a project unless one with its identifier exists, such as a mirror's own creation coming back from the host, and reports the operation.</summary>
+	private ProjectInfo Create( ProjectInfo project )
+	{
+		if ( _projects.TryGetValue( project.Id, out var known ) )
+			return known;
+
+		var args = new { id = project.Id, profile = project.Profile, name = project.Name, directory = project.Directory };
 		_projects.Add( project.Id, project );
 		MarkChanged();
+		// A mirror shows the new project at once, so its caller can use it, and the host's copy coming back finds it here; the host adds it under the same identifier.
+		MarkMutated( nameof( Create ), args );
 		return project;
 	}
 
@@ -141,12 +152,19 @@ public sealed class ProjectStore
 	{
 		ArgumentException.ThrowIfNullOrWhiteSpace( name );
 		ArgumentException.ThrowIfNullOrWhiteSpace( directory );
-		_projects[id] = Get( id ) with
+		var project = Get( id );
+		var updated = project with
 		{
 			Name = name.Trim(),
 			Directory = Path.GetFullPath( directory ),
 		};
+		// The host's echo of a mirror's own change finds it applied already.
+		if ( updated == project )
+			return;
+
+		_projects[id] = updated;
 		MarkChanged();
+		MarkMutated( nameof( Update ), new { id, name, directory } );
 	}
 
 	/// <summary>Deletes a project and raises <see cref="Deleted"/>; what belonged to it, such as its chats, is kept by its owners.</summary>
@@ -158,8 +176,28 @@ public sealed class ProjectStore
 			return false;
 
 		MarkChanged();
+		MarkMutated( nameof( Delete ), new { id } );
 		Deleted?.Invoke( project );
 		return true;
+	}
+
+	/// <summary>Reads the projects file again in place of what was read, such as after another process that kept it, a daemon, wrote it and exited.</summary>
+	/// <remarks>
+	/// Call it on the UI thread, before <c>ConversationStore.Reload</c>. Readers of the projects rebuild; <see cref="Deleted"/> is not raised, since the
+	/// other process already took the chats out of the projects it deleted. A mirror or an in-memory store has no file and is left alone.
+	/// </remarks>
+	public void Reload()
+	{
+		if ( _path is null || _isMirror )
+			return;
+
+		_projects.Clear();
+		_canSave = true;
+		_isSaved = false;
+		LastError = null;
+		_isLoaded = false;
+		EnsureLoaded();
+		_version.Value++;
 	}
 
 	/// <summary>Reads the projects file once, before the first query or change; while it does not exist, imports the projects of the older conversation history file and writes them to it.</summary>
@@ -238,10 +276,10 @@ public sealed class ProjectStore
 		Save();
 	}
 
-	/// <summary>Writes every project through a sibling temporary file, so the previous complete file survives a failed write.</summary>
+	/// <summary>Writes every project through a sibling temporary file, so the previous complete file survives a failed write; a mirror writes nothing.</summary>
 	private void Save()
 	{
-		if ( _path is null )
+		if ( _path is null || _isMirror )
 			return;
 
 		if ( !_canSave )

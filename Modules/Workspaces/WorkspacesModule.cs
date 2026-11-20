@@ -140,6 +140,9 @@ public sealed partial class WorkspacesModule : ILoknModule, IPanelPlaces
 	/// <summary>Gets the current session's key, such as home or project:&lt;id&gt;, subscribing the building view.</summary>
 	public string CurrentSession => Store.SessionKey;
 
+	/// <summary>Raised on the UI thread after the current session changed, whoever opened the other one, such as so the host it belongs to becomes current.</summary>
+	public event Action? SessionChanged;
+
 	/// <summary>Gets every session, most recently opened first, subscribing the building view.</summary>
 	public IReadOnlyList<WorkspaceSessionInfo> Sessions => Store.Sessions;
 
@@ -169,14 +172,18 @@ public sealed partial class WorkspacesModule : ILoknModule, IPanelPlaces
 	}
 
 	/// <summary>Opens a session for the active profile: the current one's layout is kept, and the session's current workspace is shown with the panels it holds.</summary>
+	/// <remarks>Raises <see cref="SessionChanged"/> once the session opened when it is another one.</remarks>
 	/// <param name="app">The application.</param>
 	/// <param name="key">The session key; one per project or conversation, plus whatever other places the caller defines.</param>
 	/// <param name="title">The session's display name.</param>
 	/// <param name="createLayout">Builds the session's first layout when it has none yet, or when its saved one cannot be applied.</param>
 	public void OpenSession( LoknApplication app, string key, string title, Action createLayout )
 	{
+		var previous = Store.SessionKey;
 		Store.OpenSession( app.Panels, key, title, app.Settings.ActiveProfile, createLayout );
 		ReportFailure();
+		if ( Store.SessionKey != previous )
+			SessionChanged?.Invoke();
 	}
 
 	/// <summary>Defines the session of the tasks outside projects.</summary>

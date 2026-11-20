@@ -44,11 +44,12 @@ internal static class HotloadChecks
 		CheckReload();
 		CheckGroupReload();
 		CheckModuleHost();
+		CheckDaemonModuleHost();
 		CheckSourceModules();
 		CheckCompileCache();
 		CheckModuleFolders();
 		CheckProjectModules();
-		Console.WriteLine( "PASS module reload in place, reload fallback, group reload, module DLL loading and replacement, source module compile, edit, failure, and removal, cached builds across starts, user module folders, and trusted project modules." );
+		Console.WriteLine( "PASS module reload in place, reload fallback, group reload, module DLL loading and replacement, the daemon's reloads held back while a chat works and its modules following the module states file, source module compile, edit, failure, and removal, cached builds across starts, user module folders, and trusted project modules." );
 	}
 
 	/// <summary>Verifies a reload keeps panes, restores captured panel state, and survives a broken replacement.</summary>
@@ -172,6 +173,98 @@ internal static class HotloadChecks
 		app.Shutdown();
 		Directory.Delete( root, recursive: true );
 	}
+
+	/// <summary>Verifies the daemon's host holds a rebuilt module back while a chat works, and follows the window's module states file without writing it.</summary>
+	private static void CheckDaemonModuleHost()
+	{
+		var root = Path.Combine( Path.GetTempPath(), "Lokn.Tests", Guid.NewGuid().ToString( "N" ) );
+		var directory = Path.Combine( root, "modules" );
+		var log = Path.Combine( root, "host.log" );
+		var statesPath = Path.Combine( root, "modules.json" );
+		var source = Path.Combine( AppContext.BaseDirectory, "Lokn.Modules.Welcome.dll" );
+		var target = Path.Combine( directory, "Lokn.Modules.Welcome.dll" );
+		Directory.CreateDirectory( directory );
+		File.Copy( source, target );
+
+		var app = new LoknApplication() { IsHost = true };
+		var queued = new List<Action>();
+		app.BindDispatcher( action =>
+		{
+			lock ( queued )
+				queued.Add( action );
+
+			return true;
+		} );
+		void Drain()
+		{
+			while ( true )
+			{
+				Action[] actions;
+				lock ( queued )
+				{
+					actions = [.. queued];
+					queued.Clear();
+				}
+				if ( actions.Length == 0 )
+					return;
+				foreach ( var action in actions )
+					action();
+			}
+		}
+		string[] ReadLoaded() => [.. app.Modules.Select( module => module.Id ).Order( StringComparer.Ordinal )];
+
+		// Fixture modules stand in for the daemon's built-in ones: "keep" is required, as Remote is, and needs "needed"; "user" needs "base".
+		FixtureModule Build( string id, params string[] dependencies ) => new( id, _ => { } ) { Dependencies = dependencies };
+		foreach ( var module in (FixtureModule[])[Build( "needed" ), Build( "keep", "needed" ), Build( "base" ), Build( "user", "base" )] )
+			app.Load( module );
+		var rules = new ModuleHost.DaemonRules( new HashSet<string>( ["welcome", "needed", "keep", "base", "user"], StringComparer.Ordinal ), new HashSet<string>( ["keep"], StringComparer.Ordinal ) );
+		var host = new ModuleHost( app, directory, null, log, new ModuleStates( statesPath, isOffByDefault: true ), rules );
+		try
+		{
+			host.Start();
+			CoreChecks.Check( app.Modules.Any( module => module.Id == "welcome" ), "Before the window ever saved its choices, a bare daemon runs every allowed module." );
+			var first = app.AvailableModules.Single( module => module.Id == "welcome" ).GetType();
+
+			app.PublishHostStatus( new HostStatus( 1, 0, 0, true, null ) );
+			Drain();
+			File.Copy( source, target, overwrite: true );
+			File.SetLastWriteTimeUtc( target, DateTime.UtcNow.AddMinutes( 1 ) );
+			ApplyNext( queued );
+			CoreChecks.Check( app.AvailableModules.Single( module => module.Id == "welcome" ).GetType() == first
+				&& File.ReadAllLines( log ).Last().Contains( "DEFERRED Lokn.Modules.Welcome: 1 chat is working" ), "The daemon holds a rebuilt module back while a chat works, and logs it." );
+
+			app.PublishHostStatus( new HostStatus( 0, 0, 0, true, null ) );
+			ApplyNext( queued );
+			Drain();
+			CoreChecks.Check( app.AvailableModules.Single( module => module.Id == "welcome" ).GetType() != first && app.Modules.Any( module => module.Id == "welcome" )
+				&& File.ReadAllLines( log ).Last().Contains( "RELOADED Lokn.Modules.Welcome" ), "The held-back reload applies once no chat works." );
+
+			// The window turned "base" off, which turns its dependent off too; the required module and the module it needs stay on whatever the file says.
+			const string Off = """{ "On": [ "user", "welcome" ], "Off": [ "base", "keep", "needed" ] }""";
+			File.WriteAllText( statesPath, Off );
+			ApplyNext( queued );
+			Drain();
+			CoreChecks.Check( ReadLoaded() is ["keep", "needed", "welcome"], "A module the window turns off stops in the daemon with its dependents; the required module and what it needs stay. " + string.Join( ", ", ReadLoaded() ) );
+			var lines = File.ReadAllLines( log );
+			CoreChecks.Check( lines.Any( line => line.EndsWith( "DISABLED user", StringComparison.Ordinal ) ) && lines.Last().EndsWith( "DISABLED base", StringComparison.Ordinal ), "Each module the daemon turns off is logged, dependents first." );
+
+			const string On = """{ "On": [ "base", "user" ], "Off": [ "welcome" ] }""";
+			File.WriteAllText( statesPath, On );
+			ApplyNext( queued );
+			Drain();
+			var tail = File.ReadAllLines( log ).TakeLast( 3 ).Select( line => line[(line.IndexOf( ' ', line.IndexOf( ' ' ) + 1 ) + 1)..] ).ToArray();
+			CoreChecks.Check( ReadLoaded() is ["base", "keep", "needed", "user"] && tail is ["DISABLED welcome", "ENABLED base", "ENABLED user"],
+				"Modules the window turns on start in the daemon after the modules they need, and one turned off stops. " + string.Join( ", ", ReadLoaded() ) + " | " + string.Join( " | ", tail ) );
+			CoreChecks.Check( File.ReadAllText( statesPath ) == On, "The daemon never writes the module states file." );
+		}
+		finally
+		{
+			host.Stop();
+			app.Shutdown();
+			Directory.Delete( root, recursive: true );
+		}
+	}
+
 	/// <summary>Verifies source directories compile at startup and follow edits, compile errors, and deletion.</summary>
 	private static void CheckSourceModules()
 	{

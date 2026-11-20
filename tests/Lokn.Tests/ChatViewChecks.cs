@@ -82,7 +82,7 @@ internal static class ChatViewChecks
 				},
 			} ) ) );
 		ProjectChecks.LoadProjects( app, store );
-		app.Load( new ConversationsModule( store, ( context, history, id ) => new ChatContent( context, history, id, omp.Service ) ) );
+		app.Load( new ConversationsModule( store, ConversationsModule.BuildChat ) );
 		app.Panels.Open( ConversationsModule.ChatPanelType, input: new ConversationPanelInput( conversation.Id, conversation.Profile ) );
 		var semantics = new SemanticAdapter();
 		var window = new Window
@@ -93,7 +93,7 @@ internal static class ChatViewChecks
 			Transparent = true,
 			Background = Theme.Current.Canvas,
 			Foreground = Theme.Current.Text,
-			Root = new ShellView( app ),
+			Root = new ShellView( app ) { AppliesNativeWindowHooks = false },
 			AccessibilityAdapter = semantics,
 		};
 		app.BindDispatcher( window.Post );
@@ -128,16 +128,22 @@ internal static class ChatViewChecks
 		PumpUntil( window, () => store.GetMessages( conversation.Id ).Any( message => message.Text == "Fixture approval received." ) );
 		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Open token and cost details" ) );
 		Click( window, Find( semantics, AccessibilityRole.Button, "Open token and cost details" ) );
-		PumpUntil( window, () => HasText( semantics, "Token and cost" ) );
-		CoreChecks.Check( HasText( semantics, "Context 42% used" ) && HasText( semantics, "Economy mode on · extra Lokn tools load on demand" ),
-			"Clicking the context meter opens token, cost, and economy details." );
+		// The details open in a native tooltip popup, a separate surface whose text is not in this window's semantic tree;
+		// ChatChecks checks the details' lines (ContextMeter.Describe).
+		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Close token and cost details" ) );
 		Click( window, Find( semantics, AccessibilityRole.Button, "Close token and cost details" ) );
+		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Open token and cost details" ) );
 		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Open usage and resets" ) );
 		Click( window, Find( semantics, AccessibilityRole.Button, "Open usage and resets" ) );
+		// The usage panel is a native menu popup: while it is open, the window's semantic tree is its dialog alone.
 		PumpUntil( window, () => HasText( semantics, "37% used · resets in" ) );
-		CoreChecks.Check( HasText( semantics, "Usage 63% left" ) && HasText( semantics, "Fixture · person@example.com" )
-			&& HasText( semantics, "2 saved limit resets, 1 usable now" ),
-			"The prompt usage control shows the connected provider's remaining share, reset times, account and saved resets." );
+		CoreChecks.Check( Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Dialog && node.Name == "Usage and resets" )
+			&& HasText( semantics, "Fixture · person@example.com" ) && HasText( semantics, "2 saved limit resets, 1 usable now" ),
+			"The prompt usage control shows the connected provider's reset times, account and saved resets." );
+		window.PlatformInput.KeyPress( Key.Escape, KeyModifiers.None );
+		window.PlatformInput.KeyRelease( Key.Escape );
+		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Open usage and resets" ) );
+		CoreChecks.Check( HasText( semantics, "Usage 63% left" ), "Escape closes usage, and the prompt rail shows the connected provider's remaining share." );
 		CoreChecks.Check( app.LastError is null, "The Omp layout handles streaming and conditional dialogs without a render failure." );
 		var first = Nodes( semantics ).First( node => node.Role == AccessibilityRole.Group && (node.Name ?? "").EndsWith( " message", StringComparison.Ordinal ) );
 		window.PerformAccessibilityAction( first.Id, new( AccessibilityAction.ScrollIntoView ) );
@@ -212,7 +218,7 @@ internal static class ChatViewChecks
 				Transparent = true,
 				Background = Theme.Current.Canvas,
 				Foreground = Theme.Current.Text,
-				Root = new ShellView( app ),
+				Root = new ShellView( app ) { AppliesNativeWindowHooks = false },
 				AccessibilityAdapter = semantics,
 			};
 			app.BindDispatcher( window.Post );
@@ -294,7 +300,7 @@ internal static class ChatViewChecks
 			store.AppendMessage( conversation.Id, new( Guid.NewGuid(), i % 2 == 0 ? "user" : "assistant", text, DateTimeOffset.UtcNow ), persist: false );
 		}
 		ProjectChecks.LoadProjects( app, store );
-		app.Load( new ConversationsModule( store, ( context, history, id ) => new ChatContent( context, history, id, omp.Service ) ) );
+		app.Load( new ConversationsModule( store, ConversationsModule.BuildChat ) );
 		app.Panels.Open( ConversationsModule.ChatPanelType, input: new ConversationPanelInput( conversation.Id, conversation.Profile ) );
 		var semantics = new SemanticAdapter();
 		var window = new Window
@@ -303,7 +309,7 @@ internal static class ChatViewChecks
 			Size = new( 1100, 850 ),
 			Decorated = false,
 			Transparent = true,
-			Root = new ShellView( app ),
+			Root = new ShellView( app ) { AppliesNativeWindowHooks = false },
 			AccessibilityAdapter = semantics,
 		};
 		app.BindDispatcher( window.Post );
@@ -319,11 +325,12 @@ internal static class ChatViewChecks
 		CoreChecks.Check( HasText( semantics, "Newest reply" ) && CountMounted() < 100, "A resize keeps the newest message in view and the mounted rows bounded." );
 
 		// The prompt floats over the transcript: the newest message ends above it, and the wheel over the blur beside the prompt still scrolls the transcript.
-		var newest = Nodes( semantics ).First( node => node.Role == AccessibilityRole.Text && (node.Value ?? "") == "Newest reply" ).Bounds;
+		// The resize itself jumps to the end, but the rows it rewrapped are measured over the next frames, and the end they move glides into view (MeasuredRowsState).
 		var editor = Find( semantics, AccessibilityRole.TextEditor, "Message" ).Bounds;
+		PumpUntil( window, () => Nodes( semantics ).First( node => node.Role == AccessibilityRole.Text && (node.Value ?? "") == "Newest reply" ).Bounds is var newest
+			&& newest.Y + newest.Height <= editor.Y );
 		if ( captureDirectory is not null )
 			NativeChecks.BuildCapture( window, captureDirectory, "chat-long-end" );
-		CoreChecks.Check( newest.Y + newest.Height <= editor.Y, "At the end, the newest message sits above the floating prompt, not under it." );
 		var (x, y) = (Nodes( semantics ).First( node => node.Name == "Conversation transcript" ).Bounds.X + ViewStyle.TrackWidth + 2, editor.Y + editor.Height / 2);
 		window.PlatformInput.PointerMove( 1, PointerDevice.Mouse, x, y, KeyModifiers.None, 0.0f );
 		window.PlatformInput.PointerWheel( x, y, 0, 6, KeyModifiers.None );
@@ -359,11 +366,16 @@ internal static class ChatViewChecks
 		Pump( window );
 		CoreChecks.Check( !Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Latest" ) && HasText( semantics, $"Streamed reply {streamed}" ),
 			"Scrolling back to the end while rows stream in follows the newest row again." );
-		// A drag across a reply selects its text, and a right-click on it opens the message menu.
-		Click( window, Find( semantics, AccessibilityRole.Button, "Latest" ) );
-		var reply = Nodes( semantics ).Last( node => node.Role == AccessibilityRole.Text && (node.Value ?? "").Contains( "wraps across", StringComparison.Ordinal ) );
+		// A drag across a reply selects its text, and a right-click on it opens the message menu. The view is at the end, under the
+		// streamed rows, so the newest wrapped reply is scrolled into view first.
+		bool IsWrapped( AccessibilityNode node ) => node.Role == AccessibilityRole.Text && (node.Value ?? "").Contains( "wraps across", StringComparison.Ordinal );
+		window.PerformAccessibilityAction( Nodes( semantics ).Last( IsWrapped ).Id, new( AccessibilityAction.ScrollIntoView ) );
+		Pump( window );
+		var reply = Nodes( semantics ).Last( IsWrapped );
 		var line = reply.VisibleBounds ?? reply.Bounds;
 		var (fromX, toX, lineY) = ((line.X + 2) * window.UiScale, (line.X + line.Width - 2) * window.UiScale, (line.Y + 8) * window.UiScale);
+		// A drag targets no focusable element; the window takes presses again first in case it lost the system focus.
+		UiInput.Activate( window, Nodes( semantics ) );
 		window.PlatformInput.PointerMove( 1, PointerDevice.Mouse, fromX, lineY, KeyModifiers.None, 0.0f );
 		window.PlatformInput.PointerPress( 1, PointerDevice.Mouse, fromX, lineY, PointerButton.Primary, KeyModifiers.None, 0.0f );
 		for ( var step = 1; step <= 10; step++ )
@@ -373,12 +385,20 @@ internal static class ChatViewChecks
 		}
 		window.PlatformInput.PointerRelease( 1, PointerDevice.Mouse, toX, lineY, PointerButton.Primary, KeyModifiers.None, 0.0f );
 		Pump( window );
-		var selected = window.Focus.Editor is { } snapshot ? snapshot.SelectionEnd - snapshot.SelectionStart : 0;
+		// Selectable text is not a text editor: its selection is the focus's selection, with no editor snapshot.
+		var selected = window.Focus.Selection is { } selection ? Math.Abs( selection.Active.Offset - selection.Anchor.Offset ) : 0;
 		CoreChecks.Check( selected > 10, $"A drag across a reply selects its text ({selected} characters selected)." );
 		window.PlatformInput.PointerPress( 1, PointerDevice.Mouse, fromX, lineY, PointerButton.Secondary, KeyModifiers.None, 0.0f );
 		window.PlatformInput.PointerRelease( 1, PointerDevice.Mouse, fromX, lineY, PointerButton.Secondary, KeyModifiers.None, 0.0f );
 		Pump( window );
-		CoreChecks.Check( HasText( semantics, "Copy message" ), "A right-click on a reply opens the message menu." );
+		// The menu opens in a native popup, a separate window whose items are not in this window's semantic tree, so the chat's open menu
+		// is read instead: it must sit at the pointer, which a position left without the transcript's scroll offset put far off screen.
+		var chat = app.Panels.Sessions.Select( session => session.Content ).OfType<ConversationPanel>().Select( panel => panel.View ).OfType<ChatContent>().Single();
+		var opened = typeof( ChatContent ).GetField( "_messageMenu", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance )!.GetValue( chat );
+		var at = opened?.GetType().GetProperty( "At" )!.GetValue( opened ) as Point?;
+		var viewport = Nodes( semantics ).First( node => node.Name == "Conversation transcript" ).Bounds;
+		CoreChecks.Check( at is { } point && Math.Abs( viewport.X + point.X - fromX / window.UiScale ) <= 1 && Math.Abs( viewport.Y + point.Y - lineY / window.UiScale ) <= 1,
+			$"A right-click on a reply opens the message menu at the pointer (menu at {at})." );
 
 		window.RequestClose();
 		Pump( window );
@@ -388,7 +408,7 @@ internal static class ChatViewChecks
 	/// <summary>Reads retained editor text to verify controller ownership across structural UI changes.</summary>
 	private static string ComputeComposerText( LoknApplication app )
 	{
-		var chat = app.Panels.Sessions.Select( session => session.Content ).OfType<ConversationPanel>().Select( panel => panel.Chat ).OfType<ChatContent>().Single();
+		var chat = app.Panels.Sessions.Select( session => session.Content ).OfType<ConversationPanel>().Select( panel => panel.View ).OfType<ChatContent>().Single();
 		var composer = (TextEditorController)typeof( ChatContent ).GetField( "_composer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance )!.GetValue( chat )!;
 		return composer.Document.GetText();
 	}
@@ -413,19 +433,9 @@ internal static class ChatViewChecks
 	/// <summary>Checks either semantic text representation for rendered content.</summary>
 	private static bool HasText( SemanticAdapter semantics, string text ) => Nodes( semantics ).Any( node => (node.Value?.Contains( text, StringComparison.Ordinal ) ?? false) || (node.Name?.Contains( text, StringComparison.Ordinal ) ?? false) );
 
-	/// <summary>Clicks a semantic control through native pointer routing.</summary>
-	private static void Click( Window window, AccessibilityNode node )
-	{
-		window.PerformAccessibilityAction( node.Id, new( AccessibilityAction.ScrollIntoView ) );
-		Pump( window );
-		var bounds = node.VisibleBounds ?? node.Bounds;
-		var x = (bounds.X + bounds.Width / 2) * window.UiScale;
-		var y = (bounds.Y + bounds.Height / 2) * window.UiScale;
-		window.PlatformInput.PointerMove( 1, PointerDevice.Mouse, x, y, KeyModifiers.None, 0.0f );
-		window.PlatformInput.PointerPress( 1, PointerDevice.Mouse, x, y, PointerButton.Primary, KeyModifiers.None, 0.0f );
-		window.PlatformInput.PointerRelease( 1, PointerDevice.Mouse, x, y, PointerButton.Primary, KeyModifiers.None, 0.0f );
-		Pump( window );
-	}
+	/// <summary>Clicks a semantic control through native pointer routing once it holds still, focusing it first so the click lands even when the window lost
+	/// the system focus (<see cref="UiInput"/>).</summary>
+	private static void Click( Window window, AccessibilityNode node ) => UiInput.Click( window, node, () => Pump( window ) );
 
 	/// <summary>Activates a semantic control through its accessibility action, as assistive technology does.</summary>
 	private static void Activate( Window window, AccessibilityNode node )

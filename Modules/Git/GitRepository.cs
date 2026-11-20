@@ -1,10 +1,11 @@
 using System.Globalization;
+using Lokn.Core;
 
 namespace Lokn.Modules.Git;
 
 /// <summary>Reads a repository's history, references and changes, and runs the commands of the Git panel.</summary>
 /// <remarks>
-/// Every method runs git through <see cref="GitProcess"/> in <c>root</c>, the repository's top-level folder
+/// Every method runs git through <see cref="GitProcess"/> on the workspace host it is given first (this PC's or a paired host's) in <c>root</c>, the repository's top-level folder
 /// (<see cref="GitState.Root"/>), throws <see cref="InvalidOperationException"/> with git's message on failure, and honours
 /// its cancellation token. Commands never wait on an editor or a prompt: messages go in as arguments or standard input,
 /// and git runs with a no-op editor. Paths are repository-relative with forward slashes and taken literally, never as globs.
@@ -22,6 +23,12 @@ public static partial class GitRepository
 
 	/// <summary>Defines how many leading bytes decide whether an untracked file is binary, as git decides.</summary>
 	private const int BinaryProbe = 8000;
+
+	/// <summary>Defines the largest untracked file on a remote host read whole to count its lines; git counts larger ones there instead.</summary>
+	private const long RemoteReadLimit = 1 << 20;
+
+	/// <summary>Defines the buffer an untracked file on this PC is counted through.</summary>
+	private const int CountBuffer = 1 << 16;
 
 	/// <summary>Defines the patch options every unified diff uses, so the output parses the same whatever the user's configuration.</summary>
 	private static readonly string[] PatchOptions = ["--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-M"];
@@ -44,9 +51,9 @@ public static partial class GitRepository
 	/// <param name="limit">The most commits to read; zero or less reads all of them.</param>
 	/// <param name="ct">Cancels the read.</param>
 	/// <returns>The commits newest first, each parent after its children; empty for a repository without commits.</returns>
-	public static async Task<IReadOnlyList<GitCommit>> ReadLogAsync( string root, int limit, CancellationToken ct )
+	public static async Task<IReadOnlyList<GitCommit>> ReadLogAsync( IWorkspaceHost workspace, string root, int limit, CancellationToken ct )
 	{
-		var hasHead = await HasHeadAsync( root, ct ).ConfigureAwait( false );
+		var hasHead = await HasHeadAsync( workspace, root, ct ).ConfigureAwait( false );
 		List<string> arguments = ["log", "-z", "--topo-order", "--no-show-signature", "--encoding=UTF-8", LogFormat, "--branches", "--remotes", "--tags"];
 		if ( limit > 0 )
 			arguments.Add( $"--max-count={limit.ToString( CultureInfo.InvariantCulture )}" );
@@ -54,31 +61,31 @@ public static partial class GitRepository
 			arguments.Add( "HEAD" );
 		arguments.Add( "--" );
 
-		return ParseLog( await RunAsync( root, null, ct, [.. arguments] ).ConfigureAwait( false ) );
+		return ParseLog( await RunAsync( workspace, root, null, ct, [.. arguments] ).ConfigureAwait( false ) );
 	}
 
 	/// <summary>Reads the local branches, remote branches without their <c>HEAD</c> aliases, and tags, in that order.</summary>
 	/// <param name="root">The repository's top-level folder.</param>
 	/// <param name="ct">Cancels the read.</param>
-	public static async Task<IReadOnlyList<GitRef>> ReadRefsAsync( string root, CancellationToken ct )
+	public static async Task<IReadOnlyList<GitRef>> ReadRefsAsync( IWorkspaceHost workspace, string root, CancellationToken ct )
 	{
-		var refs = RunAsync( root, null, ct, "for-each-ref", RefFormat, "refs/heads", "refs/remotes", "refs/tags" );
-		var remotes = RunAsync( root, null, ct, "remote" );
+		var refs = RunAsync( workspace, root, null, ct, "for-each-ref", RefFormat, "refs/heads", "refs/remotes", "refs/tags" );
+		var remotes = RunAsync( workspace, root, null, ct, "remote" );
 		return ParseRefs( await refs.ConfigureAwait( false ), ParseLines( await remotes.ConfigureAwait( false ) ) );
 	}
 
 	/// <summary>Reads the stash list, newest first.</summary>
 	/// <param name="root">The repository's top-level folder.</param>
 	/// <param name="ct">Cancels the read.</param>
-	public static async Task<IReadOnlyList<GitStash>> ReadStashesAsync( string root, CancellationToken ct ) =>
-		ParseStashes( await RunAsync( root, null, ct, "stash", "list", "-z", "--format=%gd%x00%H%x00%gs" ).ConfigureAwait( false ) );
+	public static async Task<IReadOnlyList<GitStash>> ReadStashesAsync( IWorkspaceHost workspace, string root, CancellationToken ct ) =>
+		ParseStashes( await RunAsync( workspace, root, null, ct, "stash", "list", "-z", "--format=%gd%x00%H%x00%gs" ).ConfigureAwait( false ) );
 
 	/// <summary>Reads the files a commit changed against its first parent, or against the empty tree for a root commit.</summary>
 	/// <param name="root">The repository's top-level folder.</param>
 	/// <param name="commit">The commit, by identifier or any revision git accepts.</param>
 	/// <param name="ct">Cancels the read.</param>
-	public static async Task<IReadOnlyList<GitFileChange>> ReadCommitFilesAsync( string root, string commit, CancellationToken ct ) =>
-		ParseDiff( await RunAsync( root, null, ct, "diff-tree", "-r", "--root", "--no-commit-id", "-M", "--diff-merges=first-parent", "--raw", "--numstat", "-z", commit, "--" )
+	public static async Task<IReadOnlyList<GitFileChange>> ReadCommitFilesAsync( IWorkspaceHost workspace, string root, string commit, CancellationToken ct ) =>
+		ParseDiff( await RunAsync( workspace, root, null, ct, "diff-tree", "-r", "--root", "--no-commit-id", "-M", "--diff-merges=first-parent", "--raw", "--numstat", "-z", commit, "--" )
 			.ConfigureAwait( false ) );
 
 	/// <summary>Reads a commit's unified diff against its first parent, of every file or of one.</summary>
@@ -86,31 +93,31 @@ public static partial class GitRepository
 	/// <param name="commit">The commit, by identifier or any revision git accepts.</param>
 	/// <param name="path">The one file to show, by its new path; null shows every file. A renamed file shows as a rename.</param>
 	/// <param name="ct">Cancels the read.</param>
-	public static async Task<string> ReadCommitPatchAsync( string root, string commit, string? path, CancellationToken ct )
+	public static async Task<string> ReadCommitPatchAsync( IWorkspaceHost workspace, string root, string commit, string? path, CancellationToken ct )
 	{
 		List<string> arguments = ["-c", "core.quotepath=false", "diff-tree", "-r", "--root", "--no-commit-id", "--diff-merges=first-parent", "-p", .. PatchOptions, commit, "--"];
 		if ( path is not null )
 		{
 			arguments.Add( Literal( path ) );
 			// Rename detection only pairs paths inside the pathspec, so a renamed file needs its old path too.
-			var files = ParseDiff( await RunAsync( root, null, ct, "diff-tree", "-r", "--root", "--no-commit-id", "-M", "--diff-merges=first-parent", "--raw", "-z", commit, "--" )
+			var files = ParseDiff( await RunAsync( workspace, root, null, ct, "diff-tree", "-r", "--root", "--no-commit-id", "-M", "--diff-merges=first-parent", "--raw", "-z", commit, "--" )
 				.ConfigureAwait( false ) );
 			if ( files.FirstOrDefault( file => file.Path == path ) is { OldPath: { } oldPath } )
 				arguments.Add( Literal( oldPath ) );
 		}
 
-		return await RunAsync( root, null, ct, [.. arguments] ).ConfigureAwait( false );
+		return await RunAsync( workspace, root, null, ct, [.. arguments] ).ConfigureAwait( false );
 	}
 
 	/// <summary>Reads the staged and unstaged changes with their line counts.</summary>
 	/// <remarks>Conflicted files appear among the unstaged changes as <c>'U'</c>, untracked files as <c>'?'</c>, each file of a new folder separately.</remarks>
 	/// <param name="root">The repository's top-level folder.</param>
 	/// <param name="ct">Cancels the read.</param>
-	public static async Task<GitWorkingChanges> ReadChangesAsync( string root, CancellationToken ct )
+	public static async Task<GitWorkingChanges> ReadChangesAsync( IWorkspaceHost workspace, string root, CancellationToken ct )
 	{
-		var status = RunAsync( root, null, ct, "status", "--porcelain=v2", "-z", "--untracked-files=all" );
-		var staged = RunAsync( root, null, ct, "diff", "--cached", "--numstat", "-z", "-M" );
-		var unstaged = RunAsync( root, null, ct, "diff", "--numstat", "-z", "-M" );
+		var status = RunAsync( workspace, root, null, ct, "status", "--porcelain=v2", "-z", "--untracked-files=all" );
+		var staged = RunAsync( workspace, root, null, ct, "diff", "--cached", "--numstat", "-z", "-M" );
+		var unstaged = RunAsync( workspace, root, null, ct, "diff", "--numstat", "-z", "-M" );
 		var changes = ParseStatus( await status.ConfigureAwait( false ), ParseNumstat( await staged.ConfigureAwait( false ) ), ParseNumstat( await unstaged.ConfigureAwait( false ) ) );
 
 		var unstagedFiles = new List<GitFileChange>( changes.Unstaged.Count );
@@ -122,7 +129,7 @@ public static partial class GitRepository
 				continue;
 			}
 
-			var (lines, binary) = await CountLinesAsync( Path.Combine( root, file.Path ), ct ).ConfigureAwait( false );
+			var (lines, binary) = await CountLinesAsync( workspace, root, file.Path, ct ).ConfigureAwait( false );
 			unstagedFiles.Add( file with
 			{
 				Added = lines,
@@ -145,12 +152,12 @@ public static partial class GitRepository
 	/// The patch. An untracked file diffs against nothing, so every line is added; a conflicted file diffs against HEAD, so
 	/// its conflict markers show as added lines.
 	/// </returns>
-	public static async Task<string> ReadWorkingPatchAsync( string root, GitFileChange file, bool staged, CancellationToken ct )
+	public static async Task<string> ReadWorkingPatchAsync( IWorkspaceHost workspace, string root, GitFileChange file, bool staged, CancellationToken ct )
 	{
 		if ( file.Status == '?' )
 		{
 			// A difference makes --no-index exit with 1, which is its success.
-			var result = await GitProcess.RunProcessAsync( root, null, CommandEnvironment, ct, ["-c", "core.quotepath=false", "diff", "--no-index", .. PatchOptions, "--", "/dev/null", file.Path] )
+			var result = await GitProcess.RunProcessAsync( workspace, root, null, CommandEnvironment, ct, ["-c", "core.quotepath=false", "diff", "--no-index", .. PatchOptions, "--", "/dev/null", file.Path] )
 				.ConfigureAwait( false );
 			return result.ExitCode is 0 or 1 ? result.Output : throw BuildError( result );
 		}
@@ -158,7 +165,7 @@ public static partial class GitRepository
 		List<string> arguments = ["-c", "core.quotepath=false", "diff", .. PatchOptions];
 		if ( staged )
 			arguments.Add( "--cached" );
-		else if ( file.Status == 'U' && await HasHeadAsync( root, ct ).ConfigureAwait( false ) )
+		else if ( file.Status == 'U' && await HasHeadAsync( workspace, root, ct ).ConfigureAwait( false ) )
 			arguments.Add( "HEAD" );
 
 		arguments.Add( "--" );
@@ -166,29 +173,29 @@ public static partial class GitRepository
 		if ( file.OldPath is not null )
 			arguments.Add( Literal( file.OldPath ) );
 
-		return await RunAsync( root, null, ct, [.. arguments] ).ConfigureAwait( false );
+		return await RunAsync( workspace, root, null, ct, [.. arguments] ).ConfigureAwait( false );
 	}
 
 	/// <summary>Reads which merge, rebase, cherry-pick or revert the repository is in the middle of.</summary>
 	/// <remarks>A <c>git am</c> session, which shares the rebase folder, reads as no operation.</remarks>
 	/// <param name="root">The repository's top-level folder.</param>
 	/// <param name="ct">Cancels the read.</param>
-	public static async Task<GitOperation> ReadOperationAsync( string root, CancellationToken ct )
+	public static async Task<GitOperation> ReadOperationAsync( IWorkspaceHost workspace, string root, CancellationToken ct )
 	{
-		var output = await RunAsync( root, null, ct, "rev-parse", "--path-format=absolute",
+		var output = await RunAsync( workspace, root, null, ct, "rev-parse", "--path-format=absolute",
 			"--git-path", "rebase-merge", "--git-path", "rebase-apply", "--git-path", "MERGE_HEAD", "--git-path", "CHERRY_PICK_HEAD", "--git-path", "REVERT_HEAD" ).ConfigureAwait( false );
 		if ( ParseLines( output ) is not [var rebaseMerge, var rebaseApply, var merge, var cherryPick, var revert] )
 			throw new InvalidOperationException( "git rev-parse --git-path printed an unexpected answer." );
 
-		if ( Directory.Exists( rebaseMerge ) )
+		if ( await workspace.DirectoryExistsAsync( rebaseMerge, ct ).ConfigureAwait( false ) )
 			return GitOperation.Rebase;
-		if ( Directory.Exists( rebaseApply ) )
-			return File.Exists( Path.Combine( rebaseApply, "applying" ) ) ? GitOperation.None : GitOperation.Rebase;
-		if ( File.Exists( merge ) )
+		if ( await workspace.DirectoryExistsAsync( rebaseApply, ct ).ConfigureAwait( false ) )
+			return await workspace.FileExistsAsync( Path.Combine( rebaseApply, "applying" ), ct ).ConfigureAwait( false ) ? GitOperation.None : GitOperation.Rebase;
+		if ( await workspace.FileExistsAsync( merge, ct ).ConfigureAwait( false ) )
 			return GitOperation.Merge;
-		if ( File.Exists( cherryPick ) )
+		if ( await workspace.FileExistsAsync( cherryPick, ct ).ConfigureAwait( false ) )
 			return GitOperation.CherryPick;
-		if ( File.Exists( revert ) )
+		if ( await workspace.FileExistsAsync( revert, ct ).ConfigureAwait( false ) )
 			return GitOperation.Revert;
 
 		return GitOperation.None;
@@ -198,23 +205,24 @@ public static partial class GitRepository
 	/// <param name="root">The repository's top-level folder.</param>
 	/// <param name="ct">Cancels the read.</param>
 	/// <returns>The message without trailing whitespace; empty before the first commit.</returns>
-	public static async Task<string> ReadHeadMessageAsync( string root, CancellationToken ct )
+	public static async Task<string> ReadHeadMessageAsync( IWorkspaceHost workspace, string root, CancellationToken ct )
 	{
-		if ( !await HasHeadAsync( root, ct ).ConfigureAwait( false ) )
+		if ( !await HasHeadAsync( workspace, root, ct ).ConfigureAwait( false ) )
 			return "";
 
-		var message = await RunAsync( root, null, ct, "log", "-1", "--no-show-signature", "--encoding=UTF-8", "--format=%B", "HEAD", "--" ).ConfigureAwait( false );
+		var message = await RunAsync( workspace, root, null, ct, "log", "-1", "--no-show-signature", "--encoding=UTF-8", "--format=%B", "HEAD", "--" ).ConfigureAwait( false );
 		return message.TrimEnd();
 	}
 
 	/// <summary>Runs one repository command with the shared environment, returning its output or throwing git's message.</summary>
+	/// <param name="workspace">The host git runs on.</param>
 	/// <param name="root">The folder git runs in.</param>
 	/// <param name="input">Text for git's standard input, or null for none.</param>
 	/// <param name="ct">Cancels and kills the command.</param>
 	/// <param name="arguments">The git arguments.</param>
-	private static async Task<string> RunAsync( string root, string? input, CancellationToken ct, params string[] arguments )
+	private static async Task<string> RunAsync( IWorkspaceHost workspace, string root, string? input, CancellationToken ct, params string[] arguments )
 	{
-		var result = await GitProcess.RunProcessAsync( root, input, CommandEnvironment, ct, arguments ).ConfigureAwait( false );
+		var result = await GitProcess.RunProcessAsync( workspace, root, input, CommandEnvironment, ct, arguments ).ConfigureAwait( false );
 		return result.ExitCode == 0 ? result.Output : throw BuildError( result );
 	}
 
@@ -223,9 +231,9 @@ public static partial class GitRepository
 		GitProcess.BuildError( result.Diagnostic.Trim().Length == 0 ? result with { Diagnostic = result.Output } : result );
 
 	/// <summary>Reports whether HEAD names a commit, which it does not before the first commit.</summary>
-	private static async Task<bool> HasHeadAsync( string root, CancellationToken ct )
+	private static async Task<bool> HasHeadAsync( IWorkspaceHost workspace, string root, CancellationToken ct )
 	{
-		var result = await GitProcess.RunProcessAsync( root, null, CommandEnvironment, ct, "rev-parse", "--verify", "--quiet", "HEAD" ).ConfigureAwait( false );
+		var result = await GitProcess.RunProcessAsync( workspace, root, null, CommandEnvironment, ct, "rev-parse", "--verify", "--quiet", "HEAD" ).ConfigureAwait( false );
 		if ( result.ExitCode == 0 )
 			return true;
 
@@ -234,38 +242,79 @@ public static partial class GitRepository
 	}
 
 	/// <summary>Counts an untracked file's lines, and reports it binary, with no lines, when its first bytes hold a NUL as git decides.</summary>
+	/// <remarks>
+	/// A file on this PC streams through a small buffer and stops at a NUL in its first bytes, whatever its size. A remote host's file is read whole
+	/// only up to <see cref="RemoteReadLimit"/>; git on the host counts a larger one, so it never crosses the connection.
+	/// </remarks>
+	/// <param name="workspace">The host the file is on.</param>
+	/// <param name="root">The repository's top-level folder.</param>
+	/// <param name="relative">The file's repository-relative path.</param>
+	/// <param name="ct">Cancels the count.</param>
 	/// <returns>The lines, a last line without a newline counting; zero for a folder, a binary file or a file that vanished.</returns>
-	private static async Task<(int Lines, bool Binary)> CountLinesAsync( string path, CancellationToken ct )
+	private static async Task<(int Lines, bool Binary)> CountLinesAsync( IWorkspaceHost workspace, string root, string relative, CancellationToken ct )
 	{
-		if ( !File.Exists( path ) )
-			return (0, false);
-
+		var path = Path.Combine( root, relative );
 		try
 		{
-			await using var stream = new FileStream( path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16, useAsync: true );
-			var buffer = new byte[1 << 16];
-			long total = 0;
-			var lines = 0;
-			var last = (byte)'\n';
-			int read;
-			while ( (read = await stream.ReadAsync( buffer, ct ).ConfigureAwait( false )) > 0 )
-			{
-				var span = buffer.AsSpan( 0, read );
-				if ( total < BinaryProbe && span[..(int)Math.Min( read, BinaryProbe - total )].Contains( (byte)0 ) )
-					return (0, true);
+			if ( workspace is LocalWorkspaceHost )
+				return await CountLocalLinesAsync( path, ct ).ConfigureAwait( false );
 
-				lines += span.Count( (byte)'\n' );
-				last = span[^1];
-				total += read;
-			}
+			var stat = await workspace.StatAsync( path, ct ).ConfigureAwait( false );
+			if ( !stat.IsFile )
+				return (0, false);
+			if ( stat.Size > RemoteReadLimit )
+				return await CountWithGitAsync( workspace, root, relative, ct ).ConfigureAwait( false );
 
-			return (last == '\n' ? lines : lines + 1, false);
+			var bytes = await workspace.ReadAsync( path, ct ).ConfigureAwait( false );
+			if ( bytes.AsSpan( 0, Math.Min( bytes.Length, BinaryProbe ) ).Contains( (byte)0 ) )
+				return (0, true);
+
+			var lines = bytes.AsSpan().Count( (byte)'\n' );
+			return (bytes.Length == 0 || bytes[^1] == '\n' ? lines : lines + 1, false);
 		}
 		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException )
 		{
 			// A file being written or locked has no count yet; the next read will see it.
 			return (0, false);
 		}
+	}
+
+	/// <summary>Counts a file on this PC through a small buffer, stopping at a NUL in its first <see cref="BinaryProbe"/> bytes.</summary>
+	private static async Task<(int Lines, bool Binary)> CountLocalLinesAsync( string path, CancellationToken ct )
+	{
+		if ( !File.Exists( path ) )
+			return (0, false);
+
+		await using var stream = new FileStream( path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, CountBuffer, useAsync: true );
+		var buffer = new byte[CountBuffer];
+		long total = 0;
+		var lines = 0;
+		var last = (byte)'\n';
+		int read;
+		while ( (read = await stream.ReadAsync( buffer, ct ).ConfigureAwait( false )) > 0 )
+		{
+			var span = buffer.AsSpan( 0, read );
+			if ( total < BinaryProbe && span[..(int)Math.Min( read, BinaryProbe - total )].Contains( (byte)0 ) )
+				return (0, true);
+
+			lines += span.Count( (byte)'\n' );
+			last = span[^1];
+			total += read;
+		}
+
+		return (last == '\n' ? lines : lines + 1, false);
+	}
+
+	/// <summary>Has git count an untracked file where it lives, as an added file's <c>--numstat</c>: its lines, or <c>-</c> for a binary file.</summary>
+	private static async Task<(int Lines, bool Binary)> CountWithGitAsync( IWorkspaceHost workspace, string root, string relative, CancellationToken ct )
+	{
+		// A difference makes --no-index exit with 1, which is its success.
+		var result = await GitProcess.RunProcessAsync( workspace, root, null, CommandEnvironment, ct, "diff", "--no-index", "--numstat", "--", "/dev/null", relative ).ConfigureAwait( false );
+		if ( result.ExitCode is not (0 or 1) )
+			return (0, false);
+
+		var added = result.Output.Split( '\t', 2 )[0];
+		return added == "-" ? (0, true) : (int.TryParse( added, NumberStyles.None, CultureInfo.InvariantCulture, out var lines ) ? lines : 0, false);
 	}
 
 	/// <summary>Parses <c>git log -z</c> output in <see cref="LogFormat"/> into commits.</summary>

@@ -56,7 +56,7 @@ internal sealed partial class GitContent
 				BuildIconTool( "pull-options", GitIcons.ChevronDown, "Pull options", idle && onBranch, () => OpenMenu( "pull-options", "Pull options",
 				[
 					BuildCommand( "Pull with merge", RunPull ),
-					BuildCommand( "Pull with rebase", () => RunCommand( "Pulling with rebase…", ( root, token ) => GitRepository.PullAsync( root, true, token ) ) ),
+					BuildCommand( "Pull with rebase", () => RunCommand( "Pulling with rebase…", ( root, token ) => GitRepository.PullAsync( _context.Workspace, root, true, token ) ) ),
 					new MenuSeparator(),
 					BuildCommand( "Fetch every remote", RunFetch ),
 				], new Point { X = 0, Y = theme.ControlHeight - theme.Spacing / 2 } ), narrow: true ),
@@ -147,9 +147,9 @@ internal sealed partial class GitContent
 			[
 				new Text { Content = text, FlexGrow = 1, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, },
 				BuildToolButton( "Continue", $"Continue the {operation}", IsIdle, () =>
-					Run( "Continuing…", token => GitRepository.ContinueAsync( root, operation, token ) ) ),
+					Run( "Continuing…", token => GitRepository.ContinueAsync( _context.Workspace, root, operation, token ) ) ),
 				BuildToolButton( "Abort", $"Abort the {operation}", IsIdle, () =>
-					Run( "Aborting…", token => GitRepository.AbortAsync( root, operation, token ) ) ),
+					Run( "Aborting…", token => GitRepository.AbortAsync( _context.Workspace, root, operation, token ) ) ),
 			],
 		};
 	}
@@ -244,12 +244,12 @@ internal sealed partial class GitContent
 		var target = _state?.Branch ?? "HEAD";
 		return
 		[
-			BuildCommand( "Checkout commit", () => RunCommand( $"Checking out {shortId}…", ( root, token ) => GitRepository.CheckoutCommitAsync( root, id, token ) ) ),
+			BuildCommand( "Checkout commit", () => RunCommand( $"Checking out {shortId}…", ( root, token ) => GitRepository.CheckoutCommitAsync( _context.Workspace, root, id, token ) ) ),
 			BuildCommand( "New branch here…", () => AskNewBranch( id, shortId ) ),
 			BuildCommand( "New tag here…", () => AskNewTag( id, shortId ) ),
 			new MenuSeparator(),
-			BuildCommand( "Cherry-pick", () => RunCommand( $"Cherry-picking {shortId}…", ( root, token ) => GitRepository.CherryPickAsync( root, id, token ) ) ),
-			BuildCommand( "Revert", () => RunCommand( $"Reverting {shortId}…", ( root, token ) => GitRepository.RevertAsync( root, id, token ) ) ),
+			BuildCommand( "Cherry-pick", () => RunCommand( $"Cherry-picking {shortId}…", ( root, token ) => GitRepository.CherryPickAsync( _context.Workspace, root, id, token ) ) ),
+			BuildCommand( "Revert", () => RunCommand( $"Reverting {shortId}…", ( root, token ) => GitRepository.RevertAsync( _context.Workspace, root, id, token ) ) ),
 			new MenuSeparator(),
 			new MenuNote( $"Reset {target} here" ),
 			BuildCommand( "Soft: keep changes staged", () => RunReset( id, shortId, GitResetMode.Soft ) ),
@@ -272,8 +272,8 @@ internal sealed partial class GitContent
 		return
 		[
 			BuildCommand( "Checkout", () => Checkout( branch ), !branch.IsCurrent ),
-			BuildCommand( $"Merge into {current ?? "current"}", () => RunCommand( $"Merging {name}…", ( root, token ) => GitRepository.MergeAsync( root, name, token ) ), isOther ),
-			BuildCommand( $"Rebase {current ?? "current"} onto {name}", () => RunCommand( $"Rebasing onto {name}…", ( root, token ) => GitRepository.RebaseAsync( root, name, token ) ), isOther ),
+			BuildCommand( $"Merge into {current ?? "current"}", () => RunCommand( $"Merging {name}…", ( root, token ) => GitRepository.MergeAsync( _context.Workspace, root, name, token ) ), isOther ),
+			BuildCommand( $"Rebase {current ?? "current"} onto {name}", () => RunCommand( $"Rebasing onto {name}…", ( root, token ) => GitRepository.RebaseAsync( _context.Workspace, root, name, token ) ), isOther ),
 			new MenuSeparator(),
 			BuildCommand( "Pull", RunPull, branch.IsCurrent ),
 			BuildCommand( "Push", () => RunPush( branch, force: false ) ),
@@ -283,7 +283,7 @@ internal sealed partial class GitContent
 			new MenuSeparator(),
 			BuildCommand( "New branch from here…", () => AskNewBranch( name, name ) ),
 			BuildCommand( "Rename…", () => Ask( $"Rename {name}", "New name", name, "Rename",
-				newName => RunCommand( $"Renaming {name}…", ( root, token ) => GitRepository.RenameBranchAsync( root, name, newName, token ) ) ) ),
+				newName => RunCommand( $"Renaming {name}…", ( root, token ) => GitRepository.RenameBranchAsync( _context.Workspace, root, name, newName, token ) ) ) ),
 			BuildCommand( "Delete…", () => Confirm( $"Delete branch {name}?", "The branch is deleted locally; its remote branch stays.", "Delete",
 				() => RunDeleteBranch( branch ) ), !branch.IsCurrent, isDestructive: true ),
 			.. BuildActionEntries( GitActionScope.Branch, branch.Target, name ),
@@ -298,11 +298,11 @@ internal sealed partial class GitContent
 		return
 		[
 			BuildCommand( "Checkout (tracking)", () => Checkout( branch ) ),
-			BuildCommand( $"Merge into {current ?? "current"}", () => RunCommand( $"Merging {name}…", ( root, token ) => GitRepository.MergeAsync( root, name, token ) ), current is not null ),
+			BuildCommand( $"Merge into {current ?? "current"}", () => RunCommand( $"Merging {name}…", ( root, token ) => GitRepository.MergeAsync( _context.Workspace, root, name, token ) ), current is not null ),
 			new MenuSeparator(),
 			BuildCommand( "Delete from remote…", () => Confirm( $"Delete {name} from {branch.Remote ?? "the remote"}?",
 				"The branch is deleted on the remote for everyone.", "Delete",
-				() => RunCommand( $"Deleting {name}…", ( root, token ) => GitRepository.DeleteBranchAsync( root, branch, false, token ) ) ), isDestructive: true ),
+				() => RunCommand( $"Deleting {name}…", ( root, token ) => GitRepository.DeleteBranchAsync( _context.Workspace, root, branch, false, token ) ) ), isDestructive: true ),
 		];
 	}
 
@@ -313,10 +313,10 @@ internal sealed partial class GitContent
 		return
 		[
 			BuildCommand( "Checkout", () => Checkout( tag ) ),
-			BuildCommand( "Push tag", () => RunCommand( $"Pushing {name}…", ( root, token ) => GitRepository.PushTagAsync( root, name, token ) ) ),
+			BuildCommand( "Push tag", () => RunCommand( $"Pushing {name}…", ( root, token ) => GitRepository.PushTagAsync( _context.Workspace, root, name, token ) ) ),
 			new MenuSeparator(),
 			BuildCommand( "Delete…", () => Confirm( $"Delete tag {name}?", "The tag is deleted locally; a pushed tag stays on the remote.", "Delete",
-				() => RunCommand( $"Deleting {name}…", ( root, token ) => GitRepository.DeleteTagAsync( root, name, token ) ) ), isDestructive: true ),
+				() => RunCommand( $"Deleting {name}…", ( root, token ) => GitRepository.DeleteTagAsync( _context.Workspace, root, name, token ) ) ), isDestructive: true ),
 		];
 	}
 
@@ -327,7 +327,7 @@ internal sealed partial class GitContent
 		BuildCommand( "Pop", () => RunStashApply( stash, pop: true ) ),
 		new MenuSeparator(),
 		BuildCommand( "Drop…", () => Confirm( $"Drop {stash.Name}?", "The stashed changes are deleted.", "Drop",
-			() => RunCommand( $"Dropping {stash.Name}…", ( root, token ) => GitRepository.StashDropAsync( root, stash.Index, token ) ) ), isDestructive: true ),
+			() => RunCommand( $"Dropping {stash.Name}…", ( root, token ) => GitRepository.StashDropAsync( _context.Workspace, root, stash.Index, token ) ) ), isDestructive: true ),
 	];
 
 	/// <summary>Runs a command against the shown repository, captured now.</summary>
@@ -344,57 +344,57 @@ internal sealed partial class GitContent
 			return;
 
 		if ( reference.Kind == GitRefKind.Tag )
-			RunCommand( $"Checking out {reference.ShortName}…", ( root, token ) => GitRepository.CheckoutCommitAsync( root, reference.Name, token ) );
+			RunCommand( $"Checking out {reference.ShortName}…", ( root, token ) => GitRepository.CheckoutCommitAsync( _context.Workspace, root, reference.Name, token ) );
 		else
-			RunCommand( $"Checking out {reference.ShortName}…", ( root, token ) => GitRepository.CheckoutAsync( root, reference, token ) );
+			RunCommand( $"Checking out {reference.ShortName}…", ( root, token ) => GitRepository.CheckoutAsync( _context.Workspace, root, reference, token ) );
 	}
 
 	/// <summary>Fetches every remote.</summary>
-	private void RunFetch() => RunCommand( "Fetching…", ( root, token ) => GitRepository.FetchAsync( root, token ) );
+	private void RunFetch() => RunCommand( "Fetching…", ( root, token ) => GitRepository.FetchAsync( _context.Workspace, root, token ) );
 
 	/// <summary>Pulls the current branch with a merge.</summary>
-	private void RunPull() => RunCommand( "Pulling…", ( root, token ) => GitRepository.PullAsync( root, false, token ) );
+	private void RunPull() => RunCommand( "Pulling…", ( root, token ) => GitRepository.PullAsync( _context.Workspace, root, false, token ) );
 
 	/// <summary>Pushes a branch, or the current one when null.</summary>
 	private void RunPush( GitRef? branch, bool force ) =>
-		RunCommand( force ? "Force pushing…" : "Pushing…", ( root, token ) => GitRepository.PushAsync( root, branch, force, token ) );
+		RunCommand( force ? "Force pushing…" : "Pushing…", ( root, token ) => GitRepository.PushAsync( _context.Workspace, root, branch, force, token ) );
 
 	/// <summary>Applies a stash, dropping it when <paramref name="pop"/> is set.</summary>
 	private void RunStashApply( GitStash stash, bool pop ) =>
-		RunCommand( pop ? $"Popping {stash.Name}…" : $"Applying {stash.Name}…", ( root, token ) => GitRepository.StashApplyAsync( root, stash.Index, pop, token ) );
+		RunCommand( pop ? $"Popping {stash.Name}…" : $"Applying {stash.Name}…", ( root, token ) => GitRepository.StashApplyAsync( _context.Workspace, root, stash.Index, pop, token ) );
 
 	/// <summary>Resets the current branch to a commit.</summary>
 	private void RunReset( string id, string shortId, GitResetMode mode ) =>
-		RunCommand( $"Resetting to {shortId}…", ( root, token ) => GitRepository.ResetAsync( root, id, mode, token ) );
+		RunCommand( $"Resetting to {shortId}…", ( root, token ) => GitRepository.ResetAsync( _context.Workspace, root, id, mode, token ) );
 
 	/// <summary>Deletes a local branch; when git refuses because it is not fully merged, asks before deleting it anyway.</summary>
 	private void RunDeleteBranch( GitRef branch ) => RunCommand( $"Deleting {branch.ShortName}…", async ( root, token ) =>
 	{
 		try
 		{
-			await GitRepository.DeleteBranchAsync( root, branch, false, token ).ConfigureAwait( false );
+			await GitRepository.DeleteBranchAsync( _context.Workspace, root, branch, false, token ).ConfigureAwait( false );
 		}
 		catch ( InvalidOperationException error ) when ( error.Message.Contains( "not fully merged", StringComparison.OrdinalIgnoreCase ) )
 		{
 			_context.Post( () => Confirm( $"{branch.ShortName} is not fully merged",
 				"Its commits that no other branch holds may be lost. Delete it anyway?", "Force delete",
-				() => RunCommand( $"Deleting {branch.ShortName}…", ( forceRoot, forceToken ) => GitRepository.DeleteBranchAsync( forceRoot, branch, true, forceToken ) ) ) );
+				() => RunCommand( $"Deleting {branch.ShortName}…", ( forceRoot, forceToken ) => GitRepository.DeleteBranchAsync( _context.Workspace, forceRoot, branch, true, forceToken ) ) ) );
 		}
 	} );
 
 	/// <summary>Asks for a branch name and creates it at a start point, checking it out.</summary>
 	private void AskNewBranch( string startPoint, string description ) =>
 		Ask( "New branch", $"Create a branch at {description} and check it out.", "", "Create",
-			name => RunCommand( $"Creating {name}…", ( root, token ) => GitRepository.CreateBranchAsync( root, name, startPoint, true, token ) ) );
+			name => RunCommand( $"Creating {name}…", ( root, token ) => GitRepository.CreateBranchAsync( _context.Workspace, root, name, startPoint, true, token ) ) );
 
 	/// <summary>Asks for a tag name and creates a lightweight tag at a commit.</summary>
 	private void AskNewTag( string commit, string shortId ) =>
 		Ask( "New tag", $"Create a tag at {shortId}.", "", "Create",
-			name => RunCommand( $"Tagging {name}…", ( root, token ) => GitRepository.CreateTagAsync( root, name, commit, null, token ) ) );
+			name => RunCommand( $"Tagging {name}…", ( root, token ) => GitRepository.CreateTagAsync( _context.Workspace, root, name, commit, null, token ) ) );
 
 	/// <summary>Asks for an optional message and stashes every change, untracked files included.</summary>
 	private void AskStash() =>
 		Ask( "Stash changes", "Every change is stashed, untracked files included. Message (optional):", "", "Stash",
-			message => RunCommand( "Stashing…", ( root, token ) => GitRepository.StashAsync( root, message.Length > 0 ? message : null, true, token ) ),
+			message => RunCommand( "Stashing…", ( root, token ) => GitRepository.StashAsync( _context.Workspace, root, message.Length > 0 ? message : null, true, token ) ),
 			allowEmpty: true );
 }

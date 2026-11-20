@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+	<meta name="color-scheme" content="dark">
+	<meta name="theme-color" content="#262624">
+	<meta name="referrer" content="no-referrer">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+	<title>Loom</title>
+	<link rel="manifest" href="manifest.webmanifest">
+	<link rel="icon" type="image/png" href="icon.png">
+	<link rel="apple-touch-icon" href="icon.png">
+	<link rel="stylesheet" href="app.css">
+	<script type="module" src="app.js"></script>
+</head>
+<body>
+	<header id="bar">
+		<button id="back" class="icon" type="button" aria-label="Back to chats" hidden></button>
+		<div id="heading">
+			<h1 id="title">Loom</h1>
+			<div id="subtitle"></div>
+		</div>
+		<button id="notify" class="icon" type="button" aria-label="Turn on notifications" hidden></button>
+		<button id="new-chat" class="icon" type="button" aria-label="New chat" hidden></button>
+	</header>
+	<div id="banner" role="status" hidden></div>
+	<main id="screen">
+		<noscript><p class="notice">Loom's web client needs JavaScript.</p></noscript>
+	</main>
+</body>
+</html>

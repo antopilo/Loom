@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+	<!-- The relay copies ciphertext between a host and its devices (docs/remote.md, Relay). It is a separate server, never referenced by the app. -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<LangVersion>14</LangVersion>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<RootNamespace>Lokn.Relay</RootNamespace>
+		<AssemblyName>Lokn.Relay</AssemblyName>
+	</PropertyGroup>
+	<ItemGroup>
+		<!-- Let the relay run as a Windows service or a systemd notify service; both do nothing elsewhere. -->
+		<PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+		<PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.0" />
+		<InternalsVisibleTo Include="Lokn.Tests" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- The web client the relay serves under /h/{hostId}/: the Remote module's files under the module's resource names, its icon the brand's, and the table that serves them. -->
+		<EmbeddedResource Include="..\Modules\Remote\Web\Assets\*" LogicalName="web/%(Filename)%(Extension)" Link="Web\%(Filename)%(Extension)" />
+		<EmbeddedResource Include="..\assets\brand\loom-256.png" LogicalName="web/icon.png" Link="Web\icon.png" />
+		<Compile Include="..\Modules\Remote\Web\WebClientFiles.cs" Link="Web\WebClientFiles.cs" />
+	</ItemGroup>
+</Project>

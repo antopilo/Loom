@@ -8,25 +8,25 @@ namespace Lokn.Modules.Projects;
 /// <remarks>
 /// New project opens the native folder chooser, adds the folder as a project named after it, and starts renaming its heading so the name can be
 /// typed at once. Double-click a heading, press F2 on it, or choose Rename in its menu to rename it; Change folder… picks its folder again.
+/// A paired host's folders are typed in a <see cref="HostFolderPrompt"/> instead, which the view mounts with <see cref="HostFolderPrompt.Build"/>.
 /// One instance belongs to one sidebar view, beside its <see cref="SidebarRows"/>.
 /// </remarks>
 /// <param name="context">The view's dispatch, which every action runs through.</param>
 /// <param name="sidebar">The view's rows, which hold the rename state.</param>
 /// <param name="store">The projects the actions create and change.</param>
-public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, ProjectStore store )
+/// <param name="host">The host the projects' folders are on, or null for This PC.</param>
+public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, ProjectStore store, LoknHost? host = null )
 {
 	/// <summary>Builds the New project action, which opens the folder chooser and adds the chosen folder as a project.</summary>
 	/// <param name="created">Runs with the project once its folder is chosen, the new one or the one that already had the folder, or null.</param>
 	public Button BuildNewProjectAction( Action<ProjectInfo>? created = null ) =>
 		sidebar.BuildIconAction( "New project", SidebarRows.NewFolderGlyph, () => BeginCreate( created ) );
 
-	/// <summary>Opens the native folder chooser over the shell window, then adds the chosen folder as a project; nothing happens without a window.</summary>
+	/// <summary>Asks for a folder, then adds it as a project: the native folder chooser over the shell window on This PC, a typed path on a paired host;
+	/// nothing happens on This PC without a window.</summary>
 	/// <param name="created">Runs with the project once its folder is chosen, or null.</param>
-	public void BeginCreate( Action<ProjectInfo>? created = null )
-	{
-		if ( context.App.Window is { } window )
-			_ = ChooseFolderAsync( window, new FileDialogOptions { Title = "Choose the project's folder" }, directory => created?.Invoke( Create( directory ) ) );
-	}
+	public void BeginCreate( Action<ProjectInfo>? created = null ) =>
+		ChooseFolder( "Choose the project's folder", null, directory => created?.Invoke( Create( directory ) ) );
 
 	/// <summary>Adds a folder as a project of the active profile, named after the folder, and starts renaming its heading; a folder that already is a project returns that project.</summary>
 	/// <param name="directory">The project's folder.</param>
@@ -45,16 +45,13 @@ public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, Proj
 	/// <summary>Starts renaming a project's heading in place.</summary>
 	public void BeginRename( ProjectInfo project ) => sidebar.BeginRename( project.Id, project.Name );
 
-	/// <summary>Opens the native folder chooser on a project's folder, then moves the project to the chosen one.</summary>
-	public void BeginChangeFolder( ProjectInfo project )
-	{
-		if ( context.App.Window is { } window )
-			_ = ChooseFolderAsync( window, new FileDialogOptions { Title = $"Choose the folder of {project.Name}", InitialPath = project.Directory }, directory =>
-			{
-				if ( store.Find( project.Id ) is { } current )
-					store.Update( current.Id, current.Name, directory );
-			} );
-	}
+	/// <summary>Asks for a project's folder again, starting at its current one, then moves the project to the chosen one.</summary>
+	public void BeginChangeFolder( ProjectInfo project ) =>
+		ChooseFolder( $"Choose the folder of {project.Name}", project.Directory, directory =>
+		{
+			if ( store.Find( project.Id ) is { } current )
+				store.Update( current.Id, current.Name, directory );
+		} );
 
 	/// <summary>Builds a project's bold heading with its icon and disclosure chevron, or its name editor while it is renamed; clicking the heading folds or unfolds its rows.</summary>
 	/// <param name="project">The project.</param>
@@ -83,6 +80,16 @@ public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, Proj
 				BeginRename( project );
 		} );
 		return heading;
+	}
+
+	/// <summary>Asks for a folder of the projects' host and passes a chosen one on the UI thread: a typed path checked on a paired host, else the native
+	/// folder chooser over the shell window.</summary>
+	private void ChooseFolder( string title, string? initial, Action<string> chosen )
+	{
+		if ( host is { IsLocal: false } paired )
+			HostFolderPrompt.Show( context, paired, title, initial, chosen );
+		else if ( context.App.Window is { } window )
+			_ = ChooseFolderAsync( window, initial is null ? new FileDialogOptions { Title = title } : new FileDialogOptions { Title = title, InitialPath = initial }, chosen );
 	}
 
 	/// <summary>Shows the folder chooser and passes a chosen folder on the UI thread; a chooser that fails to open reports why.</summary>

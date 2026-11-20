@@ -146,8 +146,8 @@ internal sealed partial class GitChangesPane
 
 		var what = files.Count == 1 ? SplitPath( files[0].Path ).Name : $"{files.Count:N0} files";
 		RunGit( $"{(staged ? "Unstaging" : "Staging")} {what}", ( root, cancellationToken ) => staged
-			? GitRepository.UnstageAsync( root, paths, cancellationToken )
-			: GitRepository.StageAsync( root, paths, cancellationToken ) );
+			? GitRepository.UnstageAsync( _context.Workspace, root, paths, cancellationToken )
+			: GitRepository.StageAsync( _context.Workspace, root, paths, cancellationToken ) );
 	}
 
 	/// <summary>Opens the context menu for the selected files, at the pointer or beside the row it was opened on.</summary>
@@ -172,10 +172,12 @@ internal sealed partial class GitChangesPane
 		var staged = _menuStaged;
 		var first = files[0];
 		var what = files.Count == 1 ? "1 file" : $"{files.Count:N0} files";
+		// Windows' programs and Explorer reach only this PC's files.
+		var isLocal = _context.Host.IsLocal;
 		var entries = new List<MenuEntry>
 		{
-			new MenuAction( "Open", () => _context.Run( () => OpenFiles( files ) ) ) { AccessKey = Key.O, IsEnabled = files.Any( file => file.Status != 'D' ) },
-			new MenuAction( "Show in File Explorer", () => _context.Run( () => ShowInExplorer( first ) ) ) { AccessKey = Key.E },
+			new MenuAction( "Open", () => _context.Run( () => OpenFiles( files ) ) ) { AccessKey = Key.O, IsEnabled = isLocal && files.Any( file => file.Status != 'D' ) },
+			new MenuAction( "Show in File Explorer", () => _context.Run( () => ShowInExplorer( first ) ) ) { AccessKey = Key.E, IsEnabled = isLocal },
 			new MenuSeparator(),
 			new MenuAction( staged ? "Unstage" : "Stage", () => _context.Run( () => UpdateStage( files, staged ) ) ) { Shortcut = "Enter" },
 			new MenuAction( "Discard changes…", () => _context.Run( () => BeginDiscard( files ) ) ) { Shortcut = "Delete", IsDestructive = true },
@@ -245,7 +247,7 @@ internal sealed partial class GitChangesPane
 		RunGit( patterns.Count == 1 ? $"Ignoring {patterns[0]}" : $"Ignoring {patterns.Count:N0} files", async ( root, cancellationToken ) =>
 		{
 			foreach ( var pattern in patterns )
-				await GitRepository.IgnoreAsync( root, pattern, cancellationToken );
+				await GitRepository.IgnoreAsync( _context.Workspace, root, pattern, cancellationToken );
 		} );
 
 	/// <summary>Stashes only these files' changes, a rename's old path included.</summary>
@@ -253,7 +255,7 @@ internal sealed partial class GitChangesPane
 	{
 		string[] paths = [.. files.SelectMany( file => file.OldPath is { } old ? new[] { file.Path, old } : new[] { file.Path } ).Distinct( StringComparer.Ordinal )];
 		RunGit( files.Count == 1 ? $"Stashing {SplitPath( files[0].Path ).Name}" : $"Stashing {files.Count:N0} files",
-			( root, cancellationToken ) => GitRepository.StashPathsAsync( root, paths, cancellationToken ) );
+			( root, cancellationToken ) => GitRepository.StashPathsAsync( _context.Workspace, root, paths, cancellationToken ) );
 	}
 
 	/// <summary>Asks where to save, then writes the files' unstaged or staged changes there as one patch.</summary>
@@ -263,7 +265,9 @@ internal sealed partial class GitChangesPane
 			return;
 
 		var name = (files.Count == 1 ? SplitPath( files[0].Path ).Name : Path.GetFileName( repository )) + ".patch";
-		var result = await window.ShowFileDialogAsync( FileDialogKind.SaveFile, new FileDialogOptions { Title = "Save as Patch", InitialPath = Path.Combine( repository, name ) } );
+		// The patch is saved on this PC; a paired host's folder is no place to start the dialog in.
+		var initial = _context.Host.IsLocal ? Path.Combine( repository, name ) : name;
+		var result = await window.ShowFileDialogAsync( FileDialogKind.SaveFile, new FileDialogOptions { Title = "Save as Patch", InitialPath = initial } );
 		if ( result.Status != FileDialogStatus.Success || result.Paths is not [var picked, ..] )
 			return;
 
@@ -272,7 +276,7 @@ internal sealed partial class GitChangesPane
 		{
 			var patch = new System.Text.StringBuilder();
 			foreach ( var file in files )
-				patch.Append( await GitRepository.ReadWorkingPatchAsync( root, file, staged, cancellationToken ) );
+				patch.Append( await GitRepository.ReadWorkingPatchAsync( _context.Workspace, root, file, staged, cancellationToken ) );
 			await File.WriteAllTextAsync( path, patch.ToString(), cancellationToken );
 		} ) );
 	}
@@ -340,7 +344,7 @@ internal sealed partial class GitChangesPane
 		_discard = null;
 		MarkChanged();
 		var what = files.Count == 1 ? SplitPath( files[0].Path ).Name : $"{files.Count:N0} files";
-		RunGit( $"Discarding changes to {what}", ( root, cancellationToken ) => GitRepository.DiscardAsync( root, files, cancellationToken ) );
+		RunGit( $"Discarding changes to {what}", ( root, cancellationToken ) => GitRepository.DiscardAsync( _context.Workspace, root, files, cancellationToken ) );
 	}
 
 	/// <summary>Builds the in-pane confirmation for discarding changes over a dimmed backdrop; it warns when untracked files will be deleted.</summary>

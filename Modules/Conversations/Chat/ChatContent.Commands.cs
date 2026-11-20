@@ -9,7 +9,7 @@ namespace Lokn.Modules.Chat;
 /// <param name="Description">The description Omp gives, or empty.</param>
 /// <param name="Hint">The argument hint, such as <c>[on|off]</c>, or empty when the command takes none.</param>
 /// <param name="Aliases">Other names that run the same command.</param>
-internal sealed record SlashCommand( string Name, string Description, string Hint, string[] Aliases )
+public sealed record SlashCommand( string Name, string Description, string Hint, string[] Aliases )
 {
 	/// <summary>Gets whether the command needs an argument, which Omp marks with an angle-bracketed hint.</summary>
 	internal bool NeedsArgument => Hint.StartsWith( '<' );
@@ -30,14 +30,11 @@ public sealed partial class ChatContent
 	/// <summary>Targets the command list to keep the keyboard selection in view.</summary>
 	private readonly ElementHandle _commandList = new();
 
-	/// <summary>Holds the commands the connected Omp offers, in its order.</summary>
-	private SlashCommand[] _commands = [];
-
 	/// <summary>Defines Lokn's own command that empties the conversation; Lokn runs it, not Omp.</summary>
 	internal static readonly SlashCommand ClearCommand = new( "clear", "Clear this conversation and start a fresh session", "", [] );
 
 	/// <summary>Gets Lokn's commands followed by Omp's; an Omp command of the same name gives way to Lokn's.</summary>
-	private SlashCommand[] AllCommands => [ClearCommand, .. _commands.Where( command => command.Name != ClearCommand.Name )];
+	private SlashCommand[] AllCommands => [ClearCommand, .. session.Commands.Where( command => command.Name != ClearCommand.Name )];
 
 	/// <summary>Stores the command name typed so far, or null when the list is closed.</summary>
 	private string? _commandQuery;
@@ -50,12 +47,6 @@ public sealed partial class ChatContent
 
 	/// <summary>Defines the transcript role of a local command's output, which Lokn shows but Omp keeps out of its session.</summary>
 	internal const string CommandRole = "command";
-
-	/// <summary>Stores the last slash command sent that did not start a turn, so output Omp prints for it, even long after admitting it as <c>/compact</c> does, shows under its name.</summary>
-	private string? _sentCommand;
-
-	/// <summary>Gets whether a <c>/compact</c> the user ran is still summarizing the session.</summary>
-	private bool _isCompacting;
 
 	/// <summary>Reads Omp's command catalog from an <c>available_commands_update</c> frame or a <c>get_available_commands</c> result.</summary>
 	internal static SlashCommand[] ReadCommands( JsonElement data )
@@ -91,25 +82,6 @@ public sealed partial class ChatContent
 		return [.. commands.Where( Starts ), .. commands.Where( command => !Starts( command ) && command.Name.Contains( query, StringComparison.OrdinalIgnoreCase ) )];
 	}
 
-	/// <summary>Shows what a local command printed, such as <c>/session</c> or <c>/usage</c>, under the command that asked for it.</summary>
-	/// <remarks>
-	/// Omp sends it as a <c>command_output</c> frame, before admitting the prompt or, for background work such as <c>/compact</c>,
-	/// after. The frame names no command, so output with no command sent stays hidden.
-	/// </remarks>
-	private void UpdateCommandOutput( JsonElement frame )
-	{
-		var text = TerminalText.BuildPlain( ReadText( frame, "text" ) ).Trim();
-		if ( _sentCommand is not { } command || text.Length == 0 )
-			return;
-
-		var rich = JsonSerializer.SerializeToElement( new
-		{
-			command
-		} );
-		store.AppendMessage( conversationId, new( Guid.NewGuid(), CommandRole, text, DateTimeOffset.UtcNow, rich ), persist: false );
-		_transcript.ScrollToEnd();
-	}
-
 	/// <summary>Reads the open command query from the prompt, resetting the selection when it changes; returns whether it changed.</summary>
 	private bool UpdateCommandQuery()
 	{
@@ -132,8 +104,8 @@ public sealed partial class ChatContent
 	{
 		if ( UpdateCommandQuery() )
 		{
-			if ( _commandQuery is not null && _commands.Length == 0 )
-				UpdateConnect();
+			if ( _commandQuery is not null && session.Commands.Length == 0 )
+				session.UpdateConnect();
 			MarkChanged();
 		}
 		UpdatePromptLines();
@@ -163,10 +135,11 @@ public sealed partial class ChatContent
 			} );
 		}
 
-		var status = _commands.Length == 0
-			? _connection is null ? "Connect to list Omp's commands." : "Loading Omp's commands…"
+		var count = session.Commands.Length;
+		var status = count == 0
+			? !session.IsConnectionStarted ? "Connect to list Omp's commands." : "Loading Omp's commands…"
 			: matches.Count == 0 ? $"No command matches /{query}."
-			: $"{matches.Count} of {_commands.Length} commands   ·   ↑ ↓ select   ·   Tab complete   ·   Enter run   ·   Esc close";
+			: $"{matches.Count} of {count} commands   ·   ↑ ↓ select   ·   Tab complete   ·   Enter run   ·   Esc close";
 		children.Add( new Text
 		{
 			Key = "conversation-commands-status",
