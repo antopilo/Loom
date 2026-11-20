@@ -77,6 +77,7 @@ running Lokn has the Release output locked.
 | Compile-check a source module | `pwsh scripts/check-module.ps1 -Name Notes` |
 | Compile-check a project's `.lokn\modules` (all, or one with `-Name`) | `pwsh scripts/check-module.ps1 -Project F:\path\to\repo` |
 | Build the 0.2.0 data loader the upgrade checks' downgrade step runs (`%TEMP%\loom-020`) | `pwsh scripts/loader-020.ps1` |
+| Measure start time, idle CPU, frames per second and memory in bare instances (opens windows; never runs a build without bare isolation, and stops with `ISOLATION BREACH`, restoring what it can, if a launch changed the user's daemon, protocols, Run values or Start menu shortcut) | `pwsh scripts/bench.ps1 -Scenario home -Seconds 10` |
 
 Headless suites: `default`, `features`, `all`, `layout`, `conversations`, `omp`,
 `chat`, `worktrees`, `terminal`, `git`, `remote`, `hotload`, `updates`, `settings`. Report which suites you actually ran.

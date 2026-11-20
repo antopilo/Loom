@@ -62,8 +62,9 @@ internal sealed class NotificationAlerts
 		app.Panels.AttentionRequested += UpdateRequested;
 		app.Panels.AttentionCleared += UpdateCleared;
 		app.Notifications.Posted += UpdatePosted;
-		// Windows may ignore notifications for a shortcut it has only just indexed, so register well before the first one.
-		if ( OperatingSystem.IsWindows() && app.ApplicationId.Length > 0 && app.Settings.Get( NotificationSettings.Desktop ) )
+		// Windows may ignore notifications for a shortcut it has only just indexed, so register well before the first one. A bare instance registers
+		// nothing and shows no Windows notification, since the shortcut and protocol belong to the user's own Loom.
+		if ( OperatingSystem.IsWindows() && app.ApplicationId.Length > 0 && NotificationIdentity.CanInstall && app.Settings.Get( NotificationSettings.Desktop ) )
 			UpdateRegistration();
 	}
 
@@ -86,7 +87,7 @@ internal sealed class NotificationAlerts
 		_app.Notifications.Post( new( attention.Title, attention.Message ) { PanelId = panel.Id, Source = panel.TypeId } );
 		if ( _app.Settings.Get( NotificationSettings.Sound ) )
 			AttentionChime.Play();
-		if ( !isFocused && _app.ApplicationId.Length > 0 && _app.Settings.Get( NotificationSettings.Desktop ) && OperatingSystem.IsWindows() )
+		if ( !isFocused && _app.ApplicationId.Length > 0 && _app.Settings.Get( NotificationSettings.Desktop ) && OperatingSystem.IsWindows() && NotificationIdentity.CanInstall )
 			UpdateNotification( panel.Id, attention );
 	}
 

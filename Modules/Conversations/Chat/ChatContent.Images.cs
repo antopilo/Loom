@@ -177,7 +177,7 @@ public sealed partial class ChatContent
 	/// <summary>Decodes an image's reduced pixels through a temporary file, which Goo's thumbnail decoder reads, and deletes the file.</summary>
 	private static ImageSource DecodeThumbnail( byte[] encoded )
 	{
-		var folder = Path.Combine( Path.GetTempPath(), "Lokn", "images" );
+		var folder = Path.Combine( LoknPaths.TempRoot, "images" );
 		Directory.CreateDirectory( folder );
 		var path = Path.Combine( folder, Guid.NewGuid().ToString( "N" ) );
 		File.WriteAllBytes( path, encoded );

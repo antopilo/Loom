@@ -231,10 +231,35 @@ once and writes `projects.json`, and `ConversationStore` keeps the array in its 
 until `projects.json` is written, then drops it. A chat whose project no longer exists
 leaves it when history loads, unless `projects.json` could not be read.
 
-Outside that folder, `AttentionNotifier` keeps a Start menu `Lokn.lnk` declaring the
+Outside that folder, the Notifications module (`NotificationIdentity`) keeps a Start menu `Loom.lnk` declaring the
 app ID `dev.lokn.desktop` and an `HKCU\Software\Classes\lokn-notification` protocol
-that a notification click opens. Windows shows notifications only for an app ID a
-Start menu shortcut declares. Both are rewritten when the running executable changes.
+that a notification click opens, and the Remote module keeps the `loom` protocol for pairing links. Windows shows
+notifications only for an app ID a Start menu shortcut declares. They are rewritten when the running executable
+changes, never by a bare instance.
+
+## Bare instances
+
+`Loom.exe --bare <folder>` (a window) and `Loom.exe --host --bare <folder>` (its daemon) run a second, isolated Loom for
+demos, checks and `scripts/bench.ps1`. It changes nothing of the user's Loom (`BareInstance`, in the shell):
+
+- `Main` calls `BareInstance.Enter` before anything else, which points `LoknPaths.DataRoot` at the folder. Every file
+  above, pasted attachments, Git avatars, Omp's account folders, logs (`host.log`, `modules.log`, `stream.log`) and
+  temporary files (`LoknPaths.TempRoot`, `%TEMP%\Lokn` for the user's Loom) are then in the folder, and Goo's Vulkan
+  pipeline cache in `cache\vulkan` unless `GOO_VK_PIPELINE_CACHE_DIR` names another.
+- It never runs Velopack: no downloaded update applied at start, no installer hook (which would stop the user's daemon
+  and remove its sign-in entry), no log in `%LOCALAPPDATA%\velopack`.
+- Its app ID is `dev.lokn.desktop.bare.<8 hex digits of the folder's hash>`, so its single-instance election and
+  notifications are its own. Its daemon's mutex, stop event and pipe carry the folder's 16-digit hash
+  (`HostRunner.ComputeMutexName`, `DaemonControl`, `PipeHost`), so the window starts (`--host --bare <folder>`), links
+  with and stops only its own daemon: at a `local`-role start, on a role switch and in the fallback alike.
+- It writes no `LoomHost` Run value (`DaemonControl.CanChangeLoginItem`), no `loom` protocol (`PairingProtocol.CanInstall`),
+  and no `lokn-notification` protocol or Start menu shortcut (`NotificationIdentity.CanInstall`); it shows no Windows
+  notifications.
+
+One file stays outside: Goo's single-instance election keeps a lock file per app ID in `%LOCALAPPDATA%\goo`
+(`InstanceScope`), which Goo offers no way to move; `scripts/bench.ps1` deletes the one each launch leaves.
+`IsolationChecks` (suite `default`) compares a bare instance's names, files and daemon command with the user's, and runs
+`Loom.exe --host --bare` to its test exit to see that it moves into its folder first and runs no Velopack.
 
 ## Data and upgrades
 
@@ -323,7 +348,7 @@ repository, a web address or a folder (`UpdateFeed`); blank turns updates off.
 
 - **App.** `AppUpdater` downloads a new release with Velopack and posts **Restart now**, which
   closes the window normally, so state is saved, and lets Velopack replace the files and start
-  Loom again with the same arguments, such as `--data`. An update never cuts an agent's turn off unless the user says
+  Loom again with the same arguments. An update never cuts an agent's turn off unless the user says
   so: **Restart now** asks `UpdateGate` first, which counts the agents working on This PC through `IAgentActivity`
   (Core; the Conversations module publishes This PC's store's working count, which in the `daemon` role mirrors the
   daemon's). With none it restarts; otherwise it posts **Update when agents finish**, which restarts as soon as none

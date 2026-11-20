@@ -35,11 +35,8 @@ public sealed class NotificationFeed
 	/// <summary>Tracks whether the loaded file can safely be replaced, false after it failed to parse.</summary>
 	private bool _canSave = true;
 
-	/// <summary>Gets the per-user feed file path.</summary>
-	public static string DefaultPath => Path.Combine(
-		Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ),
-		"Lokn",
-		"notifications.json" );
+	/// <summary>Gets the per-user feed file path, in the data folder.</summary>
+	public static string DefaultPath => LoknPaths.Combine( "notifications.json" );
 
 	/// <summary>Gets the notifications, newest first, and subscribes the building view to changes.</summary>
 	public IReadOnlyList<LoknNotification> Items

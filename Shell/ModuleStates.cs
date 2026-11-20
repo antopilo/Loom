@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lokn.Core;
 
 namespace Lokn;
 
@@ -25,8 +26,8 @@ internal sealed class ModuleStates
 	/// <summary>Stores the modules the user turned off.</summary>
 	private readonly HashSet<string> _off = new( StringComparer.Ordinal );
 
-	/// <summary>Gets the per-user file of a normal instance.</summary>
-	internal static string DefaultPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "modules.json" );
+	/// <summary>Gets the file in the data folder: the user's, or a bare instance's own.</summary>
+	internal static string DefaultPath => LoknPaths.Combine( "modules.json" );
 
 	/// <summary>Gets the file the choices are kept in.</summary>
 	internal string FilePath => _path;
@@ -48,10 +49,9 @@ internal sealed class ModuleStates
 		Reload();
 	}
 
-	/// <summary>Creates the choices of an instance: the per-user file, or <c>modules.json</c> in a bare folder, where modules are off unless turned on.</summary>
-	/// <param name="bare">The bare folder, or null for the user's instance.</param>
-	internal static ModuleStates Create( string? bare ) =>
-		bare is null ? new( DefaultPath, isOffByDefault: false ) : new( Path.Combine( bare, "modules.json" ), isOffByDefault: true );
+	/// <summary>Creates the choices of an instance from <c>modules.json</c> in its data folder; in a bare instance modules are off unless turned on.</summary>
+	/// <param name="isBare">Whether this is a bare instance.</param>
+	internal static ModuleStates Create( bool isBare ) => new( DefaultPath, isOffByDefault: isBare );
 
 	/// <summary>Reads the file again, replacing the choices held; a missing file clears them.</summary>
 	/// <returns>False when the file could not be read, such as while another process writes it; the choices held stay.</returns>

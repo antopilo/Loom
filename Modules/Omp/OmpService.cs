@@ -43,7 +43,7 @@ public sealed partial class OmpService( SettingsService settings )
 	public Task<OmpSession> OpenAccountSessionAsync( SettingsProfile profile, CancellationToken cancellationToken = default, Action<OmpSession>? onStarting = null )
 	{
 		// Its own folder keeps a project's context files out, and lets a new session wait for the one it replaces.
-		var directory = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "accounts", profile.ToString() );
+		var directory = LoknPaths.Combine( "accounts", profile.ToString() );
 		Directory.CreateDirectory( directory );
 		var start = new ProcessStartInfo
 		{
@@ -147,7 +147,7 @@ public sealed partial class OmpService( SettingsService settings )
 	private async Task<string> AskAsync( SettingsProfile profile, string question, string material, bool useSmallModel, CancellationToken cancellationToken )
 	{
 		// Omp runs in a folder of its own, so it reads no project's files and leaves nothing behind.
-		var directory = Path.Combine( Path.GetTempPath(), "Lokn", "ask-" + Guid.NewGuid().ToString( "N" ) );
+		var directory = Path.Combine( LoknPaths.TempRoot, "ask-" + Guid.NewGuid().ToString( "N" ) );
 		Directory.CreateDirectory( directory );
 		try
 		{

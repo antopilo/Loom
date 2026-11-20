@@ -280,7 +280,7 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	{
 		try
 		{
-			var path = Path.Combine( Path.GetTempPath(), "Lokn", "updates.log" );
+			var path = Path.Combine( LoknPaths.TempRoot, "updates.log" );
 			Directory.CreateDirectory( Path.GetDirectoryName( path )! );
 			File.AppendAllText( path, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {line}{Environment.NewLine}" );
 		}

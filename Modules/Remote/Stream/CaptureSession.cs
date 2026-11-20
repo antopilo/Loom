@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
 
@@ -304,7 +305,7 @@ internal sealed class StreamTiming( string capturer, CaptureOptions options )
 			+ $" | capture {Ms( _capture, _loops ):0.0}ms encode {Ms( _encode, _frames ):0.0}ms ack-wait {Ms( _wait, _loops ):0.0}ms | {(_frames == 0 ? 0 : _bytes / _frames / 1024)}KB/frame {_bytes * 8 / seconds / 1e6:0.0}Mbit/s";
 		try
 		{
-			var directory = Path.Combine( Path.GetTempPath(), "Lokn" );
+			var directory = LoknPaths.TempRoot;
 			Directory.CreateDirectory( directory );
 			lock ( Gate )
 				File.AppendAllText( Path.Combine( directory, "stream.log" ), line + Environment.NewLine );

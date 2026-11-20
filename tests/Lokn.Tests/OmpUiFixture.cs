@@ -65,6 +65,8 @@ internal static class OmpUiFixture
 			return true;
 		}
 
+		// The long turn scripts/bench.ps1 asks for runs until the chat stops it.
+		CancellationTokenSource? longTurn = null;
 		while ( await Console.In.ReadLineAsync() is { } line )
 		{
 			using var document = JsonDocument.Parse( line );
@@ -201,10 +203,39 @@ internal static class OmpUiFixture
 				success = true,
 				data
 			} );
+			if ( type == "abort" && longTurn is not null )
+			{
+				await longTurn.CancelAsync();
+				longTurn = null;
+				await SendAsync( new
+				{
+					type = "agent_end",
+					isTerminal = true
+				} );
+				continue;
+			}
+
 			if ( type != "prompt" )
 				continue;
 
 			var prompt = request.GetProperty( "message" ).GetString() ?? "";
+			if ( Environment.GetEnvironmentVariable( TurnVariable ) is "busy" or "stream" )
+			{
+				await SendAsync( new
+				{
+					type = "agent_start"
+				} );
+				await SendMessageAsync( "fixture-bench-user", new
+				{
+					role = "user",
+					content = new[] { new { type = "text", text = prompt } },
+				} );
+				longTurn = new CancellationTokenSource();
+				if ( Environment.GetEnvironmentVariable( TurnVariable ) == "stream" )
+					_ = StreamAsync( longTurn.Token );
+				continue;
+			}
+
 			if ( prompt.StartsWith( "/review ", StringComparison.Ordinal ) )
 			{
 				await SendAsync( new
@@ -287,6 +318,53 @@ internal static class OmpUiFixture
 	/// <summary>Names the variable holding the file a fixture login writes; while it is missing every profile reads as signed out.</summary>
 	internal const string SignInVariable = "LOKN_FIXTURE_SIGNIN";
 
+	/// <summary>Names the variable scripts/bench.ps1 sets for a turn that runs until the chat stops it: <c>busy</c> works silently, <c>stream</c> writes
+	/// a Markdown answer a little at a time.</summary>
+	internal const string TurnVariable = "LOKN_FIXTURE_TURN";
+
+	/// <summary>Names the variable holding the milliseconds between a streaming turn's updates; 500 without it.</summary>
+	internal const string StreamIntervalVariable = "LOKN_FIXTURE_STREAM_MS";
+
+	/// <summary>Holds the pieces a streaming turn writes in turn: prose, a list, a table and code, as an agent's answers have.</summary>
+	private static readonly string[] StreamPieces =
+	[
+		"The working indicator stays on while the answer grows, one piece at a time. ",
+		"Each update carries the whole message so far, as Omp's do.\n\n",
+		"- **Build** the declaration\n- *Diff* it against the last one\n- Lay out and paint what changed\n\n",
+		"| Phase | Work |\n|---|---|\n| build | cells |\n| layout | Yoga |\n\n",
+		"```csharp\nvar total = items.Sum( item => item.Count );\nConsole.WriteLine( total );\n```\n\n",
+	];
+
+	/// <summary>Writes a growing assistant message every interval until the turn is stopped.</summary>
+	private static async Task StreamAsync( CancellationToken cancellation )
+	{
+		var interval = int.TryParse( Environment.GetEnvironmentVariable( StreamIntervalVariable ), out var ms ) && ms > 0 ? ms : 500;
+		var text = new System.Text.StringBuilder();
+		try
+		{
+			for ( var piece = 0; !cancellation.IsCancellationRequested; piece++ )
+			{
+				text.Append( StreamPieces[piece % StreamPieces.Length] );
+				var message = new
+				{
+					role = "assistant",
+					content = new[] { new { type = "text", text = text.ToString() } }
+				};
+				await SendAsync( new
+				{
+					type = piece == 0 ? "message_start" : "message_update",
+					messageId = "fixture-bench-assistant",
+					message
+				} );
+				await Task.Delay( interval, cancellation );
+			}
+		}
+		catch ( OperationCanceledException )
+		{
+			// The chat stopped the turn.
+		}
+	}
+
 	/// <summary>Answers sign-in requests: a browser provider that succeeds after naming its page, and a key provider that fails as Omp does for secret prompts.</summary>
 	private static async Task AnswerLoginAsync( JsonElement request, string type )
 	{
@@ -328,12 +406,23 @@ internal static class OmpUiFixture
 		} );
 	}
 
-	/// <summary>Writes and flushes one complete JSONL frame.</summary>
+	/// <summary>Writes and flushes one complete JSONL frame; a streaming turn writes from its own task, so frames never interleave.</summary>
 	private static async Task SendAsync( object frame )
 	{
-		await Console.Out.WriteLineAsync( JsonSerializer.Serialize( frame, JsonOptions ) );
-		await Console.Out.FlushAsync();
+		await Output.WaitAsync();
+		try
+		{
+			await Console.Out.WriteLineAsync( JsonSerializer.Serialize( frame, JsonOptions ) );
+			await Console.Out.FlushAsync();
+		}
+		finally
+		{
+			Output.Release();
+		}
 	}
+
+	/// <summary>Lets one frame at a time reach the output.</summary>
+	private static readonly SemaphoreSlim Output = new( 1, 1 );
 
 	/// <summary>Emits actual UTF-8 characters so transport checks cannot pass using ASCII JSON escapes alone.</summary>
 	private static readonly JsonSerializerOptions JsonOptions = new()

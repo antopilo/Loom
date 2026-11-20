@@ -28,12 +28,21 @@ internal static class DaemonControl
 	/// <summary>Gets the daemon's pipe name for this process.</summary>
 	public static string PipeName => PipeHost.ComputePipeName( BareFolder );
 
+	/// <summary>Gets the daemon's single-instance mutex name for this process: <c>Local\LoomHost</c>, with the bare folder's hash in a bare instance.</summary>
+	internal static string MutexObjectName => ComputeName( MutexName );
+
+	/// <summary>Gets the name of the event that stops this process's daemon: <c>Local\LoomHost.stop</c>, with the bare folder's hash in a bare instance.</summary>
+	internal static string StopEventObjectName => ComputeName( StopEventName );
+
+	/// <summary>Gets whether this process may change the daemon's sign-in entry: never in a bare instance, since the entry is the user's own daemon's.</summary>
+	internal static bool CanChangeLoginItem => !LoknPaths.IsCustom;
+
 	/// <summary>Gets whether this process's daemon runs, which holds its mutex.</summary>
 	public static bool IsRunning
 	{
 		get
 		{
-			if ( !Mutex.TryOpenExisting( ComputeName( MutexName ), out var mutex ) )
+			if ( !Mutex.TryOpenExisting( MutexObjectName, out var mutex ) )
 				return false;
 			mutex.Dispose();
 			return true;
@@ -62,7 +71,7 @@ internal static class DaemonControl
 	/// <summary>Asks the running daemon to stop through its stop event; does nothing when none runs.</summary>
 	public static void Stop()
 	{
-		if ( !EventWaitHandle.TryOpenExisting( ComputeName( StopEventName ), out var stop ) )
+		if ( !EventWaitHandle.TryOpenExisting( StopEventObjectName, out var stop ) )
 			return;
 
 		using ( stop )
@@ -75,7 +84,7 @@ internal static class DaemonControl
 	public static bool StopAndWait( TimeSpan timeout )
 	{
 		Stop();
-		if ( !Mutex.TryOpenExisting( ComputeName( MutexName ), out var mutex ) )
+		if ( !Mutex.TryOpenExisting( MutexObjectName, out var mutex ) )
 			return true;
 
 		using ( mutex )
@@ -94,11 +103,11 @@ internal static class DaemonControl
 		}
 	}
 
-	/// <summary>Adds or removes the daemon's sign-in entry, <c>"&lt;exe&gt;" --host</c>, in the user's Run key; a bare instance never touches it,
-	/// since the entry is the user's own daemon's.</summary>
+	/// <summary>Adds or removes the daemon's sign-in entry, <c>"&lt;exe&gt;" --host</c>, in the user's Run key; a bare instance never touches it
+	/// (<see cref="CanChangeLoginItem"/>).</summary>
 	public static void UpdateLoginItem( bool isOn )
 	{
-		if ( LoknPaths.IsCustom )
+		if ( !CanChangeLoginItem )
 			return;
 
 		using var key = Registry.CurrentUser.CreateSubKey( RunKey );
@@ -135,6 +144,7 @@ internal static class DaemonControl
 	/// <summary>Builds a daemon object name, with the bare folder's hash when there is one.</summary>
 	private static string ComputeName( string name ) => BareFolder is { } bare ? $"{name}.{PipeHost.ComputeBareHash( bare )}" : name;
 
-	/// <summary>Builds the daemon's arguments: <c>--host</c>, and <c>--bare &lt;folder&gt;</c> for a bare folder.</summary>
-	private static string[] BuildArguments() => BareFolder is { } bare ? ["--host", "--bare", bare] : ["--host"];
+	/// <summary>Builds the daemon's arguments: <c>--host</c>, and <c>--bare &lt;folder&gt;</c> for a bare folder, so a bare instance only ever starts its own
+	/// daemon.</summary>
+	internal static string[] BuildArguments() => BareFolder is { } bare ? ["--host", "--bare", bare] : ["--host"];
 }

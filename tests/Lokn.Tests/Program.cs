@@ -138,6 +138,7 @@ if ( !focused )
 	if ( !args.Contains( "--settings-only" ) )
 	{
 		await CoreChecks.RunAsync();
+		IsolationChecks.Run();
 		await WorkspaceHostChecks.RunAsync();
 		SearchChecks.Run();
 		await AgentToolChecks.RunAsync();

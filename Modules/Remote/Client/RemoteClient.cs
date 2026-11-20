@@ -249,8 +249,9 @@ public sealed class RemoteClient
 	/// <summary>Gets the paired host's entry as this client dials it; null for the daemon link.</summary>
 	internal PairedHost? Paired => _paired;
 
-	/// <summary>Gets the daemon's log: <c>%TEMP%\Lokn\host.log</c>, or <c>host.log</c> in a bare folder, as the shell's HostRunner writes it.</summary>
-	public static string DaemonLogPath => LoknPaths.IsCustom ? Path.Combine( LoknPaths.DataRoot, "host.log" ) : Path.Combine( Path.GetTempPath(), "Lokn", "host.log" );
+	/// <summary>Gets the daemon's log: <c>host.log</c> in <see cref="LoknPaths.TempRoot"/>, <c>%TEMP%\Lokn</c> or a bare folder, as the shell's HostRunner
+	/// writes it.</summary>
+	public static string DaemonLogPath => Path.Combine( LoknPaths.TempRoot, "host.log" );
 
 	/// <summary>Gets the browser tabs of this client's host.</summary>
 	private BrowserTabs Tabs => Host.Host.BrowserTabs;

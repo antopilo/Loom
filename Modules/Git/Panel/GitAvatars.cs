@@ -44,8 +44,8 @@ internal sealed class GitAvatars
 	/// <summary>Stores the module's context, which posts results back and cancels loads when the module stops.</summary>
 	private readonly ModuleContext _context;
 
-	/// <summary>Stores the folder the pictures are kept in.</summary>
-	private readonly string _folder = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "avatars" );
+	/// <summary>Stores the folder the pictures are kept in, in the data folder.</summary>
+	private readonly string _folder = LoknPaths.Combine( "avatars" );
 
 	/// <summary>Creates the loader for a running module.</summary>
 	internal GitAvatars( ModuleContext context ) => _context = context;

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Lokn.Core;
 
 namespace Lokn.Modules.Worktrees;
 
@@ -45,8 +46,8 @@ internal sealed class WorktreeSetupStore( string path )
 	/// <summary>Defines the supported document version.</summary>
 	private const int DocumentVersion = 1;
 
-	/// <summary>Gets the per-user worktree setup file.</summary>
-	internal static string DefaultPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "worktrees.json" );
+	/// <summary>Gets the worktree setup file, in the data folder.</summary>
+	internal static string DefaultPath => LoknPaths.Combine( "worktrees.json" );
 
 	/// <summary>Stores setups by main working tree directory.</summary>
 	private readonly Dictionary<string, RepositorySetup> _repositories = new( StringComparer.OrdinalIgnoreCase );

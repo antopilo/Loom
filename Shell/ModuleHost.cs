@@ -65,8 +65,8 @@ internal sealed class ModuleHost
 	/// <summary>Gets the directory beside the executable where module projects deploy their DLLs.</summary>
 	internal static string DefaultDirectory => Path.Combine( AppContext.BaseDirectory, "modules" );
 
-	/// <summary>Gets the per-user file recording reload outcomes.</summary>
-	internal static string DefaultLogPath => Path.Combine( Path.GetTempPath(), "Lokn", "modules.log" );
+	/// <summary>Gets the file recording reload outcomes: <c>modules.log</c> in <see cref="LoknPaths.TempRoot"/>, a bare instance's own folder for one.</summary>
+	internal static string DefaultLogPath => Path.Combine( LoknPaths.TempRoot, "modules.log" );
 
 	/// <summary>Gets the folder downloaded updates wait in until they are applied, or null when this application takes no module updates.</summary>
 	internal string? StagedDirectory => _updatesDirectory is null ? null : Path.Combine( _updatesDirectory, StagedFolder );

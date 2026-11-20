@@ -337,7 +337,7 @@ public sealed class RemoteModule : ILoknModule
 		FollowLoginItem();
 		FollowRole();
 		StartWindowTools( app, dataFolder );
-		if ( _hooks is null && !LoknPaths.IsCustom && OperatingSystem.IsWindows() )
+		if ( _hooks is null && PairingProtocol.CanInstall && OperatingSystem.IsWindows() )
 			PairingProtocol.Install( app );
 	}
 

@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Runtime.Versioning;
+using Lokn.Core;
 using Microsoft.Win32;
 
 namespace Lokn.Modules.Notifications;
@@ -10,7 +11,7 @@ namespace Lokn.Modules.Notifications;
 /// Windows only shows toasts for an app ID that a Start menu shortcut declares, and keeps them in the notification center
 /// only when that shortcut also names a toast activator. A clicked toast opens a per-user protocol that relaunches this
 /// executable with Goo's notification arguments. Both are written for the running executable, so they follow the build the
-/// user last ran.
+/// user last ran. A bare instance never writes them, since they belong to the user's own Loom, and shows no Windows notifications.
 /// </remarks>
 [SupportedOSPlatform( "windows" )]
 internal static class NotificationIdentity
@@ -39,9 +40,16 @@ internal static class NotificationIdentity
 	/// <summary>Identifies Lokn's toast activator; clicks arrive through the protocol, so no COM server stands behind it.</summary>
 	private static readonly Guid _toastActivator = new( "2f283938-de6c-43fa-895d-668f4e0de39f" );
 
-	/// <summary>Writes the Start menu shortcut and notification protocol for the running executable, unless they are current.</summary>
+	/// <summary>Gets whether this process may write the shortcut and protocol: never in a bare instance, whose data folder is custom.</summary>
+	internal static bool CanInstall => !LoknPaths.IsCustom;
+
+	/// <summary>Writes the Start menu shortcut and notification protocol for the running executable, unless they are current or
+	/// <see cref="CanInstall"/> is false.</summary>
 	internal static void Install( string identifier )
 	{
+		if ( !CanInstall )
+			return;
+
 		var executable = Environment.ProcessPath ?? throw new InvalidOperationException( "The Lokn executable path is unknown." );
 		// Goo reads a toast click from exactly these arguments and forwards it to the running instance.
 		var command = $"\"{executable}\" --goo-notification \"%1\"";

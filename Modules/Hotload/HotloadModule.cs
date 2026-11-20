@@ -48,11 +48,11 @@ public sealed partial class HotloadModule : ILoknModule
 	/// <summary>Stores the running module context, or null before the first start.</summary>
 	private ModuleContext? _context;
 
-	/// <summary>Gets the per-user directory holding hot-reloaded module sources.</summary>
-	public static string DefaultPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "modules" );
+	/// <summary>Gets the per-user directory holding hot-reloaded module sources, in the data folder.</summary>
+	public static string DefaultPath => LoknPaths.Combine( "modules" );
 
 	/// <summary>Gets the per-user directory holding source module builds kept between runs, so an unchanged module starts without compiling.</summary>
-	public static string DefaultCachePath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "cache", "modules" );
+	public static string DefaultCachePath => LoknPaths.Combine( "cache", "modules" );
 
 	/// <summary>Gets the stable hotload module identifier.</summary>
 	public string Id => "hotload";

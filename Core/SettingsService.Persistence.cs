@@ -57,11 +57,8 @@ public sealed partial class SettingsService
 		get; private set;
 	}
 
-	/// <summary>Gets the per-user application settings file path.</summary>
-	public static string DefaultPath => Path.Combine(
-		Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ),
-		"Lokn",
-		"settings.json" );
+	/// <summary>Gets the per-user application settings file path, in the data folder.</summary>
+	public static string DefaultPath => LoknPaths.Combine( "settings.json" );
 
 	/// <summary>Reloads the file whenever another process writes it, applying its values on the UI thread through <paramref name="post"/>.</summary>
 	/// <param name="post">Posts an action to the UI thread and reports whether it was accepted.</param>

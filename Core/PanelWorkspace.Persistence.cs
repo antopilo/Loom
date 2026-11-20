@@ -12,8 +12,8 @@ public sealed partial class PanelWorkspace
 	/// <summary>Stores the malformed workspace path that must remain available for recovery.</summary>
 	private string? _invalidLayoutPath;
 
-	/// <summary>Gets the per-user workspace document path.</summary>
-	public static string DefaultLayoutPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "workspace.json" );
+	/// <summary>Gets the per-user workspace document path, in the data folder.</summary>
+	public static string DefaultLayoutPath => LoknPaths.Combine( "workspace.json" );
 
 	/// <summary>Saves the current tree and its shown panels atomically without unloading modules; hidden panels are not kept.</summary>
 	public bool SaveLayout( string path )

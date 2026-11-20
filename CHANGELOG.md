@@ -3,12 +3,15 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
-## Unreleased
+## 0.4.5
 
 - **Old chats archive themselves.** Chats nobody wrote in for 14 days, and older chats beyond the 12 most recent in a
   project, leave the sidebar and memory. Pinned, open, working and drafted chats stay. The archive icon beside a project
   lists its archived chats; choose one to bring it back. Each chat's menu has **Archive**. Change the limits in
   Settings › Conversations (0 turns a limit off).
+- **A test copy of Loom no longer touches your Loom.** A second Loom started with `--bare` (for demos and checks)
+  could stop your daemon, take over Loom's links and notifications, and remove "Start the daemon at sign-in". It now
+  keeps everything, logs included, in its own folder.
 
 ## 0.4.4
 

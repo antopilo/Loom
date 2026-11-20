@@ -1,4 +1,5 @@
 using System.Text;
+using Lokn.Core;
 
 namespace Lokn.Modules.Terminal;
 
@@ -62,7 +63,7 @@ internal static class ShellSnippet
 	/// <summary>Writes a snippet to a new file in Lokn's temporary snippets folder and returns its path.</summary>
 	private static string WriteScript( string content, string extension, Encoding encoding )
 	{
-		var directory = Path.Combine( Path.GetTempPath(), "Lokn", "snippets" );
+		var directory = Path.Combine( LoknPaths.TempRoot, "snippets" );
 		Directory.CreateDirectory( directory );
 		var path = Path.Combine( directory, Guid.NewGuid().ToString( "N" ) + extension );
 		File.WriteAllText( path, content, encoding );

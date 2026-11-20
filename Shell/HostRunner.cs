@@ -83,17 +83,17 @@ internal sealed class HostRunner
 	/// <summary>Stores the icon in the notification area once the status asked for it; on the loop thread.</summary>
 	private HostTray? _tray;
 
-	/// <summary>Creates a daemon for the user's data or a bare folder.</summary>
+	/// <summary>Creates a daemon for the data folder <see cref="LoknPaths.DataRoot"/> names: the user's, or a bare folder.</summary>
 	/// <param name="bare">The bare folder, or null for the user's data.</param>
 	private HostRunner( string? bare )
 	{
 		_bare = bare;
-		_logPath = bare is null ? Path.Combine( Path.GetTempPath(), "Lokn", "host.log" ) : Path.Combine( bare, "host.log" );
+		_logPath = Path.Combine( LoknPaths.TempRoot, "host.log" );
 	}
 
 	/// <summary>Runs the daemon until it is told to stop, or with <paramref name="isStop"/> stops the running one; returns at once when another daemon holds
 	/// the mutex. A bare daemon whose environment holds an integer in <c>LOKN_TEST_HOST_EXIT</c> logs it and exits with it at once, before the mutex, as
-	/// the daemon fallback check needs a daemon that keeps failing.</summary>
+	/// the daemon fallback check needs a daemon that keeps failing. <c>Main</c> moved a bare daemon's data folder to <paramref name="bare"/> already.</summary>
 	/// <param name="bare">The bare folder, or null for the user's daemon.</param>
 	/// <param name="isStop">Whether to stop the running daemon instead of running one.</param>
 	internal static void Run( string? bare, bool isStop )
@@ -107,13 +107,10 @@ internal sealed class HostRunner
 		if ( bare is not null && int.TryParse( Environment.GetEnvironmentVariable( TestExitVariable ), System.Globalization.NumberStyles.Integer,
 			System.Globalization.CultureInfo.InvariantCulture, out var exitCode ) )
 		{
-			LogFile.Append( Path.Combine( Path.GetFullPath( bare ), "host.log" ), $"EXIT test hook {exitCode}" );
+			LogFile.Append( Path.Combine( LoknPaths.TempRoot, "host.log" ), $"EXIT test hook {exitCode}" );
 			Environment.Exit( exitCode );
 		}
 
-		// A bare daemon keeps all its data, chats, keys and devices included, in its folder; modules read it from LoknPaths.
-		if ( bare is not null )
-			LoknPaths.UseDataRoot( bare );
 		new HostRunner( bare ).Serve();
 	}
 
@@ -121,13 +118,13 @@ internal sealed class HostRunner
 	/// <param name="bare">The bare folder, or null for the user's daemon.</param>
 	internal static void Stop( string? bare )
 	{
-		if ( !EventWaitHandle.TryOpenExisting( ComputeName( StopEventName, bare ), out var stop ) )
+		if ( !EventWaitHandle.TryOpenExisting( ComputeStopEventName( bare ), out var stop ) )
 			return;
 
 		using ( stop )
 			stop.Set();
 
-		if ( !Mutex.TryOpenExisting( ComputeName( MutexName, bare ), out var mutex ) )
+		if ( !Mutex.TryOpenExisting( ComputeMutexName( bare ), out var mutex ) )
 			return;
 
 		// The mutex is free once the daemon shut down, so taking it waits for the daemon rather than for a fixed time.
@@ -160,7 +157,7 @@ internal sealed class HostRunner
 	/// <param name="bare">The bare folder, or null for the user's daemon.</param>
 	internal static bool IsRunning( string? bare )
 	{
-		if ( !Mutex.TryOpenExisting( ComputeName( MutexName, bare ), out var mutex ) )
+		if ( !Mutex.TryOpenExisting( ComputeMutexName( bare ), out var mutex ) )
 			return false;
 		mutex.Dispose();
 		return true;
@@ -232,12 +229,18 @@ internal sealed class HostRunner
 		return key?.GetValue( RunValue ) is not null;
 	}
 
-	/// <summary>Builds a daemon object name, with the bare folder's hash when there is one.</summary>
-	private static string ComputeName( string name, string? bare ) => bare is null ? name : $"{name}.{ComputeBareHash( bare )}";
+	/// <summary>Builds the daemon's single-instance mutex name: <c>Local\LoomHost</c>, or <c>Local\LoomHost.&lt;hash&gt;</c> for a bare folder.</summary>
+	/// <param name="bare">The bare folder, or null for the user's daemon.</param>
+	internal static string ComputeMutexName( string? bare ) => bare is null ? MutexName : $"{MutexName}.{ComputeBareHash( bare )}";
+
+	/// <summary>Builds the name of the event that stops the daemon: <c>Local\LoomHost.stop</c>, or <c>Local\LoomHost.stop.&lt;hash&gt;</c> for a bare
+	/// folder.</summary>
+	/// <param name="bare">The bare folder, or null for the user's daemon.</param>
+	internal static string ComputeStopEventName( string? bare ) => bare is null ? StopEventName : $"{StopEventName}.{ComputeBareHash( bare )}";
 
 	/// <summary>Hashes a bare folder: the first 16 lowercase hex digits of SHA-256 over its full upper-case path without a trailing separator.</summary>
 	/// <remarks>The same formula as <c>PipeHost.ComputeBareHash</c> in Modules/Remote, repeated because the shell never references a module; keep the two equal.</remarks>
-	private static string ComputeBareHash( string bare )
+	internal static string ComputeBareHash( string bare )
 	{
 		var path = Path.TrimEndingDirectorySeparator( Path.GetFullPath( bare ) ).ToUpperInvariant();
 		return Convert.ToHexStringLower( SHA256.HashData( Encoding.UTF8.GetBytes( path ) ) )[..16];
@@ -248,8 +251,8 @@ internal sealed class HostRunner
 	/// reads as running must find the event, and an auto-reset event set before the daemon waits on it stays set until it does.</remarks>
 	private void Serve()
 	{
-		using var stopEvent = new EventWaitHandle( false, EventResetMode.AutoReset, ComputeName( StopEventName, _bare ) );
-		using var mutex = new Mutex( false, ComputeName( MutexName, _bare ) );
+		using var stopEvent = new EventWaitHandle( false, EventResetMode.AutoReset, ComputeStopEventName( _bare ) );
+		using var mutex = new Mutex( false, ComputeMutexName( _bare ) );
 		try
 		{
 			if ( !mutex.WaitOne( 0 ) )
@@ -322,8 +325,7 @@ internal sealed class HostRunner
 			Log( $"FAILED backup: {upgradeError.Message}" );
 		// The workspace file stays the desktop's and notifications stay in memory: the daemon has no layout, and its feed must not overwrite the desktop's.
 		// The browser tabs are the session's, which the daemon owns while it runs; Loom on this PC mirrors them and never writes the file meanwhile.
-		var tabsPath = _bare is null ? BrowserTabs.DefaultPath : Path.Combine( _bare, "browser-tabs.json" );
-		var app = new LoknApplication( _bare is null ? SettingsService.DefaultPath : Path.Combine( _bare, "settings.json" ), browserTabsPath: tabsPath ) { IsHost = true };
+		var app = new LoknApplication( SettingsService.DefaultPath, browserTabsPath: BrowserTabs.DefaultPath ) { IsHost = true };
 		_app = app;
 		app.Changed += LogError;
 		app.BindDispatcher( Post );
@@ -334,7 +336,7 @@ internal sealed class HostRunner
 		// The daemon runs the allowed modules the window's Settings › Modules turns on, from the same module states file (bare: its folder), and
 		// follows that file live; its Remote module, with the modules it needs, always runs. It reloads rebuilt and updated modules as the window
 		// does, but only once no chat's agent works; the window applies staged updates, which the daemon then picks up the same way.
-		_modules = new ModuleHost( app, ModuleHost.DefaultDirectory, _bare is null ? Installation.ModuleUpdatesDirectory : null, _logPath, ModuleStates.Create( _bare ),
+		_modules = new ModuleHost( app, ModuleHost.DefaultDirectory, _bare is null ? Installation.ModuleUpdatesDirectory : null, _logPath, ModuleStates.Create( _bare is not null ),
 			new( AllowedModules, new HashSet<string>( [RemoteModuleId], StringComparer.Ordinal ) ) );
 		_modules.Start();
 		app.MarkStarted();

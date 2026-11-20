@@ -275,8 +275,7 @@ public sealed partial class ChatContent
 			"image/bmp" => ".bmp",
 			_ => ".png",
 		};
-		var directory = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ),
-			"Lokn", "attachments", store.Get( conversationId ).Profile.ToString(), conversationId.ToString( "N" ) );
+		var directory = LoknPaths.Combine( "attachments", store.Get( conversationId ).Profile.ToString(), conversationId.ToString( "N" ) );
 		Directory.CreateDirectory( directory );
 		var path = Path.Combine( directory, $"pasted-{DateTime.Now:yyyyMMdd-HHmmss-fff}{extension}" );
 		File.WriteAllBytes( path, image.Bytes.Span );

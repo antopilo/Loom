@@ -11,11 +11,16 @@ internal static class PairingProtocol
 	/// <summary>Defines the scheme of native pairing links.</summary>
 	internal const string Scheme = "loom";
 
-	/// <summary>Writes the <c>loom</c> protocol for the running executable unless it is current; a failure is reported, since pasting the link still works.</summary>
+	/// <summary>Gets whether this process may write the <c>loom</c> protocol: never in a bare instance, whose data folder is custom, since the protocol
+	/// belongs to the user's own Loom.</summary>
+	internal static bool CanInstall => !LoknPaths.IsCustom;
+
+	/// <summary>Writes the <c>loom</c> protocol for the running executable unless it is current or <see cref="CanInstall"/> is false; a failure is
+	/// reported, since pasting the link still works.</summary>
 	[SupportedOSPlatform( "windows" )]
 	internal static void Install( LoknApplication app )
 	{
-		if ( Environment.ProcessPath is not { } executable )
+		if ( !CanInstall || Environment.ProcessPath is not { } executable )
 			return;
 
 		var command = $"\"{executable}\" --open-link \"%1\"";

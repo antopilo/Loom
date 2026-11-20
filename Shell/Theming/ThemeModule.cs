@@ -44,8 +44,8 @@ public sealed class ThemeModule : ILoknModule
 	/// <summary>Stores the theme being previewed, or null.</summary>
 	private Theme? _preview;
 
-	/// <summary>Gets the per-user global theme file path.</summary>
-	public static string DefaultPath => Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Lokn", "theme.json" );
+	/// <summary>Gets the global theme file path, in the data folder.</summary>
+	public static string DefaultPath => LoknPaths.Combine( "theme.json" );
 
 	/// <summary>Gets the stable theme module identifier.</summary>
 	public string Id => "theme";
