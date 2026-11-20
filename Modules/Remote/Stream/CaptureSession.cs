@@ -4,7 +4,7 @@ namespace Lokn.Modules.Remote;
 
 /// <summary>Holds the <c>cap.start</c> options of one stream.</summary>
 /// <param name="Fps">The most frames per second.</param>
-/// <param name="Quality">The JPEG quality from 0 to 1.</param>
+/// <param name="Quality">The picture quality from 0 to 1: the JPEG quality, or the H.264 bitrate it sets.</param>
 /// <param name="MaxWidth">The widest frame in pixels; wider windows are scaled down.</param>
 public sealed record CaptureOptions( int Fps, double Quality, int MaxWidth )
 {
@@ -17,21 +17,40 @@ public sealed record CaptureOptions( int Fps, double Quality, int MaxWidth )
 	/// <summary>Defines the narrowest frame a stream may ask for.</summary>
 	public const int MinFrameWidth = 64;
 
-	/// <summary>Gets the options the stream panel starts with: 15 frames per second at quality 0.7, at most 1600 pixels wide.</summary>
+	/// <summary>Defines <see cref="Codec"/> for one JPEG per frame, which every client decodes.</summary>
+	public const string Jpeg = "jpeg";
+
+	/// <summary>Defines <see cref="Codec"/> for an H.264 stream, which sends only what changed and is encoded by the GPU when it can.</summary>
+	public const string H264 = "h264";
+
+	/// <summary>Gets the options the stream panel starts with: 30 frames per second at quality 0.7, at most 1600 pixels wide, as JPEG.</summary>
 	public static CaptureOptions Default
 	{
 		get;
-	} = new( 15, 0.7, 1600 );
+	} = new( 30, 0.7, 1600 );
 
-	/// <summary>Returns these options brought into range: 1 to <see cref="MaxFps"/> frames per second, quality 0 to 1, width <see cref="MinFrameWidth"/> to <see cref="MaxFrameWidth"/>.</summary>
-	public CaptureOptions Clamp() => new( Math.Clamp( Fps, 1, MaxFps ), double.IsFinite( Quality ) ? Math.Clamp( Quality, 0, 1 ) : Default.Quality, Math.Clamp( MaxWidth, MinFrameWidth, MaxFrameWidth ) );
+	/// <summary>Gets the codec the stream asks for, <see cref="Jpeg"/> or <see cref="H264"/>; a host that cannot encode H.264 sends JPEG.</summary>
+	public string Codec
+	{
+		get; init;
+	} = Jpeg;
+
+	/// <summary>Returns these options brought into range: 1 to <see cref="MaxFps"/> frames per second, quality 0 to 1, width <see cref="MinFrameWidth"/> to <see cref="MaxFrameWidth"/>, and a known codec.</summary>
+	public CaptureOptions Clamp() => this with
+	{
+		Fps = Math.Clamp( Fps, 1, MaxFps ),
+		Quality = double.IsFinite( Quality ) ? Math.Clamp( Quality, 0, 1 ) : Default.Quality,
+		MaxWidth = Math.Clamp( MaxWidth, MinFrameWidth, MaxFrameWidth ),
+		Codec = Codec == H264 ? H264 : Jpeg,
+	};
 }
 
 /// <summary>Holds one encoded stream frame, the payload of <c>cap.frame</c>.</summary>
 /// <param name="Width">The frame width in pixels, <c>w</c>.</param>
 /// <param name="Height">The frame height in pixels, <c>h</c>.</param>
-/// <param name="Jpeg">The JPEG bytes, sent as base64 <c>jpeg</c>.</param>
-public sealed record StreamFrame( int Width, int Height, byte[] Jpeg );
+/// <param name="Data">The encoded bytes: a JPEG, or the H.264 Annex B bytes of one frame.</param>
+/// <param name="Codec">The codec of <paramref name="Data"/>, <see cref="CaptureOptions.Jpeg"/> or <see cref="CaptureOptions.H264"/>.</param>
+public sealed record StreamFrame( int Width, int Height, byte[] Data, string Codec = CaptureOptions.Jpeg );
 
 /// <summary>Captures, encodes and emits frames of one source on a background task, following the <c>cap.frame</c> rules of docs/remote.md.</summary>
 /// <remarks>
@@ -51,8 +70,14 @@ public sealed class CaptureSession : IDisposable
 	/// <summary>Stores the clamped options.</summary>
 	private readonly CaptureOptions _options;
 
-	/// <summary>Stores the encoder: JPEG through <see cref="JpegEncoder"/> unless a test supplies another.</summary>
+	/// <summary>Stores the JPEG encoder: <see cref="JpegEncoder"/> unless a test supplies another.</summary>
 	private readonly Func<BgraFrame, double, CancellationToken, Task<byte[]>> _encode;
+
+	/// <summary>Stores whether frames go out as H.264: the stream asked for it and no test encoder was given; false once H.264 failed, for the rest of the stream.</summary>
+	private bool _isH264;
+
+	/// <summary>Stores the H.264 encoder for the current frame size, or null before the first frame and after a size change.</summary>
+	private H264Encoder? _h264;
 
 	/// <summary>Stores the callback for each emitted frame.</summary>
 	private readonly Action<StreamFrame> _emit;
@@ -85,6 +110,7 @@ public sealed class CaptureSession : IDisposable
 		_emit = emit;
 		_failed = failed;
 		_encode = encode ?? JpegEncoder.EncodeAsync;
+		_isH264 = encode is null && _options.Codec == CaptureOptions.H264 && OperatingSystem.IsWindows();
 	}
 
 	/// <summary>Gets the size of the last emitted frame, which <c>cap.input</c> coordinates refer to, or (0, 0) before the first.</summary>
@@ -133,25 +159,35 @@ public sealed class CaptureSession : IDisposable
 	{
 		var interval = TimeSpan.FromSeconds( 1.0 / _options.Fps );
 		BgraFrame? previous = null;
+		var timing = new StreamTiming( _capturer.GetType().Name, _options );
 		try
 		{
 			while ( !stop.IsCancellationRequested )
 			{
 				// The slot is taken before the capture, so the frame sent is the newest image, not one that waited for the link.
+				var waited = Stopwatch.GetTimestamp();
 				await _credits.WaitAsync( stop );
 				var started = Stopwatch.GetTimestamp();
+				timing.AddWait( started - waited );
 				var isSent = false;
-				if ( _capturer.Capture( _options.MaxWidth ) is { } frame )
+				var frame = _capturer.Capture( _options.MaxWidth );
+				var captured = Stopwatch.GetTimestamp();
+				timing.AddCapture( captured - started );
+				if ( frame is not null )
 				{
 					var isChanged = !IsSame( frame, previous );
 					// Always the latest capture, never an older one: a capturer may reuse the buffer of the capture before last.
 					previous = frame;
 					if ( isChanged )
 					{
-						var jpeg = await _encode( frame, _options.Quality, stop );
-						Interlocked.Exchange( ref _frameSize, ((long)frame.Width << 32) | (uint)frame.Height );
-						_emit( new( frame.Width, frame.Height, jpeg ) );
-						isSent = true;
+						var encoded = await EncodeAsync( frame, stop );
+						timing.AddFrame( Stopwatch.GetTimestamp() - captured, encoded.Data.Length, encoded.Width, encoded.Height );
+						if ( encoded.Data.Length > 0 )
+						{
+							Interlocked.Exchange( ref _frameSize, ((long)encoded.Width << 32) | (uint)encoded.Height );
+							_emit( encoded );
+							isSent = true;
+						}
 					}
 				}
 				if ( !isSent )
@@ -173,8 +209,41 @@ public sealed class CaptureSession : IDisposable
 		finally
 		{
 			_capturer.Dispose();
+			_h264?.Dispose();
 		}
 	}
+
+	/// <summary>Encodes a frame as H.264 while that works, else as JPEG.</summary>
+	/// <remarks>An H.264 encoder serves one size, so a new one starts, with a key frame, when the window's size changes.</remarks>
+	private async Task<StreamFrame> EncodeAsync( BgraFrame frame, CancellationToken stop )
+	{
+		if ( _isH264 )
+		{
+			try
+			{
+				if ( _h264 is { } current && (current.Width != (frame.Width & ~1) || current.Height != (frame.Height & ~1)) )
+				{
+					current.Dispose();
+					_h264 = null;
+				}
+
+				_h264 ??= new H264Encoder( frame.Width, frame.Height, _options.Fps, ComputeBitrate( frame.Width, frame.Height ) );
+				return new( _h264.Width, _h264.Height, _h264.Encode( frame ), CaptureOptions.H264 );
+			}
+			catch ( Exception error ) when ( error is NotSupportedException or System.Runtime.InteropServices.COMException or DllNotFoundException or InvalidCastException )
+			{
+				// No encoder, or one that failed mid-stream: JPEG frames carry on, and the client decodes each by its codec.
+				_h264?.Dispose();
+				_h264 = null;
+				_isH264 = false;
+			}
+		}
+
+		return new( frame.Width, frame.Height, await _encode( frame, _options.Quality, stop ), CaptureOptions.Jpeg );
+	}
+
+	/// <summary>Computes the H.264 bitrate from the size, frame rate and quality: 0.05 to 0.2 bits per pixel per frame.</summary>
+	private int ComputeBitrate( int width, int height ) => (int)Math.Clamp( width * (long)height * _options.Fps * (0.05 + 0.15 * _options.Quality), 500_000, 50_000_000 );
 
 	/// <summary>Reports whether a capture has the same size and pixels as the previous capture.</summary>
 	internal static bool IsSame( BgraFrame frame, BgraFrame? previous ) =>
@@ -182,4 +251,71 @@ public sealed class CaptureSession : IDisposable
 		&& previous.Width == frame.Width
 		&& previous.Height == frame.Height
 		&& frame.Pixels.AsSpan().SequenceEqual( previous.Pixels );
+}
+
+/// <summary>Sums the time each step of a stream takes and writes it to <c>%TEMP%\Lokn\stream.log</c> every five seconds, to find what limits the frame rate.</summary>
+internal sealed class StreamTiming( string capturer, CaptureOptions options )
+{
+	/// <summary>Defines how often a line is written.</summary>
+	private static readonly long Period = Stopwatch.Frequency * 5;
+
+	/// <summary>Serializes writes from concurrent streams.</summary>
+	private static readonly Lock Gate = new();
+
+	/// <summary>Stores when the current period started.</summary>
+	private long _start = Stopwatch.GetTimestamp();
+
+	/// <summary>Stores the period's summed ticks and bytes.</summary>
+	private long _wait, _capture, _encode, _bytes;
+
+	/// <summary>Stores the period's counts and the last frame size.</summary>
+	private int _loops, _frames, _width, _height;
+
+	/// <summary>Adds the time spent waiting for a frame acknowledgement.</summary>
+	public void AddWait( long ticks ) => _wait += ticks;
+
+	/// <summary>Adds one capture, sent or not.</summary>
+	public void AddCapture( long ticks )
+	{
+		_capture += ticks;
+		_loops++;
+		Flush();
+	}
+
+	/// <summary>Adds one encoded and sent frame.</summary>
+	public void AddFrame( long encodeTicks, int bytes, int width, int height )
+	{
+		_encode += encodeTicks;
+		_bytes += bytes;
+		_frames++;
+		(_width, _height) = (width, height);
+	}
+
+	/// <summary>Writes a line when a period ended, then starts the next.</summary>
+	private void Flush()
+	{
+		var now = Stopwatch.GetTimestamp();
+		if ( now - _start < Period )
+			return;
+
+		var seconds = (double)(now - _start) / Stopwatch.Frequency;
+		static double Ms( long ticks, int count ) => count == 0 ? 0 : ticks * 1000.0 / Stopwatch.Frequency / count;
+		var line = $"{DateTime.Now:HH:mm:ss} {capturer} {_width}x{_height} cap {options.Fps}fps: sent {_frames / seconds:0.0}fps of {_loops / seconds:0.0} captures/s"
+			+ $" | capture {Ms( _capture, _loops ):0.0}ms encode {Ms( _encode, _frames ):0.0}ms ack-wait {Ms( _wait, _loops ):0.0}ms | {(_frames == 0 ? 0 : _bytes / _frames / 1024)}KB/frame {_bytes * 8 / seconds / 1e6:0.0}Mbit/s";
+		try
+		{
+			var directory = Path.Combine( Path.GetTempPath(), "Lokn" );
+			Directory.CreateDirectory( directory );
+			lock ( Gate )
+				File.AppendAllText( Path.Combine( directory, "stream.log" ), line + Environment.NewLine );
+		}
+		catch ( IOException )
+		{
+			// Timing is diagnostic; a locked or full disk only loses the line.
+		}
+
+		_start = now;
+		_wait = _capture = _encode = _bytes = 0;
+		_loops = _frames = 0;
+	}
 }

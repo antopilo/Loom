@@ -32,7 +32,7 @@ public sealed class LocalStreamSource : IStreamSource, IDisposable
 			throw new InvalidOperationException( "The window was closed." );
 
 		CaptureSession? session = null;
-		session = new( new WindowCapture( handle ), options, frame => FrameReceived?.Invoke( frame ), error =>
+		session = new( WindowCapturers.Open( handle ), options, frame => FrameReceived?.Invoke( frame ), error =>
 		{
 			// Only the session still running reports its end; a stopped one ended on purpose.
 			if ( Interlocked.CompareExchange( ref _session, null, session ) == session )

@@ -42,13 +42,13 @@ internal static class RemoteStreamChecks
 
 		await source.StartAsync( Window, new( 60, 0.5, 640 ), CancellationToken.None ).WaitAsync( Patience );
 		var first = await frames.Reader.ReadAsync().AsTask().WaitAsync( Patience );
-		CoreChecks.Check( first.Width == FakeCapturer.Width && first.Height == FakeCapturer.Height && first.Jpeg.Length == 1, "cap.start streams cap.frame with its size and bytes." );
+		CoreChecks.Check( first.Width == FakeCapturer.Width && first.Height == FakeCapturer.Height && first.Data.Length == 1, "cap.start streams cap.frame with its size and bytes." );
 		for ( var i = 1; i < CaptureSession.MaxInFlight; i++ )
 			await frames.Reader.ReadAsync().AsTask().WaitAsync( Patience );
 		CoreChecks.Check( !await ArrivesAsync( frames ), "No frame follows once MaxInFlight frames wait for an acknowledgement." );
 		source.Ack();
 		var next = await frames.Reader.ReadAsync().AsTask().WaitAsync( Patience );
-		CoreChecks.Check( next.Jpeg[0] != first.Jpeg[0], "cap.ack lets the next frame through." );
+		CoreChecks.Check( next.Data[0] != first.Data[0], "cap.ack lets the next frame through." );
 		CoreChecks.Check( !await ArrivesAsync( frames ), "One cap.ack lets one frame through." );
 
 		source.Input( new( StreamInput.Down, 1, 1, Button: 0 ) );

@@ -130,7 +130,7 @@ internal static class StreamChecks
 		Thread.Sleep( QuietMilliseconds );
 		CoreChecks.Check( Count() == window + 1, "One acknowledgement lets one frame out." );
 		lock ( frames )
-			CoreChecks.Check( frames[1].Jpeg[0] != frames[0].Jpeg[0], "Each frame carries its own capture." );
+			CoreChecks.Check( frames[1].Data[0] != frames[0].Data[0], "Each frame carries its own capture." );
 
 		capturer.IsChanging = false;
 		session.Ack();

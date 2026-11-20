@@ -23,6 +23,26 @@ public interface IWindowCapturer : IDisposable
 	BgraFrame? Capture( int maxWidth );
 }
 
+/// <summary>Opens the best capturer for a window.</summary>
+public static class WindowCapturers
+{
+	/// <summary>Opens a <see cref="GraphicsCapture"/>, which takes frames from the compositor, else a <see cref="WindowCapture"/> on Windows without it or for a window it refuses.</summary>
+	public static IWindowCapturer Open( nint window )
+	{
+		try
+		{
+			if ( OperatingSystem.IsWindowsVersionAtLeast( 10, 0, 19041 ) )
+				return new GraphicsCapture( window );
+		}
+		catch ( Exception error ) when ( error is NotSupportedException or COMException or ArgumentException or InvalidCastException or DllNotFoundException )
+		{
+			// The window refuses capture, or the device could not be made; GDI still works.
+		}
+
+		return new WindowCapture( window );
+	}
+}
+
 /// <summary>Captures one window's client area with GDI: <c>PrintWindow</c> with full-content rendering, else a copy of the screen where the window is.</summary>
 /// <remarks>Uses one thread at a time. GDI surfaces are kept between captures and rebuilt when the size changes.</remarks>
 public sealed class WindowCapture : IWindowCapturer

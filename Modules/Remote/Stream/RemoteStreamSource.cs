@@ -71,6 +71,8 @@ public sealed class RemoteStreamSource : IStreamSource
 		request["fps"] = options.Fps;
 		request["quality"] = options.Quality;
 		request["maxWidth"] = options.MaxWidth;
+		// H.264 only when this PC can decode it; the host still sends JPEG when it cannot encode.
+		request["codecs"] = options.Codec == CaptureOptions.H264 ? new JsonArray( CaptureOptions.H264, CaptureOptions.Jpeg ) : new JsonArray( CaptureOptions.Jpeg );
 		long cap;
 		try
 		{
@@ -148,21 +150,25 @@ public sealed class RemoteStreamSource : IStreamSource
 	{
 		if ( Frame.ReadLong( frame, "cap" ) is not { } cap
 			|| Frame.ReadLong( frame, "w" ) is not { } width
-			|| Frame.ReadLong( frame, "h" ) is not { } height
-			|| Frame.ReadString( frame, "jpeg" ) is not { } jpeg )
+			|| Frame.ReadLong( frame, "h" ) is not { } height )
+			return;
+
+		// A host before H.264 names no codec and sends JPEG in "jpeg".
+		var codec = Frame.ReadString( frame, "codec" ) ?? CaptureOptions.Jpeg;
+		if ( Frame.ReadString( frame, codec == CaptureOptions.Jpeg ? "jpeg" : "data" ) is not { } encoded )
 			return;
 
 		byte[] bytes;
 		try
 		{
-			bytes = Convert.FromBase64String( jpeg );
+			bytes = Convert.FromBase64String( encoded );
 		}
 		catch ( FormatException )
 		{
 			return;
 		}
 
-		var received = new StreamFrame( (int)width, (int)height, bytes );
+		var received = new StreamFrame( (int)width, (int)height, bytes, codec );
 		lock ( _lock )
 		{
 			if ( _isStarting )

@@ -603,7 +603,7 @@ data folder.
 | Frame | Answer |
 |---|---|
 | `cap.list {}` | `{ windows: [{ hwnd, title, process, w, h }] }` |
-| `cap.start { hwnd, fps, quality, maxWidth }` | `{ cap }`; host pushes `cap.frame { cap, w, h, jpeg }` (base64) at most `fps` per second, with at most 3 frames waiting for the client's `cap.ack { cap }`; each ack frees one |
+| `cap.start { hwnd, fps, quality, maxWidth, codecs? }` | `{ cap, codec }`; host pushes `cap.frame { cap, w, h, codec, jpeg \| data }` (base64) at most `fps` per second, with at most 3 frames waiting for the client's `cap.ack { cap }`; each ack frees one |
 | ● `cap.input { cap, kind: "move"|"down"|"up"|"wheel"|"key", x, y, button?, delta?, vk?, down? }` | `{}` (x, y in frame pixels) |
 | `cap.stop { cap }` | `{}` |
 
@@ -615,6 +615,16 @@ Windows wheel units (120 per notch, positive scrolls up), `vk` a Windows virtual
 true on press for `key`. `cap.list`, `cap.start` and `cap.input` answer `err scope` to a view-only
 device. Input requests are handled in arrival order. Keys and clicks are sent only while the
 streamed window, or a window it owns, is in the foreground; otherwise they are dropped.
+
+Codecs: a client lists in `codecs` what it decodes, best first; without the field the host sends JPEG.
+With `"h264"` listed, the host encodes H.264 with Media Foundation (a hardware encoder when the GPU has
+one, else Windows' software one): baseline profile, low-latency mode, Annex B in `data`, one picture per
+frame and no B-frames; the first frame, and the first after the window's size changes, is a key frame.
+A host that cannot encode H.264, or whose encoder fails, sends JPEG in `jpeg`, so a client decodes each
+frame by its `codec` (a frame with no `codec` is JPEG). Frames are never dropped after encoding: the ack
+window holds back the capture instead, so an H.264 stream stays decodable. The host captures with
+Windows.Graphics.Capture, falling back to `PrintWindow` where it is unavailable, and writes per-stream
+timings to `%TEMP%\Lokn\stream.log` every five seconds.
 
 ## Web client and push
 

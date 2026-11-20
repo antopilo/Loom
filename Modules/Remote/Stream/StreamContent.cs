@@ -59,6 +59,12 @@ public sealed partial class StreamContent : PanelContent
 	/// <summary>Counts streams started, so frames of a stopped stream that arrive late are dropped.</summary>
 	private int _generation;
 
+	/// <summary>Stores the H.264 decoder of the running stream and the stream it decodes, created by its first H.264 frame; guarded by itself.</summary>
+	private readonly System.Runtime.CompilerServices.StrongBox<(int Generation, H264Decoder? Decoder)> _decoder = new( (0, null) );
+
+	/// <summary>Stores whether this PC decodes H.264, read once per process.</summary>
+	private static readonly Lazy<bool> CanDecodeH264 = new( () => OperatingSystem.IsWindows() && H264Decoder.IsAvailable() );
+
 	/// <summary>Creates the panel over a source and lists the source's windows.</summary>
 	/// <param name="context">The panel's context.</param>
 	/// <param name="source">The host connection: <see cref="LocalStreamSource"/> or a remote one.</param>
@@ -67,7 +73,7 @@ public sealed partial class StreamContent : PanelContent
 	{
 		_context = context;
 		_source = source;
-		_options = (options ?? CaptureOptions.Default).Clamp();
+		_options = (options ?? CaptureOptions.Default).Clamp() with { Codec = CanDecodeH264.Value ? CaptureOptions.H264 : CaptureOptions.Jpeg };
 		_source.FrameReceived += QueueFrame;
 		_source.Ended += QueueEnded;
 		UpdateList();
@@ -84,6 +90,11 @@ public sealed partial class StreamContent : PanelContent
 
 		_frame?.Dispose();
 		_frame = null;
+		lock ( _decoder )
+		{
+			_decoder.Value.Decoder?.Dispose();
+			_decoder.Value = (0, null);
+		}
 	}
 
 	/// <summary>Builds the window picker, or the streamed window with its toolbar.</summary>
@@ -378,23 +389,46 @@ public sealed partial class StreamContent : PanelContent
 	}
 
 	/// <summary>Decodes a frame on the thread that received it and shows it on the UI thread.</summary>
+	/// <remarks>H.264 frames go through one decoder per stream, in the order they arrive; one that gives no picture yet is still acknowledged.</remarks>
 	private void QueueFrame( StreamFrame frame )
 	{
 		var generation = Volatile.Read( ref _generation );
-		ImageSource image;
+		ImageSource? image;
 		try
 		{
-			image = ImageSource.Decode( frame.Jpeg );
+			image = frame.Codec == CaptureOptions.H264 ? DecodeH264( frame, generation ) : ImageSource.Decode( frame.Data );
 		}
-		catch ( Exception error ) when ( error is FormatException or InvalidOperationException or ArgumentException or NotSupportedException or ImageLimitException )
+		catch ( Exception error ) when ( error is FormatException or InvalidOperationException or ArgumentException or NotSupportedException or ImageLimitException or System.Runtime.InteropServices.COMException )
 		{
-			// A broken frame is skipped; acknowledging it asks for the next.
+			image = null;
+		}
+
+		if ( image is null )
+		{
+			// A broken frame, or one the decoder holds back, is skipped; acknowledging it asks for the next.
 			_ = _context.Post( _source.Ack );
 			return;
 		}
 
 		if ( !_context.Post( () => ApplyFrame( image, generation ) ) )
 			image.Dispose();
+	}
+
+	/// <summary>Decodes an H.264 frame with the decoder of its stream, starting one for a new stream; null while the decoder gives no picture.</summary>
+	private ImageSource? DecodeH264( StreamFrame frame, int generation )
+	{
+		lock ( _decoder )
+		{
+			if ( _decoder.Value.Generation != generation || _decoder.Value.Decoder is null )
+			{
+				_decoder.Value.Decoder?.Dispose();
+				_decoder.Value = (generation, new H264Decoder());
+			}
+
+			return _decoder.Value.Decoder!.Decode( frame.Data, frame.Width, frame.Height ) is { } picture
+				? ImageSource.Transfer( picture.Width, picture.Height, picture.Pixels, static () => { } )
+				: null;
+		}
 	}
 
 	/// <summary>Puts a decoded frame on screen, updates the frame rate and latency, and acknowledges it.</summary>

@@ -65,21 +65,19 @@ public sealed class StreamService : IHostService
 			if ( streams.Count >= MaxCaptures )
 				throw new RemoteException( RemoteErrors.Failed, $"A connection may stream at most {MaxCaptures} windows at once." );
 			var defaults = CaptureOptions.Default;
+			// A client lists the codecs it decodes, best first; one that lists none, such as an older Loom, decodes JPEG only.
+			var codecs = frame["codecs"] is JsonArray listed ? listed.Select( item => item is JsonValue value && value.TryGetValue<string>( out var name ) ? name : null ).ToArray() : [];
 			var options = new CaptureOptions(
 				(int)( Frame.ReadLong( frame, "fps" ) ?? defaults.Fps ),
 				ReadDouble( frame, "quality" ) ?? defaults.Quality,
-				(int)( Frame.ReadLong( frame, "maxWidth" ) ?? defaults.MaxWidth ) );
+				(int)( Frame.ReadLong( frame, "maxWidth" ) ?? defaults.MaxWidth ) )
+			{
+				Codec = codecs.Contains( CaptureOptions.H264 ) ? CaptureOptions.H264 : CaptureOptions.Jpeg,
+			};
 			var capturer = BuildCapturer( window );
 			var cap = Interlocked.Increment( ref lastCap );
 			var session = new CaptureSession( capturer, options,
-				emitted => PushQuietly( peer, new JsonObject
-				{
-					["t"] = "cap.frame",
-					["cap"] = cap,
-					["w"] = emitted.Width,
-					["h"] = emitted.Height,
-					["jpeg"] = Convert.ToBase64String( emitted.Jpeg ),
-				} ),
+				emitted => PushQuietly( peer, BuildFrame( cap, emitted ) ),
 				error =>
 				{
 					if ( streams.TryRemove( cap, out var ended ) )
@@ -99,7 +97,7 @@ public sealed class StreamService : IHostService
 			}
 
 			session.Start();
-			return Task.FromResult<JsonObject?>( new JsonObject { ["cap"] = cap } );
+			return Task.FromResult<JsonObject?>( new JsonObject { ["cap"] = cap, ["codec"] = session.Options.Codec } );
 		} );
 
 		peer.OnPush( "cap.ack", frame =>
@@ -166,7 +164,7 @@ public sealed class StreamService : IHostService
 		if ( !StreamNative.IsWindow( (nint)window ) )
 			throw new RemoteException( RemoteErrors.BadRequest, "The window was closed." );
 
-		return new WindowCapture( (nint)window );
+		return WindowCapturers.Open( (nint)window );
 	}
 
 	/// <summary>Reads the running stream a frame's <c>cap</c> names.</summary>
@@ -175,6 +173,14 @@ public sealed class StreamService : IHostService
 		Frame.ReadLong( frame, "cap" ) is { } cap && streams.TryGetValue( cap, out var capture )
 			? capture
 			: throw new RemoteException( RemoteErrors.BadRequest, "No such stream." );
+
+	/// <summary>Builds the <c>cap.frame</c> push of a frame: JPEG in <c>jpeg</c>, as every client reads it, any other codec in <c>data</c> with its <c>codec</c>.</summary>
+	private static JsonObject BuildFrame( long cap, StreamFrame frame )
+	{
+		var push = new JsonObject { ["t"] = "cap.frame", ["cap"] = cap, ["w"] = frame.Width, ["h"] = frame.Height, ["codec"] = frame.Codec };
+		push[frame.Codec == CaptureOptions.Jpeg ? "jpeg" : "data"] = Convert.ToBase64String( frame.Data );
+		return push;
+	}
 
 	/// <summary>Reads a number field as a double, or null when it is missing or not a number.</summary>
 	private static double? ReadDouble( JsonObject frame, string name ) =>
