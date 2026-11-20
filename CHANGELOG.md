@@ -3,8 +3,10 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
-## Unreleased
+## 0.4.4
 
+- **Lighter on memory.** Long chats no longer keep each shell command's internal trace in memory, inline images keep
+  only small pixels (the full image loads while you view it), and Loom returns large freed memory to Windows.
 - **Watch agents use your apps.** When an agent works with a window on your PC, Loom opens a live Window stream of it
   beside the chat, marks where the agent clicks and says "Agent is using this window". The agent can see the window and
   click, type, press keys and scroll in it. Turn it off in Remote access: **Let agents see and use this PC's windows**.
