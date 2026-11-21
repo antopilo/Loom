@@ -3,6 +3,11 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## Unreleased
+
+- **No more flicker or crash from streaming your own screen.** A PC now offers its screens only to other PCs. Streamed
+  on the PC itself, the screen showed itself again and again, and its clicks moved the pointer the stream read.
+
 ## 0.4.9
 
 - **Stream a whole screen.** The Window stream lists each screen of the PC above its windows. A screen streams with
