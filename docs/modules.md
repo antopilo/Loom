@@ -309,6 +309,16 @@ draws a warning mark instead and reports the failure once through `CellFaults.Fa
 which the shell shows as its error notice. Never call `Cell.Post` from a build: Goo
 refuses it. Defer work after the build with `Host.Post` instead.
 
+A view that moves on its own, such as a looping animation, a spinner, a blinking caret or a
+clock, runs only while someone can see it, so an idle Loom draws no frames
+([performance](performance.md)). Read `LiveMotion.IsAttended( Host )` (decorative motion and
+activity marks: the view is shown and the window has the keyboard) or `LiveMotion.IsSeen( Host )`
+(what the user reads, such as an elapsed time: shown and not minimized) in `BuildView`, and pass
+it to a `MotionSwitch` that starts and stops the view's timer or animation; Goo rebuilds the view
+when the answer changes. The shell marks a panel the layout hides, or one under a modal window,
+as not shown. Declare a `State<T>` in a view whose timer calls back often: a cell without one
+rebuilds after every callback, even when nothing changed.
+
 Use `PanelContext.Lifetime` for cancellable work. `PanelContext.Post(action)` posts
 from a worker to the UI thread, refuses work after close, and checks cancellation
 again before executing queued work. Call `context.Run(action)` around synchronous

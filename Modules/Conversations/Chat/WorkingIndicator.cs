@@ -9,21 +9,33 @@ namespace Lokn.Modules.Chat;
 internal sealed record WorkingInput( string Label, DateTime Started );
 
 /// <summary>Shows a seam being stitched, the agent's current phase and the turn's elapsed time while it works.</summary>
+/// <remarks>The clock runs while the indicator is seen (<see cref="LiveMotion.IsSeen"/>) and rebuilds it only when the elapsed time it shows changes.</remarks>
 internal sealed class WorkingIndicator : GuardedCell<WorkingInput>
 {
 	/// <summary>Defines how often the elapsed time is read again, in milliseconds; the stitches animate on their own.</summary>
 	private const double ClockMs = 250;
 
-	/// <summary>Counts clock ticks; reading it rebuilds the indicator on every tick.</summary>
+	/// <summary>Counts changes of the elapsed time shown; reading it rebuilds the indicator on each.</summary>
 	private readonly State<int> _tick = new( 0 );
 
-	/// <summary>Starts the clock, which stops when the indicator unmounts.</summary>
-	protected override void Mounted() => Every( ClockMs, () => _tick.Value++ );
+	/// <summary>Starts and stops the clock as the indicator comes into and out of view.</summary>
+	private readonly MotionSwitch _motion;
+
+	/// <summary>Holds the clock while the indicator is seen, or null; Goo stops it when the indicator unmounts.</summary>
+	private WindowTimer? _clock;
+
+	/// <summary>Stores the elapsed time the last build showed.</summary>
+	private string _elapsed = "";
+
+	/// <summary>Creates the indicator; its first build starts the clock once it is seen.</summary>
+	public WorkingIndicator() => _motion = new( UpdateClock );
 
 	/// <summary>Builds the stitches, the phase and the elapsed time.</summary>
 	protected override Blob BuildView( WorkingInput input )
 	{
 		_ = _tick.Value;
+		_motion.Update( Host, LiveMotion.IsSeen( Host ) );
+		_elapsed = FormatElapsed( DateTime.UtcNow - input.Started );
 		return new Row
 		{
 			Key = "working",
@@ -37,7 +49,7 @@ internal sealed class WorkingIndicator : GuardedCell<WorkingInput>
 				Cell.Mount( "working-stitches", () => new StitchMark() ),
 				Cell.Mount<RollingTextInput, RollingText>( "working-label", new( $"{input.Label}…", ViewStyle.SmallSize, Theme.Current.Accent ) { FontFamily = ViewStyle.FontFamily } ),
 				// The clock only counts up, so even 59s to 1m 00s rolls up.
-				Cell.Mount<RollingTextInput, RollingText>( "working-elapsed", new( FormatElapsed( DateTime.UtcNow - input.Started ), ViewStyle.SmallSize, Theme.Current.Muted )
+				Cell.Mount<RollingTextInput, RollingText>( "working-elapsed", new( _elapsed, ViewStyle.SmallSize, Theme.Current.Muted )
 				{
 					FontFamily = ViewStyle.FontFamily,
 					Shrink = false,
@@ -45,6 +57,20 @@ internal sealed class WorkingIndicator : GuardedCell<WorkingInput>
 				} ),
 			],
 		};
+	}
+
+	/// <summary>Runs the clock while the indicator is seen and stops it otherwise.</summary>
+	private void UpdateClock( bool isSeen )
+	{
+		_clock?.Dispose();
+		_clock = isSeen ? Every( ClockMs, UpdateElapsed ) : null;
+	}
+
+	/// <summary>Rebuilds the indicator once the elapsed time it shows is out of date.</summary>
+	private void UpdateElapsed()
+	{
+		if ( FormatElapsed( DateTime.UtcNow - Input.Started ) != _elapsed )
+			_tick.Value++;
 	}
 
 	/// <summary>Formats elapsed time as seconds, or minutes and seconds past a minute.</summary>

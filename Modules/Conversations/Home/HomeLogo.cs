@@ -9,8 +9,8 @@ namespace Lokn.Modules.Conversations;
 /// The geometry is <c>assets/brand/loom-mark.svg</c> on its 64-unit grid. The ring and the wave are filled with characters on
 /// a fine grid, and a gap is cut out of the ring around the wave where it passes over, as in the icon. Each character sits
 /// on a vertex of a mesh displaced by travelling waves: crests pick denser characters and brighter colors, and a few
-/// characters scramble each tick. A brighter crest travels along the wave. Only this cell rebuilds on each frame, and with
-/// reduced motion requested the mark holds still.
+/// characters scramble each tick. A brighter crest travels along the wave. Only this cell rebuilds on each frame. The mark holds still with reduced
+/// motion requested, and while it is not seen or its window does not have the keyboard (<see cref="LiveMotion.IsAttended"/>), so a hidden or background Home draws no frames.
 /// </remarks>
 internal sealed class HomeLogo : GuardedCell
 {
@@ -95,17 +95,20 @@ internal sealed class HomeLogo : GuardedCell
 	/// <summary>Counts animation frames; reading it rebuilds the mark each frame.</summary>
 	private readonly State<int> _frame = new( 0 );
 
-	/// <summary>Starts the animation unless the system asks for reduced motion; the timer stops when the cell unmounts.</summary>
-	protected override void Mounted()
-	{
-		if ( Host.Preferences.ReducedMotion != true )
-			Every( FrameMs, () => _frame.Value++ );
-	}
+	/// <summary>Starts and stops the frame timer as the mark comes into and out of view.</summary>
+	private readonly MotionSwitch _motion;
+
+	/// <summary>Holds the frame timer while the mark moves, or null while it holds still; Goo stops it when the cell unmounts.</summary>
+	private WindowTimer? _clock;
+
+	/// <summary>Creates the mark, still until a build finds it attended.</summary>
+	public HomeLogo() => _motion = new( UpdateClock );
 
 	/// <summary>Builds every character at its displaced vertex in its gradient color.</summary>
 	protected override Blob BuildView()
 	{
 		var theme = Theme.Current;
+		_motion.Update( Host, LiveMotion.IsAttended( Host ) && Host.Preferences.ReducedMotion != true );
 		var frame = _frame.Value;
 		var time = frame * FrameMs / 1000;
 		var hue = frame / HueFrames * 360;
@@ -161,6 +164,13 @@ internal sealed class HomeLogo : GuardedCell
 				},
 			],
 		};
+	}
+
+	/// <summary>Runs the frame timer while the mark is live and stops it otherwise; the mark keeps its last frame and goes on from it.</summary>
+	private void UpdateClock( bool isLive )
+	{
+		_clock?.Dispose();
+		_clock = isLive ? Every( FrameMs, () => _frame.Value++ ) : null;
 	}
 
 	/// <summary>Gets where the weave's crest is along the weft, from 0 at its left end to 1 at its right, running a little past both ends so it enters and leaves softly.</summary>

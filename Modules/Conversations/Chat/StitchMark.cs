@@ -9,7 +9,8 @@ namespace Lokn.Modules.Chat;
 /// The seam is the weft of <c>assets/brand/loom-mark.svg</c>, scaled into a small box and dashed into stitches. Each cycle
 /// sews it one stitch at a time, each easing in and out like a hand's push; then the thread is pulled through from its
 /// start. Stitches keep their place in the fabric while the thread's ends move. The cycle is a Goo animation, so it advances
-/// with each rendered frame rather than a timer; with reduced motion the mark shows the finished seam and does not move.
+/// with each rendered frame rather than a timer; with reduced motion the mark shows the finished seam and does not move. The cycle pauses while the mark
+/// is not seen or its window does not have the keyboard (<see cref="LiveMotion.IsAttended"/>), and goes on from there when it is again.
 /// </remarks>
 internal sealed class StitchMark : GuardedCell
 {
@@ -58,29 +59,22 @@ internal sealed class StitchMark : GuardedCell
 	/// <summary>Holds the seam's length in logical pixels.</summary>
 	private static readonly double Length = MeasureSeam();
 
-	/// <summary>Holds the share of the cycle, from 0 to 1, advanced by Goo on each frame; reading it rebuilds the mark.</summary>
+	/// <summary>Holds the share of the cycle, from 0 to 1, advanced by Goo on each frame; reading it rebuilds the mark. Null until the mark is first attended.</summary>
 	private Anim<double>? _cycle;
 
-	/// <summary>Starts the cycle and restarts it each time it ends; Goo stops it when the mark unmounts.</summary>
-	protected override void Mounted()
-	{
-		if ( IsStill() )
-			return;
+	/// <summary>Starts, pauses and resumes the cycle as the mark comes into and out of view.</summary>
+	private readonly MotionSwitch _motion;
 
-		_cycle = Animate( 0.0 );
-		_cycle.Completed += reason =>
-		{
-			if ( reason == MotionCompletionReason.Finished )
-				Play();
-		};
-		Play();
-	}
+	/// <summary>Creates the mark, still until a build finds it attended.</summary>
+	public StitchMark() => _motion = new( UpdateCycle );
 
 	/// <summary>Builds the part of the seam sewn so far.</summary>
 	protected override Blob BuildView()
 	{
-		// The seam is empty at both ends of the cycle, so the restart between two cycles does not show.
-		var phase = _cycle is { } cycle && !IsStill() ? cycle.Value : SewShare;
+		var isStill = IsStill();
+		var isLive = _motion.Update( Host, !isStill && LiveMotion.IsAttended( Host ) );
+		// The seam is empty at both ends of the cycle, so the restart between two cycles does not show; a mark that has not moved yet shows the finished seam.
+		var phase = isStill ? SewShare : _cycle?.Value ?? (isLive ? 0 : SewShare);
 		// Whole stitches that fit the seam; each one eases from rest to rest.
 		var count = Math.Max( 1, (int)(Length / StitchPeriod) );
 		var sewn = Math.Clamp( phase / SewShare, 0, 1 ) * count;
@@ -103,6 +97,34 @@ internal sealed class StitchMark : GuardedCell
 				Dashes = new DashPattern( [StitchLength, StitchGap], tail * Length ),
 			},
 		};
+	}
+
+	/// <summary>Starts the cycle the first time the mark is live, restarting it each time it ends, and pauses and resumes it as the mark leaves and comes
+	/// back into view; Goo stops it when the mark unmounts.</summary>
+	private void UpdateCycle( bool isLive )
+	{
+		if ( _cycle is { } cycle )
+		{
+			// A cycle reduced motion ended does not restart itself, so it plays again once motion is back.
+			if ( !isLive )
+				cycle.Pause();
+			else if ( cycle.Running )
+				cycle.Resume();
+			else
+				Play();
+			return;
+		}
+
+		if ( !isLive )
+			return;
+
+		_cycle = Animate( 0.0 );
+		_cycle.Completed += reason =>
+		{
+			if ( reason == MotionCompletionReason.Finished )
+				Play();
+		};
+		Play();
 	}
 
 	/// <summary>Reports whether the system or Lokn asks for no motion.</summary>

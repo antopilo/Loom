@@ -332,11 +332,13 @@ internal sealed partial class ShellView
 	/// <summary>Builds a shown panel's content, and for a panel on a paired host its host chip and, while the host is not online, the overlay that says so.</summary>
 	private List<Blob> BuildPanelLayers( PanelSession session )
 	{
+		var host = FindPanelHost( session.Info.Id );
+		// Content under a modal window or under the offline overlay is not seen, so its continuous motion rests.
 		var layers = new List<Blob>
 		{
-			Mount<PanelSurface>( session.Info.Id.ToString(), () => new( session ) ),
+			BuildPanelSurface( session, !IsWorkspaceCovered && host is not { IsOnline: false } ),
 		};
-		if ( FindPanelHost( session.Info.Id ) is not { } host )
+		if ( host is null )
 			return layers;
 
 		// The content stays mounted under the overlay, so it keeps its state and comes back as it was once the host reconnects.
@@ -468,9 +470,17 @@ internal sealed partial class ShellView
 		Accessibility = new Accessibility { Hidden = true },
 		Children =
 		[
-			Mount<PanelSurface>( session.Info.Id.ToString(), () => new( session ) ),
+			BuildPanelSurface( session, false ),
 		],
 	};
+
+	/// <summary>Mounts a panel's content under whether it is on screen (<see cref="LiveMotion.IsShown"/>), the same way shown or hidden, so the panel keeps
+	/// its state as layouts change and its continuous motion runs only while it is seen.</summary>
+	private static Blob BuildPanelSurface( PanelSession session, bool isShown ) =>
+		LiveMotion.IsShown.Scope( isShown, () => Mount<PanelSurface>( session.Info.Id.ToString(), () => new( session ) ) );
+
+	/// <summary>Gets whether a modal window, such as Search or a popup panel, covers the workspace.</summary>
+	private bool IsWorkspaceCovered => _isPaletteOpen || _app.Popups.Top is not null;
 
 	/// <summary>Outlines the active pane in the accent color once the workspace is split.</summary>
 	private Color ComputeOutline( DockPane pane, bool isSplit )

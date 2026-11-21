@@ -11,7 +11,8 @@ internal sealed record BrowserViewInput( BrowserContent Content, Guid PanelId );
 
 /// <summary>Reserves the page area and keeps the native page on it: moved with the panel, hidden while the panel is hidden, a shell overlay is open, or the
 /// panel's host is offline or removed, so the shell's offline cover shows instead of the native page.</summary>
-/// <remarks>Geometry, shell occlusion and the host's link are checked on a short timer as well as on direct changes, because a layout switch can hide the panel without moving it.</remarks>
+/// <remarks>Geometry, shell occlusion and the host's link are checked on a short timer as well as on direct changes, because a layout switch can hide the panel without moving it.
+/// The timer runs only while the page area is seen (<see cref="LiveMotion.IsSeen"/>); a panel the layout hides or a modal window covers sends its page away once and stops checking.</remarks>
 internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 {
 	/// <summary>Defines how often the placement is checked, in milliseconds.</summary>
@@ -19,6 +20,12 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 
 	/// <summary>Retains the page area.</summary>
 	private readonly ElementHandle _area = new();
+
+	/// <summary>Starts and stops the placement timer as the page area comes into and out of view.</summary>
+	private readonly MotionSwitch _following;
+
+	/// <summary>Holds the placement timer while the page area is seen, or null; Goo stops it when the view unmounts.</summary>
+	private WindowTimer? _sync;
 
 	/// <summary>Stores Lokn's native window once borrowed.</summary>
 	private nint _handle;
@@ -29,14 +36,21 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 	/// <summary>Tracks whether any placement was sent yet.</summary>
 	private bool _hasPlaced;
 
+	/// <summary>Creates the view; a build that finds the page area seen starts following it.</summary>
+	public BrowserView() => _following = new( UpdateFollowing );
+
 	/// <summary>Builds the empty page area the native page covers.</summary>
-	protected override Blob BuildView( BrowserViewInput input ) => new Container
+	protected override Blob BuildView( BrowserViewInput input )
 	{
-		Handle = _area,
-		FlexGrow = 1,
-		MinHeight = 0,
-		MinWidth = 0,
-	};
+		_following.Update( Host, LiveMotion.IsSeen( Host ) );
+		return new Container
+		{
+			Handle = _area,
+			FlexGrow = 1,
+			MinHeight = 0,
+			MinWidth = 0,
+		};
+	}
 
 	/// <summary>Starts following the page area, and borrows Lokn's native window handle without blocking the UI thread.</summary>
 	protected override void Mounted()
@@ -44,8 +58,15 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 		_area.MetricsChanged += UpdateMetrics;
 		Input.Content.Context.App.NativeSurfaceOcclusionChanged += UpdateOcclusion;
 		Input.Content.Host.Changed += UpdateHost;
-		Every( SyncMs, UpdatePlacement );
 		_ = AcquireHandleAsync();
+	}
+
+	/// <summary>Places the page at once, then checks its placement on the timer while the area is seen; otherwise the placement settles and the timer stops.</summary>
+	private void UpdateFollowing( bool isSeen )
+	{
+		_sync?.Dispose();
+		_sync = isSeen ? Every( SyncMs, UpdatePlacement ) : null;
+		UpdatePlacement();
 	}
 
 	/// <summary>Reads the window handle through a native dialog owner lease, the public way to get it, and releases it at once; placement starts once it is known.</summary>

@@ -21,8 +21,8 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 	/// <summary>Defines the width of text entries in logical pixels.</summary>
 	private const int EntryWidth = 320;
 
-	/// <summary>Defines how often the view refreshes its countdown and, in the daemon role, the daemon's status, in seconds.</summary>
-	private const double Tick = 1;
+	/// <summary>Defines how often the view refreshes its countdown and, in the daemon role, the daemon's status, in milliseconds.</summary>
+	private const double TickMs = 1000;
 
 	/// <summary>Stores the view's guarded dispatch and lifetime; the first build sets it, before any callback can run.</summary>
 	private ViewContext _context = null!;
@@ -75,7 +75,7 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 	{
 		UpdateDaemonStatus();
 		SearchNearby();
-		Every( Tick, UpdateTick );
+		Every( TickMs, UpdateTick );
 	}
 
 	/// <summary>Withdraws the pairing offer the view shows, since its link works only while it is shown here; the daemon also withdraws it once this Loom's

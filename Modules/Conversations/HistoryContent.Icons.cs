@@ -25,7 +25,8 @@ internal sealed partial class HistoryContent
 		BackgroundColor = Theme.Current.Attention,
 	};
 
-	/// <summary>Pulses a small dot beside a chat whose agent is working; the fade animates on its own and stops when unmounted.</summary>
+	/// <summary>Pulses a small dot beside a chat whose agent is working; the fade animates on its own while the dot is attended
+	/// (<see cref="LiveMotion.IsAttended"/>), rests bright otherwise, and stops when unmounted.</summary>
 	internal sealed class ActivityOrb : GuardedCell<Color>
 	{
 		/// <summary>Defines the dot's diameter in logical pixels.</summary>
@@ -40,21 +41,38 @@ internal sealed partial class HistoryContent
 		/// <summary>Counts fades; an even count shows the dot bright, an odd one dim.</summary>
 		private readonly State<int> _fades = new( 0 );
 
-		/// <summary>Starts pulsing, and stops when the orb unmounts.</summary>
-		protected override void Mounted() => Every( FadeMs, () => _fades.Value++ );
+		/// <summary>Starts and stops pulsing as the dot comes into and out of view.</summary>
+		private readonly MotionSwitch _motion;
+
+		/// <summary>Holds the fade timer while the dot pulses, or null; Goo stops it when the orb unmounts.</summary>
+		private WindowTimer? _clock;
+
+		/// <summary>Creates the dot; a build that finds it attended starts the pulse.</summary>
+		public ActivityOrb() => _motion = new( UpdatePulse );
 
 		/// <summary>Builds the dot at its next brightness, fading there over one period.</summary>
-		protected override Blob BuildView( Color color ) => new Container
+		protected override Blob BuildView( Color color )
 		{
-			Width = Size,
-			Height = Size,
-			FlexShrink = 0,
-			BorderRadius = Size / 2.0,
-			BackgroundColor = color,
-			Opacity = _fades.Value % 2 == 0 ? 1 : DimOpacity,
-			TransitionMs = FadeMs,
-			TransitionEasing = Easing.EaseInOut,
-			TransitionProperties = [TransitionProperty.Opacity],
-		};
+			var isLive = _motion.Update( Host, LiveMotion.IsAttended( Host ) );
+			return new Container
+			{
+				Width = Size,
+				Height = Size,
+				FlexShrink = 0,
+				BorderRadius = Size / 2.0,
+				BackgroundColor = color,
+				Opacity = isLive && _fades.Value % 2 != 0 ? DimOpacity : 1,
+				TransitionMs = FadeMs,
+				TransitionEasing = Easing.EaseInOut,
+				TransitionProperties = [TransitionProperty.Opacity],
+			};
+		}
+
+		/// <summary>Runs the fade timer while the dot is live and stops it otherwise.</summary>
+		private void UpdatePulse( bool isLive )
+		{
+			_clock?.Dispose();
+			_clock = isLive ? Every( FadeMs, () => _fades.Value++ ) : null;
+		}
 	}
 }

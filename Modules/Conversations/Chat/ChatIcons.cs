@@ -277,6 +277,7 @@ internal static class ChatIcons
 	private sealed record SpinnerInput( Color Color, int Size, double Width );
 
 	/// <summary>Turns a three-quarter arc once per period with a linear transition, so it spins smoothly between rare rebuilds.</summary>
+	/// <remarks>It turns while it is attended (<see cref="LiveMotion.IsAttended"/>) and otherwise comes to rest after the turn in progress.</remarks>
 	private sealed class Spinner : GuardedCell<SpinnerInput>
 	{
 		/// <summary>Defines the time for one full turn in milliseconds.</summary>
@@ -288,16 +289,31 @@ internal static class ChatIcons
 		/// <summary>Counts completed turns; each one adds a full rotation for the transition to animate.</summary>
 		private readonly State<int> _turns = new( 0 );
 
-		/// <summary>Starts turning, and stops when the spinner unmounts.</summary>
-		protected override void Mounted()
+		/// <summary>Starts and stops turning as the spinner comes into and out of view.</summary>
+		private readonly MotionSwitch _motion;
+
+		/// <summary>Holds the turn timer while the spinner turns, or null; Goo stops it when the spinner unmounts.</summary>
+		private WindowTimer? _clock;
+
+		/// <summary>Creates the spinner; a build that finds it attended starts it turning.</summary>
+		public Spinner() => _motion = new( UpdateTurning );
+
+		/// <summary>Starts a turn at once and one per period while live; otherwise stops after the turn in progress.</summary>
+		private void UpdateTurning( bool isLive )
 		{
+			_clock?.Dispose();
+			_clock = null;
+			if ( !isLive )
+				return;
+
 			_turns.Value++;
-			Every( TurnMs, () => _turns.Value++ );
+			_clock = Every( TurnMs, () => _turns.Value++ );
 		}
 
 		/// <summary>Builds the arc at its next whole turn.</summary>
 		protected override Blob BuildView( SpinnerInput input )
 		{
+			_motion.Update( Host, LiveMotion.IsAttended( Host ) );
 			var arc = BuildStroke( Ring, input.Color, input.Width, input.Size );
 			arc.StrokeEnd = ArcLength;
 			arc.Transform = new PanelTransform { Rotate = _turns.Value * 360.0 };

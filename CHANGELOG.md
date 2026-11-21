@@ -3,6 +3,13 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.7
+
+- **Loom rests when nothing moves.** An idle chat or Settings no longer redraws the window 20 times a second, which
+  cost CPU and battery. Animations such as the Home logo, the working stitch, spinners and the prompt's blinking caret
+  run only while you can see them and Loom has the keyboard, and pause when it is in the background, minimized, or
+  behind a dialog. Remote access in Settings no longer refreshes itself a thousand times a second.
+
 ## 0.4.6
 
 - **Popups open smoothly.** Every popup, menu, notification and dialog fades in the same way.

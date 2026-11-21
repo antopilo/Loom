@@ -22,7 +22,8 @@ each scenario the script reads the process's CPU time and the frames presented o
   scroll     the long chat scrolled by the wheel: CPU per frame and Goo's frame times (GOO_FRAME_PROFILE)
   memory     working set and private bytes after start and after -MemoryMinutes, with chat, Git and terminal panels
 
-The windows it opens take focus for the focused scenarios; it closes them itself.
+Loom opens on Home and puts the restored layout back into its session, so the chat, working, streaming and settings launches open
+their view with --open-link. The windows it opens take focus for the focused scenarios; it closes them itself.
 
 It only ever runs bare instances, and guards the user's own Loom around every launch:
 
@@ -515,6 +516,16 @@ function Get-Layout( [string] $Name )
 	}
 }
 
+# Gets the link a scenario's launch opens once Loom has started, or nothing for Home and the layouts measured as they start.
+function Get-Link( [string] $Name )
+{
+	switch ( $Name )
+	{
+		{ $_ -in 'chat', 'working' } { return "lokn://conversations/open/$( $Seed.Chat.ToString( 'N' ) )" }
+		'settings' { return 'lokn://shell/settings' }
+	}
+}
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Guarding the user's Loom
 
@@ -686,6 +697,12 @@ function Start-Loom( [string] $Layout, [string] $Turn, [switch] $Profile )
 	$info = [Diagnostics.ProcessStartInfo]::new( $Exe )
 	$info.ArgumentList.Add( '--bare' )
 	$info.ArgumentList.Add( $folder )
+	# Loom opens on Home and puts the restored layout back into its session, so a scenario's own view is opened by the link it passes.
+	if ( Get-Link $Layout )
+	{
+		$info.ArgumentList.Add( '--open-link' )
+		$info.ArgumentList.Add( ( Get-Link $Layout ) )
+	}
 	$info.UseShellExecute = $false
 	$info.Environment['LOKN_PERF_TRACE'] = $trace
 	$info.Environment['LOKN_FIXTURE_TURN'] = $Turn

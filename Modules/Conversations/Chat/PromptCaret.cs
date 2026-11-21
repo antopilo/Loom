@@ -13,7 +13,8 @@ internal sealed record PromptCaretInput( ElementHandle Editor, TextEditorControl
 /// <summary>Draws the prompt's caret in place of Goo's, so it can glide and blink, and so it leaves no trail of stale pixels as text is typed.</summary>
 /// <remarks>
 /// The caret is an ordinary element over the editor, placed at the editor's retained caret rectangle; Goo repaints it like any element.
-/// It reads the rectangle every frame tick while focused and rebuilds only when the rectangle or blink phase changes.
+/// It reads the rectangle every frame tick while focused and rebuilds only when the rectangle or blink phase changes. While its window does not have the
+/// keyboard or its chat is not seen (<see cref="LiveMotion.IsAttended"/>), it stops reading and holds still, shown, so an idle window draws no frames.
 /// </remarks>
 internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 {
@@ -53,9 +54,23 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 	/// <summary>Tracks whether the blink is in its hidden half.</summary>
 	private bool _isHidden;
 
+	/// <summary>Counts changes of the rectangle or blink phase; reading it rebuilds the caret on each, and only then.</summary>
+	private readonly State<int> _version = new( 0 );
+
+	/// <summary>Starts and stops reading the rectangle as the caret comes into and out of view.</summary>
+	private readonly MotionSwitch _motion;
+
+	/// <summary>Holds the timer that reads the rectangle while the caret is live, or null; Goo stops it when the caret unmounts.</summary>
+	private WindowTimer? _poll;
+
+	/// <summary>Creates the caret; a build that finds the prompt focused and attended starts reading the rectangle.</summary>
+	public PromptCaret() => _motion = new( UpdatePoll );
+
 	/// <summary>Builds the caret bar at its rectangle, or nothing while the prompt has no keyboard.</summary>
 	protected override Blob BuildView( PromptCaretInput input )
 	{
+		_ = _version.Value;
+		_motion.Update( Host, input.IsFocused && LiveMotion.IsAttended( Host ) );
 		if ( !input.IsFocused || _rect is not { } rect )
 			return new Container { Key = "caret-none", Width = 0, Height = 0 };
 
@@ -78,8 +93,24 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 		};
 	}
 
-	/// <summary>Starts reading the caret rectangle and blinking.</summary>
-	protected override void Mounted() => Every( PollMs, UpdateCaret );
+	/// <summary>Reads the caret rectangle at once and then every frame tick while the caret is live; otherwise stops reading and shows the caret still.</summary>
+	private void UpdatePoll( bool isLive )
+	{
+		_poll?.Dispose();
+		_poll = null;
+		// The blink starts over, shown, whenever the caret comes back or rests.
+		_movedAt = DateTime.UtcNow;
+		if ( isLive )
+		{
+			_poll = Every( PollMs, UpdateCaret );
+			UpdateCaret();
+		}
+		else if ( _isHidden )
+		{
+			_isHidden = false;
+			_version.Value++;
+		}
+	}
 
 	/// <summary>Reads the caret rectangle and blink phase, rebuilding only when either changed.</summary>
 	private void UpdateCaret()
@@ -104,6 +135,6 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 		}
 
 		if ( changed )
-			Rebuild();
+			_version.Value++;
 	}
 }
