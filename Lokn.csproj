@@ -13,7 +13,7 @@
 		<RootNamespace>Lokn</RootNamespace>
 		<ApplicationIcon>assets\brand\loom.ico</ApplicationIcon>
 		<!-- The release version: the installer's package version, and the version Program reports to Goo. Raise it for every release. -->
-		<Version>0.4.5</Version>
+		<Version>0.4.6</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- Lets the GC compact the large-object heap once it is fragmented: chats churn through large JSON and image buffers, which otherwise left

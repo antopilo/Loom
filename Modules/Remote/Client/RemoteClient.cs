@@ -193,6 +193,9 @@ public sealed class RemoteClient
 	/// <summary>Raised on the UI thread with each <c>admin.pairing</c>, <c>admin.pairing.done</c> and <c>admin.paired</c> push of the daemon link.</summary>
 	public event Action<JsonObject>? AdminPushed;
 
+	/// <summary>Raised on the UI thread with each <c>cap.show</c> push of a paired host: the window the host's agent works in.</summary>
+	public event Action<JsonObject>? WindowShown;
+
 	/// <summary>Raised on the UI thread when this PC's daemon failed, with what happened: the process Loom started ended before it opened its pipe or
 	/// did not open it in time, or a connection dropped while dialing was not paused and the daemon no longer runs. Only a daemon link that starts and
 	/// stops the real daemon raises it.</summary>
@@ -462,6 +465,9 @@ public sealed class RemoteClient
 		peer.OnPush( "window.show", frame => _post( () => ApplyWindowShow( frame ) ) );
 		// Loom on this PC runs the daemon's tool calls; a paired PC runs only its browser tools, which act on its own windows' views of the session's tabs.
 		peer.OnPush( "host.addrs", frame => _post( () => ApplyAddressPush( frame ) ) );
+		// A paired host tells a device that may control it which window its agent works in, so this Loom streams it.
+		if ( Kind == HostLinkKind.Paired )
+			peer.OnPush( "cap.show", frame => _post( () => WindowShown?.Invoke( frame ) ) );
 		peer.OnPush( "tool.call", frame => _post( () => _ = RunToolAsync( peer, frame ) ) )
 			.OnPush( "tool.cancel", frame => _post( () => CancelTool( frame ) ) );
 		var stream = Kind == HostLinkKind.Paired ? new RemoteStreamSource( peer, carrier.Scopes.Contains( DeviceScopes.Control ) ) : null;

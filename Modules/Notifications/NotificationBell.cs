@@ -216,7 +216,7 @@ internal sealed class NotificationBell : PanelContent
 		_version.Value++;
 	}
 
-	/// <summary>Builds the popover anchored under the bell around the feed.</summary>
+	/// <summary>Builds the popover anchored under the bell around the feed, entering like every other popup.</summary>
 	private Portal BuildPopover( Overlay popover )
 	{
 		var theme = Theme.Current;
@@ -227,14 +227,6 @@ internal sealed class NotificationBell : PanelContent
 			Placement = PortalPlacement.BottomEnd,
 			Width = PopoverWidth,
 			Height = PopoverHeight,
-			BackgroundColor = theme.Panel,
-			Color = theme.Text,
-			FontFamily = theme.FontFamily,
-			FontSize = theme.FontSize,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = theme.Radius * 2,
-			Overflow = Overflow.Hidden,
 			FocusScope = new FocusScopeOptions { Modal = true },
 			AccessibilityRole = AccessibilityRole.Dialog,
 			AccessibilityName = "Notifications",
@@ -244,11 +236,24 @@ internal sealed class NotificationBell : PanelContent
 					UpdatePopover();
 			} ),
 		};
-		portal.Add( popover.Content.Build() );
+		var surface = new Container
+		{
+			FlexGrow = 1,
+			BackgroundColor = theme.Panel,
+			Color = theme.Text,
+			FontFamily = theme.FontFamily,
+			FontSize = theme.FontSize,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = theme.Radius * 2,
+			Overflow = Overflow.Hidden,
+			Children = [popover.Content.Build()],
+		};
+		portal.Add( Cell.Mount<PopupEntranceInput, PopupEntrance>( "surface", new( surface, -PopupMotion.PopoverRise ) { Fill = true } ) );
 		return portal;
 	}
 
-	/// <summary>Builds the banners in a column anchored under the bell, newest first; it takes no focus, so typing elsewhere goes on.</summary>
+	/// <summary>Builds the banners in a column anchored under the bell, newest first, each entering like a popup; it takes no focus, so typing elsewhere goes on.</summary>
 	private Portal BuildBanners()
 	{
 		var portal = new Portal
@@ -263,7 +268,11 @@ internal sealed class NotificationBell : PanelContent
 			AccessibilityName = "New notifications",
 		};
 		foreach ( var banner in Enumerable.Reverse( _banners ) )
-			portal.Add( new Container { Key = "banner:" + banner.Item!.Id.ToString( "N" ), Children = [banner.Content.Build()] } );
+		{
+			var content = new Container { Children = [banner.Content.Build()] };
+			portal.Add( Cell.Mount<PopupEntranceInput, PopupEntrance>( "banner:" + banner.Item!.Id.ToString( "N" ), new( content, -PopupMotion.PopoverRise ) ) );
+		}
+
 		return portal;
 	}
 

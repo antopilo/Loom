@@ -84,6 +84,12 @@ internal sealed class HostFolderDialog : GuardedCell<HostFolderRequest>
 	/// <summary>Targets the path entry, which holds focus when the dialog opens.</summary>
 	private readonly ElementHandle _entry = new();
 
+	/// <summary>Tracks the card's entrance from 0, faded out, scaled down and lowered, to 1 at rest.</summary>
+	private Anim<double>? _appear;
+
+	/// <summary>Starts the entrance on the first input.</summary>
+	protected override void InputChanged( HostFolderRequest input ) => _appear ??= PopupMotion.Start( Animate( 0.0 ) );
+
 	/// <summary>Hides native surfaces, such as browser pages, which would draw over the scrim and card.</summary>
 	protected override void Mounted() => Input.Context.App.CoverNativeSurfaces( this, true );
 
@@ -156,7 +162,7 @@ internal sealed class HostFolderDialog : GuardedCell<HostFolderRequest>
 			AccessibilityName = input.Title,
 			OnDismiss = _ => Cancel(),
 		};
-		portal.Add( new Container
+		var surface = new Container
 		{
 			Key = "card",
 			Width = CardWidth,
@@ -171,7 +177,9 @@ internal sealed class HostFolderDialog : GuardedCell<HostFolderRequest>
 			BorderRadius = theme.Radius + 3,
 			BoxShadow = new BoxShadow { OffsetY = 6, Blur = 18, Color = Color.Black.WithAlpha( 0.35 ) },
 			Children = card,
-		} );
+		};
+		PopupMotion.Apply( surface, _appear?.Value ?? 1, PopupMotion.DialogRise );
+		portal.Add( surface );
 		return portal;
 	}
 

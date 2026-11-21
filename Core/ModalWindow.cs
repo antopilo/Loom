@@ -50,6 +50,12 @@ public sealed class ModalWindow : GuardedCell<ModalWindowInput>
 	/// <summary>Defines the close button's size in logical pixels.</summary>
 	private const int CloseSize = 28;
 
+	/// <summary>Tracks the window's entrance from 0, faded out, scaled down and lowered, to 1 at rest.</summary>
+	private Anim<double>? _appear;
+
+	/// <summary>Starts the entrance on the first input.</summary>
+	protected override void InputChanged( ModalWindowInput input ) => _appear ??= PopupMotion.Start( Animate( 0.0 ) );
+
 	/// <summary>Hides native surfaces, such as browser pages, which would draw over the scrim and window.</summary>
 	protected override void Mounted() => Input.App.CoverNativeSurfaces( this, true );
 
@@ -103,6 +109,7 @@ public sealed class ModalWindow : GuardedCell<ModalWindowInput>
 			BoxShadow = new BoxShadow { OffsetY = 12, Blur = 40, Color = Color.Black.WithAlpha( 0.45 ) },
 			Children = children,
 		};
+		PopupMotion.Apply( window, _appear?.Value ?? 1, PopupMotion.DialogRise );
 		if ( input.Width is { } width )
 			window.Width = width;
 		if ( input.Height is { } height )
@@ -119,7 +126,7 @@ public sealed class ModalWindow : GuardedCell<ModalWindowInput>
 			AlignItems = AlignItems.Center,
 			JustifyContent = input.Top is null ? JustifyContent.Center : JustifyContent.FlexStart,
 			Padding = new Edges( input.Top ?? 0, 0, 0, 0 ),
-			Scrim = Color.Black.WithAlpha( ScrimOpacity ),
+			Scrim = Color.Black.WithAlpha( ScrimOpacity * (_appear?.Value ?? 1) ),
 			FocusScope = new FocusScopeOptions { Modal = true, InitialFocus = input.InitialFocus },
 			AccessibilityRole = AccessibilityRole.Dialog,
 			AccessibilityName = input.Title,

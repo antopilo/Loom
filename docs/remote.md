@@ -636,6 +636,18 @@ Two more host pushes serve the agents' window tools (Host tools):
 A stream panel's input (`StreamPanelInput { hwnd, title }`) is also its saved state, so a restored layout streams the
 same window again, or shows the window list with the reason when it is gone.
 
+### Following the host's agent (`cap.show`)
+
+The Remote module gives agents the host's desktop: `remote_desktop_windows`, `remote_desktop_open` (start a
+program and wait for its window), `remote_desktop_screenshot` (JPEG of a window in `%TEMP%\Lokn\desktop`) and
+`remote_desktop_act` (click, double or right click, move, scroll, type, key chords; x and y in pixels of the
+window's last screenshot). They run in the process whose agent calls them, the daemon for its chats, and
+need Windows. Each call that works in a window makes the daemon push
+`cap.show { hwnd, title, process, w, h }` to every connected device with `control`, Loom on this PC excepted.
+A paired Loom that follows it (setting **Show the host's screen when its agent uses an app**,
+`remote.follow-host-screen`, on by default) streams that window as `window.show` does: it brings forward the
+stream panel on that host that streams it, or opens one that streams it at once.
+
 ## Web client and push
 
 The host's WebSocket listener also serves the web client, embedded in the Remote module

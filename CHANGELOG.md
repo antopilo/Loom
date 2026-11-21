@@ -3,6 +3,15 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.6
+
+- **Popups open smoothly.** Every popup, menu, notification and dialog fades in the same way.
+- **The + beside a project works again.** Its menu no longer flickers, and a click on + starts a new chat.
+- **Agents arrange panels better.** A panel an agent opens goes below a tall panel and beside a wide one, so the
+  screen is no longer cut into thin columns.
+- **Follow a host's agent.** When an agent on a paired PC opens or uses an app there, this Loom shows a live Window
+  stream of it. Turn it off in Settings › Remote (**Show the host's screen when its agent uses an app**).
+
 ## 0.4.5
 
 - **Old chats archive themselves.** Chats nobody wrote in for 14 days, and older chats beyond the 12 most recent in a

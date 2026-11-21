@@ -221,6 +221,34 @@ public sealed class HostGateway
 	/// <summary>Gets the network listeners' current state.</summary>
 	internal NetworkState Network => Volatile.Read( ref _network );
 
+	/// <summary>Tells every connected device that may control this PC which window the host's agent works in, with a <c>cap.show</c> push, so its Loom
+	/// streams that window; Loom on this PC is skipped, as its user sees the window already.</summary>
+	/// <param name="window">The window.</param>
+	internal void ShowWindow( CaptureWindow window )
+	{
+		foreach ( var connection in Connections )
+		{
+			if ( connection.DeviceId == LocalDevice || !connection.CanControl || connection.Peer.IsClosed )
+				continue;
+
+			var frame = new JsonObject { ["t"] = "cap.show", ["hwnd"] = window.Hwnd, ["title"] = window.Title, ["process"] = window.Process, ["w"] = window.Width, ["h"] = window.Height };
+			_ = PushQuietlyAsync( connection.Peer, frame );
+		}
+	}
+
+	/// <summary>Sends a push, ignoring a connection that fails or closes meanwhile; its own handlers clean up after it.</summary>
+	private static async Task PushQuietlyAsync( RpcPeer peer, JsonObject frame )
+	{
+		try
+		{
+			await peer.PushAsync( frame ).ConfigureAwait( false );
+		}
+		catch ( Exception )
+		{
+			// A device that cannot be told only misses the hint; its stream panel still works by hand.
+		}
+	}
+
 	/// <summary>Creates the services, opens the pipe and starts the network listeners the settings ask for; on the UI thread.</summary>
 	/// <param name="settings">The remote settings to start with.</param>
 	internal void Start( RemoteSettings settings )

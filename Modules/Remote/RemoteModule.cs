@@ -8,7 +8,7 @@ namespace Lokn.Modules.Remote;
 
 /// <summary>Runs This PC's chats in a daemon when asked, links this Loom with every paired host at once, and owns the protocol, the secure channel, the
 /// transports, devices, pairing and its confirmation (docs/remote.md).</summary>
-public sealed class RemoteModule : ILoknModule
+public sealed partial class RemoteModule : ILoknModule
 {
 	/// <summary>Names the role that runs this Loom's chats locally, as before.</summary>
 	public const string LocalRole = "local";
@@ -100,6 +100,12 @@ public sealed class RemoteModule : ILoknModule
 	{
 		IsHidden = true,
 	};
+
+	/// <summary>Defines whether this PC opens a Window stream of a paired host by itself when the host's agent uses an app there, showing that app.</summary>
+	public static readonly Setting<bool> FollowHostScreen = new(
+		"remote.follow-host-screen", "Show the host's screen when its agent uses an app",
+		"When an agent on a paired host opens or uses an app there, Loom here opens a Window stream of that app, so you see what it does. Needs control of the host.",
+		true, "Remote" );
 
 	/// <summary>Defines the Settings entry that shows Remote access, the Remote tab's only row: where devices connect from, pairing, devices and the
 	/// PCs this one connects to; its value is never set, only its editor is used. The plain remote settings are hidden, since it shows them.</summary>
@@ -279,6 +285,7 @@ public sealed class RemoteModule : ILoknModule
 			.Setting( Tray )
 			.Setting( LendBrowser )
 			.Setting( AgentWindows )
+			.Setting( FollowHostScreen )
 			.Service<IHostLoginItem>( new HostLoginItem( this ) )
 			.Setting( Access )
 			.Slot( ShellSlots.StatusRight, 0, context => new RemoteStatusContent( context, this ) )
@@ -287,6 +294,7 @@ public sealed class RemoteModule : ILoknModule
 			.Route( RoleRoute, OpenRoleLink )
 			.LinkHandler( PairingProtocol.Open );
 		StreamPanel.Register( builder, BuildStreamSource );
+		RegisterDesktopTools( builder );
 	}
 
 	/// <summary>Starts the gateway and the status of its notification-area icon in the daemon. In Loom it rewrites the former <c>remote</c> role,
@@ -581,6 +589,7 @@ public sealed class RemoteModule : ILoknModule
 		var chats = app.GetModule<ConversationsModule>().Hosts.Add( host );
 		var link = new RemoteClient( app, chats, () => app.GetModule<OmpModule>().Service, context.Post, HostLinkKind.Paired, DataFolder, entry, BindDial( entry.HostId ),
 			stream: stream );
+		link.WindowShown += frame => FollowWindow( link, frame );
 		_links.Add( link );
 		_version.Value++;
 		link.Start();

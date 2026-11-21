@@ -17,6 +17,10 @@ public sealed record NativePopupInput( ElementHandle Anchor, Blob Content, Actio
 	/// <summary>Gets whether the popup takes input; a tooltip lets every press and key through.</summary>
 	public PopupKind Kind { get; init; } = PopupKind.Menu;
 
+	/// <summary>Gets whether a menu blocks input outside it and closes on Escape or a press outside; false lets the pointer and presses
+	/// reach the window under it, for a menu that opens on hover and that its owner closes.</summary>
+	public bool IsModal { get; init; } = true;
+
 	/// <summary>Gets the content size in logical pixels, or null to measure the content.</summary>
 	public LayoutSize? Size { get; init; }
 
@@ -80,13 +84,15 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 			portal.Height = size.Height;
 		}
 
-		if ( input.Kind == PopupKind.Menu )
+		if ( input.Kind == PopupKind.Menu && input.IsModal )
 		{
 			portal.FocusScope = new FocusScopeOptions { Modal = true, InitialFocus = input.InitialFocus };
 			portal.OnDismiss = _ => Dismiss();
 		}
 
-		portal.Add( input.Content );
+		var surface = new Container { Children = [input.Content] };
+		PopupMotion.Apply( surface, _appear?.Value ?? 1, Rise );
+		portal.Add( surface );
 		return portal;
 	}
 
@@ -97,9 +103,16 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 		Open();
 	}
 
-	/// <summary>Sends new content to the open popup and re-measures it when it has no fixed size.</summary>
+	/// <summary>Tracks the popup's entrance from 0, faded out and offset, to 1 at rest.</summary>
+	private Anim<double>? _appear;
+
+	/// <summary>Gets how far the popup starts from its place: from above when it opens above its anchor, else from below.</summary>
+	private double Rise => Input.Placement is PortalPlacement.TopStart or PortalPlacement.TopEnd or PortalPlacement.Top ? PopupMotion.PopoverRise : -PopupMotion.PopoverRise;
+
+	/// <summary>Starts the entrance on the first input; sends later content to the open popup and re-measures it when it has no fixed size.</summary>
 	protected override void InputChanged( NativePopupInput input )
 	{
+		_appear ??= PopupMotion.Start( Animate( 0.0 ) );
 		if ( _window is null || _root is null )
 			return;
 
@@ -134,7 +147,7 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 			return;
 		}
 
-		var root = new PopupRoot( input.Content );
+		var root = new PopupRoot( input.Content, () => (_appear?.Value ?? 1, Rise) );
 		var window = new PopupWindow( Host, root, input.Kind );
 		window.Dismissed += UpdateDismissed;
 		_root = root;
@@ -207,8 +220,10 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 			: new ElementRect { X = box.X, Y = box.Y, Width = box.Width, Height = box.Height };
 	}
 
-	/// <summary>Shows the latest content inside the native popup.</summary>
-	private sealed class PopupRoot( Blob content ) : Cell
+	/// <summary>Shows the latest content inside the native popup, at the owner's point of the entrance.</summary>
+	/// <param name="content">The first content.</param>
+	/// <param name="motion">Reads the entrance's progress and rise from the owner.</param>
+	private sealed class PopupRoot( Blob content, Func<(double Progress, double Rise)> motion ) : Cell
 	{
 		/// <summary>Stores the content shown.</summary>
 		private Blob _content = content;
@@ -221,6 +236,12 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 		}
 
 		/// <summary>Builds the content filling the popup.</summary>
-		public override Blob Build() => new Container { FlexGrow = 1, Children = [_content] };
+		public override Blob Build()
+		{
+			var surface = new Container { FlexGrow = 1, Children = [_content] };
+			var (progress, rise) = motion();
+			PopupMotion.Apply( surface, progress, rise );
+			return surface;
+		}
 	}
 }

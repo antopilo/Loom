@@ -25,6 +25,9 @@ public sealed partial class SidebarRows
 	/// <summary>Defines how long the grid stays open after the pointer leaves it or the +, in milliseconds, so the pointer can cross between them.</summary>
 	private const int StarterCloseMs = 250;
 
+	/// <summary>Defines how long the pointer rests on the + before the grid opens, in milliseconds, so a pointer that only crosses it opens nothing.</summary>
+	private const int StarterOpenMs = 150;
+
 	/// <summary>Tracks the group whose grid is open, or an empty group when none is.</summary>
 	private readonly State<Guid> _starters = new( Guid.Empty );
 
@@ -84,7 +87,6 @@ public sealed partial class SidebarRows
 		var border = theme.BorderWidth;
 		var hint = _starterHint.Value is { Length: > 0 } title ? title : $"New task in {name}";
 
-		// A native popup draws over native child surfaces, such as browser pages, which a portal cannot.
 		var grid = new Container
 		{
 			Width = columns * StarterSize + (columns - 1) * StarterGap + (StarterGap + border) * 2,
@@ -118,10 +120,13 @@ public sealed partial class SidebarRows
 				},
 			],
 		};
+		// Not modal: a modal menu blocks the + under it, whose leave then closes the grid and whose enter reopens it, which flickers,
+		// and whose press it takes, so a click there made no chat. The grid closes when the pointer leaves it, and its tiles close it on Escape.
 		return Cell.Mount<NativePopupInput, NativePopup>( "starters", new( anchor, grid, () => context.Run( CloseStarters ) )
 		{
 			Placement = PortalPlacement.BottomEnd,
 			Kind = PopupKind.Menu,
+			IsModal = false,
 			Role = AccessibilityRole.Group,
 			Name = $"Start a task in {name}",
 		} );
@@ -181,15 +186,21 @@ public sealed partial class SidebarRows
 		};
 	}
 
-	/// <summary>Opens a group's grid as the pointer reaches its + or the grid, closing any other group's.</summary>
+	/// <summary>Opens a group's grid once the pointer has rested on its + or reached the grid, closing any other group's.</summary>
 	private void EnterStarters( Guid id )
 	{
 		_isOverStarters = true;
 		if ( _starters.Value == id )
 			return;
 
-		_starterHint.Value = "";
-		_starters.Value = id;
+		_ = Task.Delay( StarterOpenMs, context.Lifetime ).ContinueWith( _ => context.Post( () =>
+		{
+			if ( !_isOverStarters || _starters.Value == id )
+				return;
+
+			_starterHint.Value = "";
+			_starters.Value = id;
+		} ), CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion, TaskScheduler.Default );
 	}
 
 	/// <summary>Closes a group's grid shortly after the pointer leaves its + or the grid, unless the pointer reached the other by then.</summary>

@@ -21,14 +21,14 @@ internal static class ShellTools
 			"""{ "type": "object", "properties": {}, "additionalProperties": false }""",
 			( context, _ ) => BuildState( context ) )
 		.Tool( "open_panel",
-			"Opens a new panel of a registered type. By default it splits the target panel's pane and opens to its right, or fills the target pane when it is empty. Returns the new panel's id.",
+			"Opens a new panel of a registered type. By default it splits the target panel's pane along its longer side: to the right of a wide pane, below a tall one. It fills the target pane when it is empty. Returns the new panel's id.",
 			$$"""
 			{
 				"type": "object",
 				"properties": {
 					"type": { "type": "string", "description": "A panel type id from shell_state, such as conversations.chat." },
 					"beside": { "type": "string", "description": "The panel to open next to: an id, a unique id prefix, or \"self\". Defaults to your own panel. Beside a panel that is not on screen, the new panel waits hidden and appears with it." },
-					"placement": { "type": "string", "enum": ["right", "left", "top", "bottom"], "description": "Which side of the target panel the new one takes. Defaults to right." }
+					"placement": { "type": "string", "enum": ["right", "left", "top", "bottom"], "description": "Which side of the target panel the new one takes. Defaults to right for a wide pane and bottom for a tall one." }
 				},
 				"required": ["type"],
 				"additionalProperties": false
@@ -173,12 +173,13 @@ internal static class ShellTools
 		if ( panels.Types.All( item => item.Id != type ) )
 			throw new ArgumentException( $"There is no panel type {type}; shell_state lists them." );
 
-		var placement = ReadPlacement( arguments, PanelPlacement.Right );
+		var target = ReadString( arguments, "beside" ) is not null ? ResolvePanel( context, arguments, "beside" ).Id : context.Caller ?? panels.ActivePanelId;
+		var targetPane = panels.Panes.FirstOrDefault( pane => pane.PanelId == target )?.Id ?? panels.ActivePaneId;
+		var placement = ReadPlacement( arguments, DefaultPlacement( panels.Root, targetPane ) );
 		if ( placement == PanelPlacement.Swap )
 			throw new ArgumentException( "Open a panel to the right, left, top or bottom." );
 
 		// A chat working in the background must not drop its panel into the layout the user is looking at.
-		var target = ReadString( arguments, "beside" ) is not null ? ResolvePanel( context, arguments, "beside" ).Id : context.Caller ?? panels.ActivePanelId;
 		if ( target is { } hidden && !panels.IsShown( hidden ) )
 		{
 			var waiting = panels.OpenBeside( type, hidden );
@@ -190,7 +191,6 @@ internal static class ShellTools
 			} );
 		}
 
-		var targetPane = panels.Panes.FirstOrDefault( pane => pane.PanelId == target )?.Id ?? panels.ActivePaneId;
 		var opened = panels.Open( type, targetPane );
 		// Open fills an empty pane or splits to the right; any other side is a move from there.
 		if ( placement != PanelPlacement.Right && target is not null )
@@ -202,6 +202,37 @@ internal static class ShellTools
 			Title = panels.Panels.First( panel => panel.Id == opened ).Title,
 		} );
 	}
+
+	/// <summary>Defines the assumed width-to-height ratio of the window, used to measure a pane from the split tree.</summary>
+	private const double WindowAspect = 16.0 / 9.0;
+
+	/// <summary>Picks the side that splits a pane along its longer edge, so repeated opens alternate between right and bottom.</summary>
+	private static PanelPlacement DefaultPlacement( DockNode root, Guid paneId )
+	{
+		var width = WindowAspect;
+		var height = 1.0;
+		var node = root;
+		while ( node is DockSplit split )
+		{
+			var inFirst = ContainsPane( split.First, paneId );
+			var share = inFirst ? split.Ratio : 1 - split.Ratio;
+			if ( split.Axis == SplitAxis.Horizontal )
+				width *= share;
+			else
+				height *= share;
+			node = inFirst ? split.First : split.Second;
+		}
+
+		return width >= height ? PanelPlacement.Right : PanelPlacement.Bottom;
+	}
+
+	/// <summary>Tells whether a pane lies inside a layout node.</summary>
+	private static bool ContainsPane( DockNode node, Guid paneId ) => node switch
+	{
+		DockPane pane => pane.Id == paneId,
+		DockSplit split => ContainsPane( split.First, paneId ) || ContainsPane( split.Second, paneId ),
+		_ => false,
+	};
 
 	/// <summary>Docks a panel beside another, or swaps them.</summary>
 	private static AgentToolResult MovePanel( AgentToolContext context, JsonElement arguments )
