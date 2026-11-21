@@ -58,7 +58,8 @@ public sealed class StreamService : IHostService
 			connection.RequireControl();
 			return Task.FromResult<JsonObject?>( new JsonObject
 			{
-				["windows"] = JsonSerializer.SerializeToNode( ReadWindows(), Wire ),
+				// Loom on this PC never gets its own screens: a stream of the screen it shows on mirrors itself, and its input moves the pointer it reads.
+				["windows"] = JsonSerializer.SerializeToNode( ReadWindows( withScreens: connection.DeviceId != HostGateway.LocalDevice ), Wire ),
 			} );
 		} );
 
@@ -66,6 +67,8 @@ public sealed class StreamService : IHostService
 		{
 			connection.RequireControl();
 			var window = Frame.ReadLong( frame, "hwnd" ) ?? throw new RemoteException( RemoteErrors.BadRequest, "cap.start needs hwnd." );
+			if ( ScreenCatalog.IsScreen( window ) && connection.DeviceId == HostGateway.LocalDevice )
+				throw new RemoteException( RemoteErrors.BadRequest, "Loom cannot stream the screen of the PC it runs on." );
 			if ( streams.Count >= MaxCaptures )
 				throw new RemoteException( RemoteErrors.Failed, $"A connection may stream at most {MaxCaptures} windows at once." );
 			var defaults = CaptureOptions.Default;
@@ -171,13 +174,13 @@ public sealed class StreamService : IHostService
 		return sent;
 	}
 
-	/// <summary>Reads the sources to offer: the test lister, this PC's screens and windows on Windows, or none elsewhere.</summary>
-	private IReadOnlyList<CaptureWindow> ReadWindows()
+	/// <summary>Reads the sources to offer: the test lister, this PC's windows on Windows with its screens first when asked, or none elsewhere.</summary>
+	private IReadOnlyList<CaptureWindow> ReadWindows( bool withScreens )
 	{
 		if ( ListWindows is { } list )
 			return list();
 
-		return OperatingSystem.IsWindows() ? ScreenCatalog.ListSources() : [];
+		return !OperatingSystem.IsWindows() ? [] : withScreens ? ScreenCatalog.ListSources() : WindowCatalog.List();
 	}
 
 	/// <summary>Builds the capturer of a window or a screen, refusing ones that do not exist and platforms without capture.</summary>

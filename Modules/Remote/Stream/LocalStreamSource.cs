@@ -32,17 +32,20 @@ public sealed class LocalStreamSource : IStreamSource, IDisposable
 	/// <summary>Gets true: an in-process source always controls its own desktop.</summary>
 	public bool CanControl => true;
 
-	/// <summary>Lists this PC's screens, then its windows, off the calling thread.</summary>
-	public Task<IReadOnlyList<CaptureWindow>> ListAsync( CancellationToken cancellation ) => Task.Run( ScreenCatalog.ListSources, cancellation );
+	/// <summary>Lists this PC's windows off the calling thread; never its screens, since a stream of the screen Loom shows on mirrors itself and its input
+	/// moves the pointer the panel reads.</summary>
+	public Task<IReadOnlyList<CaptureWindow>> ListAsync( CancellationToken cancellation ) => Task.Run( WindowCatalog.List, cancellation );
 
-	/// <summary>Starts capturing a window or a screen of this PC, and follows what agents do in it (<see cref="AgentWindowActivity"/>).</summary>
-	/// <exception cref="InvalidOperationException">The window or screen does not exist.</exception>
+	/// <summary>Starts capturing a window of this PC, and follows what agents do in it (<see cref="AgentWindowActivity"/>).</summary>
+	/// <exception cref="InvalidOperationException">The window does not exist, or a screen was asked for.</exception>
 	public Task StartAsync( long window, CaptureOptions options, CancellationToken cancellation )
 	{
 		Stop();
 		var handle = (nint)window;
-		if ( _open is null && !ScreenCatalog.Exists( window ) )
-			throw new InvalidOperationException( ScreenCatalog.IsScreen( window ) ? "The screen was disconnected." : "The window was closed." );
+		if ( ScreenCatalog.IsScreen( window ) )
+			throw new InvalidOperationException( "Loom cannot stream the screen of the PC it runs on." );
+		if ( _open is null && !StreamNative.IsWindow( handle ) )
+			throw new InvalidOperationException( "The window was closed." );
 
 		CaptureSession? session = null;
 		session = new( _open?.Invoke( window ) ?? WindowCapturers.Open( handle ), options, frame => FrameReceived?.Invoke( frame ), error =>
