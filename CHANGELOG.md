@@ -3,7 +3,7 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
-## Unreleased
+## 0.4.9
 
 - **Stream a whole screen.** The Window stream lists each screen of the PC above its windows. A screen streams with
   the pointer, and clicks, keys and typed text go wherever the PC's focus is, so you can use the PC as if you sat at it.
