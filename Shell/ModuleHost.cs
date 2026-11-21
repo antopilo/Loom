@@ -62,6 +62,9 @@ internal sealed class ModuleHost
 	/// <summary>Coalesces the file events one save of the module states file raises into a single read; the daemon's only.</summary>
 	private readonly Timer _statesDebounce;
 
+	/// <summary>Stores the startup work <see cref="BeginStart"/> runs on a background thread until <see cref="Start"/> takes its result; null otherwise.</summary>
+	private Task<Generation?>? _starting;
+
 	/// <summary>Gets the directory beside the executable where module projects deploy their DLLs.</summary>
 	internal static string DefaultDirectory => Path.Combine( AppContext.BaseDirectory, "modules" );
 
@@ -99,22 +102,20 @@ internal sealed class ModuleHost
 			app.ModuleToggled += states.Set;
 	}
 
+	/// <summary>Begins <see cref="Start"/>'s work that touches no application state on a background thread, so it runs while the window opens:
+	/// applying staged updates, then reading, loading and checking every module assembly. <see cref="Start"/> waits for it, then starts the modules.</summary>
+	internal void BeginStart() => _starting ??= Task.Run( Prepare );
+
 	/// <summary>Applies staged updates, loads every module assembly in dependency order, then watches the folders for new ones. The daemon leaves
 	/// staged and outdated updates to Loom on this PC, which owns the updates folder, and also watches the module states file.</summary>
 	internal void Start()
 	{
-		Directory.CreateDirectory( _directory );
-		if ( _updatesDirectory is not null )
-		{
-			Directory.CreateDirectory( _updatesDirectory );
-			if ( _daemon is null )
-			{
-				ApplyStaged();
-				RemoveOutdatedUpdates();
-			}
-		}
-
-		Apply( ReadChanges(), isInitial: true );
+		Generation? generation;
+		using ( PerfTrace.Step( "modules.prepared" ) )
+			generation = _starting is { } starting ? starting.GetAwaiter().GetResult() : Prepare();
+		_starting = null;
+		if ( generation is not null )
+			Install( generation, isInitial: true );
 		Watch( _directory, AssemblyPattern, _debounce );
 		if ( _updatesDirectory is not null )
 			Watch( _updatesDirectory, AssemblyPattern, _debounce );
@@ -129,6 +130,25 @@ internal sealed class ModuleHost
 			Directory.CreateDirectory( folder );
 			Watch( folder, Path.GetFileName( _states.FilePath ), _statesDebounce );
 		}
+	}
+
+	/// <summary>Applies staged updates and reads, loads and checks every module assembly, starting nothing; null when there is none.</summary>
+	private Generation? Prepare()
+	{
+		using var step = PerfTrace.Step( "modules.prepare" );
+		Directory.CreateDirectory( _directory );
+		if ( _updatesDirectory is not null )
+		{
+			Directory.CreateDirectory( _updatesDirectory );
+			if ( _daemon is null )
+			{
+				ApplyStaged();
+				RemoveOutdatedUpdates();
+			}
+		}
+
+		var changes = ReadChanges();
+		return changes.Count == 0 ? null : LoadChanges( changes, isCollectible: false );
 	}
 
 	/// <summary>Stops watching while leaving the loaded modules running.</summary>
@@ -171,7 +191,7 @@ internal sealed class ModuleHost
 		var refused = new Dictionary<string, string>( StringComparer.OrdinalIgnoreCase );
 		try
 		{
-			LoadCompatible( BuildAffected( changes ), ( image, problem ) =>
+			LoadCompatible( BuildAffected( changes ), isCollectible: true, ( image, problem ) =>
 			{
 				if ( changes.Contains( image ) )
 					refused[image.Name] = problem;
@@ -220,7 +240,7 @@ internal sealed class ModuleHost
 	{
 		if ( _daemon is null )
 		{
-			Apply( changes, isInitial: false );
+			Apply( changes );
 			return;
 		}
 
@@ -244,7 +264,7 @@ internal sealed class ModuleHost
 
 		var changes = _deferred.Values.ToList();
 		_deferred.Clear();
-		Apply( changes, isInitial: false );
+		Apply( changes );
 	}
 
 	/// <summary>Reads the module states file again after Loom on this PC saved it and turns the daemon's modules on and off to match; on the UI thread.</summary>
@@ -391,30 +411,57 @@ internal sealed class ModuleHost
 	private bool IsUpdate( string file ) => _updatesDirectory is not null && string.Equals( Path.GetDirectoryName( file ), _updatesDirectory, StringComparison.OrdinalIgnoreCase );
 
 	/// <summary>Loads changed assemblies together with the assemblies that reference them, then swaps their modules in.</summary>
-	private void Apply( IReadOnlyList<AssemblyImage> changes, bool isInitial )
+	private void Apply( IReadOnlyList<AssemblyImage> changes )
 	{
 		if ( changes.Count == 0 )
 			return;
 
+		Install( LoadChanges( changes, isCollectible: true ), isInitial: false );
+	}
+
+	/// <summary>Loads changed assemblies together with the assemblies that reference them and checks that they fit, without starting a module or
+	/// reporting anything; before the modules start, this touches no application state and runs off the UI thread.</summary>
+	/// <param name="changes">The changed assemblies.</param>
+	/// <param name="isCollectible">Whether they load into collectible contexts (<see cref="LoadGeneration"/>).</param>
+	private Generation LoadChanges( IReadOnlyList<AssemblyImage> changes, bool isCollectible )
+	{
 		var affected = BuildAffected( changes );
 		var names = string.Join( ", ", affected.Select( image => image.Name ) );
+		var refused = new List<(AssemblyImage Image, string Problem)>();
 		try
 		{
-			var isRefused = false;
-			var hosted = LoadCompatible( affected, ( image, problem ) =>
-			{
-				isRefused = true;
+			return new( names, affected, LoadCompatible( affected, isCollectible, ( image, problem ) => refused.Add( (image, problem) ) ), refused, null );
+		}
+		catch ( Exception error )
+		{
+			return new( names, affected, [], refused, error );
+		}
+	}
+
+	/// <summary>Reports a loaded generation's refused updates and swaps its modules in; on the UI thread.</summary>
+	private void Install( Generation generation, bool isInitial )
+	{
+		var names = generation.Names;
+		try
+		{
+			foreach ( var (image, problem) in generation.Refused )
 				Refuse( image, problem );
-			} );
+			if ( generation.Error is { } loadError )
+			{
+				ReportFailure( names, loadError );
+				return;
+			}
+
+			var hosted = generation.Hosted;
 			// A refused update leaves its module on the version already running; reloading it would only stop its work.
-			if ( !isInitial && isRefused && hosted.All( item => _assemblies.TryGetValue( item.Image.Name, out var current ) && current.Image.IsSameFile( item.Image ) ) )
+			if ( !isInitial && generation.Refused.Count > 0 && hosted.All( item => _assemblies.TryGetValue( item.Image.Name, out var current ) && current.Image.IsSameFile( item.Image ) ) )
 				return;
 
 			foreach ( var item in hosted )
 				item.Modules = [.. BuildModules( item.Assembly ).Where( IsAllowed )];
 
 			var modules = OrderModules( hosted.SelectMany( item => item.Modules ).ToArray() );
-			RemoveDroppedModules( affected, modules );
+			RemoveDroppedModules( generation.Affected, modules );
 
 			// At startup each module stands alone, so one failing module does not hold back the others; a module the user turned off is only listed.
 			var isLoaded = true;
@@ -426,7 +473,10 @@ internal sealed class ModuleHost
 					// A module whose needed modules are off stays listed and off, rather than failing to load; one that cannot unload is always on.
 					var isOn = !module.CanUnload || (wanted?.Contains( module.Id ) ?? _states?.IsOn( module.Id ) ?? true);
 					if ( isOn && module.Dependencies.All( id => _app.Modules.Any( loaded => loaded.Id == id ) ) )
+					{
+						using var step = PerfTrace.Step( "module", module.Id );
 						isLoaded &= _app.Load( module );
+					}
 					else
 						_app.AddAvailable( module );
 				}
@@ -445,27 +495,39 @@ internal sealed class ModuleHost
 		}
 		catch ( Exception error )
 		{
-			var failure = error switch
-			{
-				ReflectionTypeLoadException { LoaderExceptions: [{ } first, ..] } => first,
-				TargetInvocationException { InnerException: { } inner } => inner,
-				_ => error,
-			};
-			UpdateLog( $"FAILED {names}: {failure.Message}" );
-			_app.ReportError( $"Reload {names}", failure );
+			ReportFailure( names, error );
 		}
+	}
+
+	/// <summary>Logs and reports a generation that did not load, by its innermost meaningful error.</summary>
+	/// <param name="names">The generation's assembly names.</param>
+	/// <param name="error">Why it did not load.</param>
+	private void ReportFailure( string names, Exception error )
+	{
+		var failure = error switch
+		{
+			ReflectionTypeLoadException { LoaderExceptions: [{ } first, ..] } => first,
+			TargetInvocationException { InnerException: { } inner } => inner,
+			_ => error,
+		};
+		UpdateLog( $"FAILED {names}: {failure.Message}" );
+		_app.ReportError( $"Reload {names}", failure );
 	}
 
 	/// <summary>Loads a generation of assemblies, replacing each update that does not fit with its older version until all of them fit.</summary>
 	/// <param name="affected">The images to load; refused updates are replaced in it.</param>
+	/// <param name="isCollectible">Whether they load into collectible contexts (<see cref="LoadGeneration"/>).</param>
 	/// <param name="refuse">Told about each refused update and its first problem.</param>
 	/// <exception cref="InvalidOperationException">A module that is not an update does not fit, so no older version can replace it.</exception>
-	private List<HostedAssembly> LoadCompatible( List<AssemblyImage> affected, Action<AssemblyImage, string> refuse )
+	private List<HostedAssembly> LoadCompatible( List<AssemblyImage> affected, bool isCollectible, Action<AssemblyImage, string> refuse )
 	{
 		while ( true )
 		{
-			var hosted = LoadGeneration( affected );
+			List<HostedAssembly> hosted;
+			using ( PerfTrace.Step( "modules.load" ) )
+				hosted = LoadGeneration( affected, isCollectible );
 			var refused = new List<(AssemblyImage Image, string Problem)>();
+			using var check = PerfTrace.Step( "modules.check" );
 			foreach ( var item in hosted )
 			{
 				if ( ModuleCompatibility.FindProblem( item.Assembly, item.Image.Image ) is not { } problem )
@@ -498,7 +560,11 @@ internal sealed class ModuleHost
 	}
 
 	/// <summary>Loads images into fresh contexts that resolve each other, and the untouched assemblies, by name.</summary>
-	private List<HostedAssembly> LoadGeneration( IReadOnlyList<AssemblyImage> images )
+	/// <param name="images">The images.</param>
+	/// <param name="isCollectible">Whether the GC may reclaim the contexts once nothing references them, as for a replaced or refused module. The runtime
+	/// compiles a collectible assembly's methods fully optimized on their first call, about three times as long as its quick first tier, so the
+	/// modules Loom starts with load into contexts that stay; only reloads, which replace them, and update checks load into collectible ones.</param>
+	private List<HostedAssembly> LoadGeneration( IReadOnlyList<AssemblyImage> images, bool isCollectible )
 	{
 		// Assemblies in one generation resolve each other through this map; untouched assemblies keep their loaded copy.
 		var generation = _assemblies
@@ -508,8 +574,7 @@ internal sealed class ModuleHost
 		var hosted = new List<HostedAssembly>();
 		foreach ( var image in images )
 		{
-			// A collectible context lets the GC reclaim a replaced or refused module once nothing references it.
-			var context = new ModuleLoadContext( image.Name, generation );
+			var context = new ModuleLoadContext( image.Name, generation, isCollectible );
 			var assembly = context.LoadFromStream( new MemoryStream( image.Image ), image.Symbols is null ? null : new MemoryStream( image.Symbols ) );
 			generation[image.Name] = assembly;
 			hosted.Add( new( image, assembly ) );
@@ -642,8 +707,16 @@ internal sealed class ModuleHost
 		internal ILoknModule[] Modules { get; set; } = [];
 	}
 
+	/// <summary>Holds a generation of module assemblies loaded and checked, ready for the UI thread to report and start.</summary>
+	/// <param name="Names">The affected assemblies' names, for the log.</param>
+	/// <param name="Affected">The images loaded, with refused updates replaced by their older version or left out.</param>
+	/// <param name="Hosted">The loaded assemblies, empty when <paramref name="Error"/> is set.</param>
+	/// <param name="Refused">The updates refused, each with its first problem, in the order they were found.</param>
+	/// <param name="Error">Why the generation did not load, or null.</param>
+	private sealed record Generation( string Names, List<AssemblyImage> Affected, List<HostedAssembly> Hosted, List<(AssemblyImage Image, string Problem)> Refused, Exception? Error );
+
 	/// <summary>Resolves references between module assemblies of one generation; everything else comes from the application.</summary>
-	private sealed class ModuleLoadContext( string name, IReadOnlyDictionary<string, Assembly> modules ) : AssemblyLoadContext( name, isCollectible: true )
+	private sealed class ModuleLoadContext( string name, IReadOnlyDictionary<string, Assembly> modules, bool isCollectible ) : AssemblyLoadContext( name, isCollectible )
 	{
 		/// <summary>Returns the module assembly of that name, else the application's loaded assembly of that name, else null for the default rules.</summary>
 		/// <remarks>

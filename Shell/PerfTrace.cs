@@ -1,14 +1,17 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime;
 using Goo;
 
 namespace Lokn;
 
-/// <summary>Writes startup phases and the frames the window presents to the file <c>LOKN_PERF_TRACE</c> names, for <c>scripts/bench.ps1</c>.</summary>
+/// <summary>Writes startup phases, startup steps and the frames the window presents to the file <c>LOKN_PERF_TRACE</c> names, for <c>scripts/bench.ps1</c>.</summary>
 /// <remarks>
 /// Off unless the variable is set, so a normal start pays one environment read. Each line is <c>&lt;ms since the process started&gt; &lt;event&gt;</c>:
 /// a startup phase, <c>first-frame</c> once the window presented, <c>interactive</c> once the UI thread ran work queued after it, one
-/// <c>frames &lt;n&gt;</c> line per second with the frames presented in it, and the window's focus and state changes.
+/// <c>frames &lt;n&gt;</c> line per second with the frames presented in it, and the window's focus and state changes. A step, measured with
+/// <see cref="Step"/>, writes <c>step &lt;name&gt; &lt;ms&gt; jit &lt;methods&gt; &lt;ms&gt;</c> when it ends: how long it took on its thread, and
+/// how many methods that thread compiled in it and for how long.
 /// </remarks>
 internal static class PerfTrace
 {
@@ -36,9 +39,24 @@ internal static class PerfTrace
 	/// <summary>Gets whether tracing is on.</summary>
 	internal static bool IsEnabled => _writer is not null;
 
+	/// <summary>Starts measuring a step of startup on the calling thread; disposing it writes the step's line.</summary>
+	/// <param name="name">The step, words without spaces such as <c>module.load.conversations</c>.</param>
+	/// <returns>The running measurement; free while tracing is off.</returns>
+	internal static Measurement Step( string name ) => _writer is null ? default : new( name );
+
+	/// <summary>Starts measuring a step of startup about one item, such as one module, on the calling thread.</summary>
+	/// <param name="name">The step, a word such as <c>module</c>.</param>
+	/// <param name="item">The item, a word such as a module ID; the step is written as <c>&lt;name&gt;.&lt;item&gt;</c>.</param>
+	/// <returns>The running measurement; free while tracing is off.</returns>
+	internal static Measurement Step( string name, string item ) => _writer is null ? default : new( name + "." + item );
+
 	/// <summary>Records that startup reached a phase.</summary>
 	/// <param name="phase">The phase, one word.</param>
-	internal static void Mark( string phase )
+	internal static void Mark( string phase ) => Write( phase );
+
+	/// <summary>Writes one line stamped with the time since the process started.</summary>
+	/// <param name="text">The event.</param>
+	private static void Write( string text )
 	{
 		if ( _writer is null )
 			return;
@@ -46,8 +64,46 @@ internal static class PerfTrace
 		var elapsed = (DateTime.UtcNow - _processStart).TotalMilliseconds;
 		lock ( _gate )
 		{
-			_writer.WriteLine( string.Create( CultureInfo.InvariantCulture, $"{elapsed:F0} {phase}" ) );
+			_writer.WriteLine( string.Create( CultureInfo.InvariantCulture, $"{elapsed:F0} {text}" ) );
 			_writer.Flush();
+		}
+	}
+
+	/// <summary>Measures one startup step on one thread: its duration and the methods the thread compiled meanwhile.</summary>
+	internal readonly struct Measurement : IDisposable
+	{
+		/// <summary>Stores the step's name, or null when tracing is off.</summary>
+		private readonly string? _name;
+
+		/// <summary>Stores when the step started.</summary>
+		private readonly long _start;
+
+		/// <summary>Stores how many methods the thread had compiled when the step started.</summary>
+		private readonly long _methods;
+
+		/// <summary>Stores how long the thread had spent compiling when the step started.</summary>
+		private readonly TimeSpan _compiling;
+
+		/// <summary>Starts measuring a step.</summary>
+		/// <param name="name">The step.</param>
+		internal Measurement( string name )
+		{
+			_name = name;
+			_start = Stopwatch.GetTimestamp();
+			_methods = JitInfo.GetCompiledMethodCount( currentThread: true );
+			_compiling = JitInfo.GetCompilationTime( currentThread: true );
+		}
+
+		/// <summary>Writes the step's line.</summary>
+		public void Dispose()
+		{
+			if ( _name is null )
+				return;
+
+			var elapsed = Stopwatch.GetElapsedTime( _start ).TotalMilliseconds;
+			var methods = JitInfo.GetCompiledMethodCount( currentThread: true ) - _methods;
+			var compiling = (JitInfo.GetCompilationTime( currentThread: true ) - _compiling).TotalMilliseconds;
+			Write( string.Create( CultureInfo.InvariantCulture, $"step {_name} {elapsed:F0} jit {methods} {compiling:F0}" ) );
 		}
 	}
 
@@ -65,6 +121,7 @@ internal static class PerfTrace
 				return;
 
 			Mark( "first-frame" );
+			WriteCompiled();
 			// Work queued before the first frame runs first, so this marks when the UI thread is free for input.
 			window.Post( () => Mark( "interactive" ) );
 		};
@@ -72,6 +129,13 @@ internal static class PerfTrace
 		window.StateChanged += state => Mark( "state " + state );
 		window.VisibilityChanged += isVisible => Mark( isVisible ? "visible" : "hidden" );
 		_counter = new Timer( _ => Mark( "frames " + Interlocked.Exchange( ref _frames, 0 ) ), null, CountMs, CountMs );
+	}
+
+	/// <summary>Writes <c>jit &lt;methods&gt; &lt;ms&gt;</c>: how many methods the whole process compiled so far, on every thread, and for how long.</summary>
+	private static void WriteCompiled()
+	{
+		var compiling = JitInfo.GetCompilationTime( currentThread: false ).TotalMilliseconds;
+		Write( string.Create( CultureInfo.InvariantCulture, $"jit {JitInfo.GetCompiledMethodCount( currentThread: false )} {compiling:F0}" ) );
 	}
 
 	/// <summary>Opens the trace file the environment names, or returns null.</summary>

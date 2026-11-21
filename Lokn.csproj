@@ -13,12 +13,18 @@
 		<RootNamespace>Lokn</RootNamespace>
 		<ApplicationIcon>assets\brand\loom.ico</ApplicationIcon>
 		<!-- The release version: the installer's package version, and the version Program reports to Goo. Raise it for every release. -->
-		<Version>0.4.7</Version>
+		<Version>0.4.8</Version>
+		<!-- A publish (scripts/publish.ps1, the installer) precompiles Loom, Core, Goo and their libraries to native code, so starting Loom compiles
+		     about 6,000 fewer methods before its first frame (docs/performance.md#startup). Modules gain nothing from it: they load from their bytes
+		     (Shell/ModuleHost.cs), where the runtime ignores precompiled code, so they stay IL. -->
+		<PublishReadyToRun>true</PublishReadyToRun>
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- Lets the GC compact the large-object heap once it is fragmented: chats churn through large JSON and image buffers, which otherwise left
 		     over 150 MB of free gaps in a long-running window. 0 is off, 9 is most aggressive; 5 trades a little GC time for that memory. -->
 		<RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="5" />
+		<!-- Libraries Loom only loads on demand, and the largest ones: precompiling the Windows SDK projection alone would add 30 MB to the install. -->
+		<PublishReadyToRunExclude Include="Microsoft.Windows.SDK.NET.dll;WinRT.Runtime.dll;Tmds.DBus.Protocol.dll" />
 	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />

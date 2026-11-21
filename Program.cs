@@ -134,12 +134,21 @@ internal static class Program
 		app.Commands.BindDispatcher( operation => window.InvokeAsync( operation ) );
 		// The daemon shares settings.json; values it saves, such as its network mode, show here without a restart.
 		using var settingsWatch = app.Settings.Watch( window.Post );
-		// The theme is part of the shell; it loads first so every module's views draw with it.
-		app.Load( new ThemeModule() );
 		// Feature modules are separate DLLs, loaded here and reloaded whenever one is rebuilt or updated; an installed Loom also loads downloaded module updates.
 		// A bare instance sees every installed module but starts with all of them off; Settings › Modules turns them on, and its choice is kept in its folder.
 		var modules = new ModuleHost( app, ModuleHost.DefaultDirectory, bare is null ? Installation.ModuleUpdatesDirectory : null, ModuleHost.DefaultLogPath, ModuleStates.Create( bare is not null ) );
-		modules.Start();
+		// Reading, loading and checking the module DLLs touches no application state, so it runs on a background thread while the window opens.
+		modules.BeginStart();
+		PerfTrace.Attach( window );
+		// The native window and its Vulkan device take most of a second, mostly in the graphics driver and the OS (docs/performance.md#startup), and only
+		// the UI thread may create them: they come first, and the modules start on the open window before its first frame, which already shows them.
+		using ( PerfTrace.Step( "window.open" ) )
+			window.Open();
+		PerfTrace.Mark( "open" );
+		// The theme is part of the shell; it loads first so every module's views draw with it.
+		app.Load( new ThemeModule() );
+		using ( PerfTrace.Step( "modules" ) )
+			modules.Start();
 		PerfTrace.Mark( "modules" );
 		app.Load( new ShellModule() );
 		ShellBackdrop.Apply( window, app.Settings.Get( ShellSettings.Backdrop ) );
@@ -152,13 +161,14 @@ internal static class Program
 		}
 
 		PerfTrace.Mark( "shell" );
-		app.RestoreWorkspace();
+		using ( PerfTrace.Step( "workspace" ) )
+			app.RestoreWorkspace();
 		PerfTrace.Mark( "workspace" );
 		// Modules pick their own startup view, such as Home, through ModuleContext.WhenStarted; without one the shell shows its empty pane.
-		app.MarkStarted();
+		using ( PerfTrace.Step( "started" ) )
+			app.MarkStarted();
 
 		PerfTrace.Mark( "started" );
-		PerfTrace.Attach( window );
 		Application.Run( window );
 		return ShellRestart.IsRequested;
 	}

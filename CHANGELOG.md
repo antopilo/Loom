@@ -3,8 +3,10 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
-## Unreleased
+## 0.4.8
 
+- **Loom opens faster.** On a test PC the window shows its content after 1.5 s instead of 2.2 s: Loom ships precompiled,
+  opens its window while it reads its modules, and starts them faster.
 - **The background service uses far less memory.** After it loads your chats, it gives the memory it no longer needs
   back to Windows once no agent works, instead of keeping about 250 MB for good.
 

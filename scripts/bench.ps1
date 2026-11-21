@@ -917,8 +917,15 @@ try
 					$trace = Read-Trace $run
 					$firsts += ( $trace | Where-Object Event -eq 'first-frame' ).At
 					$interactives += ( $trace | Where-Object Event -eq 'interactive' ).At
-					$phases = ( $trace | Where-Object { $_.Event -notlike 'frames *' -and $_.Event -notlike 'state *' -and $_.Event -notin 'focused', 'unfocused', 'visible', 'hidden' } | ForEach-Object { "$( $_.Event )=$( $_.At )" } ) -join ' '
+					$phases = ( $trace | Where-Object { $_.Event -notlike 'frames *' -and $_.Event -notlike 'state *' -and $_.Event -notlike 'step *' -and $_.Event -notlike 'jit *' -and $_.Event -notin 'focused', 'unfocused', 'visible', 'hidden' } | ForEach-Object { "$( $_.Event )=$( $_.At )" } ) -join ' '
+					# Steps (Shell/PerfTrace.cs): how long each took on its thread, and the milliseconds that thread spent compiling methods in it.
+					$steps = ( $trace | Where-Object { $_.Event -like 'step *' } | ForEach-Object { $words = $_.Event.Split( ' ' ); "$( $words[1] )=$( $words[2] )/jit $( $words[5] )" } ) -join ' '
+					$compiled = ( $trace | Where-Object { $_.Event -like 'jit *' } | Select-Object -First 1 | ForEach-Object { $words = $_.Event.Split( ' ' ); "$( $words[1] ) methods compiled in $( $words[2] ) ms before the first frame" } )
 					Write-Host "start $launch  $phases"
+					if ( $steps )
+					{
+						Write-Host "        steps $steps; $compiled"
+					}
 				}
 
 				$first = ( $firsts | Sort-Object )[[int]( $firsts.Count / 2 )]

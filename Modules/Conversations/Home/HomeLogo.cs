@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Goo;
 using Lokn.Core;
 using Lokn.Modules.Chat;
@@ -287,6 +288,9 @@ internal sealed class HomeLogo : GuardedCell
 	}
 
 	/// <summary>Finds a point's distance from the weft's center line, in units, and how far along the weft its nearest point lies, from 0 to 1.</summary>
+	/// <remarks>Compiled optimized from its first call: building <see cref="Points"/> calls it for every cell of the fill grid, which unoptimized code
+	/// takes about 200 ms for.</remarks>
+	[MethodImpl( MethodImplOptions.AggressiveOptimization )]
 	internal static (double Distance, double Along) MeasureWeft( double x, double y )
 	{
 		var best = double.MaxValue;

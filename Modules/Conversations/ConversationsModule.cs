@@ -136,6 +136,8 @@ public sealed partial class ConversationsModule(
 	/// <remarks>It also follows deleted conversations, whoever deleted them, and the requests of chats no panel shows, on every host.</remarks>
 	public void Start( ModuleContext context )
 	{
+		// Home's mark places its characters from geometry computed once; computing it now, beside the rest of startup, keeps it off the first frame.
+		_ = Task.Run( () => HomeLogo.Points.Count );
 		_context = context;
 		var app = context.App;
 		_projects = app.GetModule<ProjectsModule>();
