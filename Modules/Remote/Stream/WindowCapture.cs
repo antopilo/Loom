@@ -23,12 +23,21 @@ public interface IWindowCapturer : IDisposable
 	BgraFrame? Capture( int maxWidth );
 }
 
-/// <summary>Opens the best capturer for a window.</summary>
+/// <summary>Opens the best capturer for a window or a screen.</summary>
 public static class WindowCapturers
 {
 	/// <summary>Opens a <see cref="GraphicsCapture"/>, which takes frames from the compositor, else a <see cref="WindowCapture"/> on Windows without it or for a window it refuses.</summary>
+	/// <param name="window">The window, or a screen's negative id (<see cref="ScreenCatalog"/>), which only <see cref="GraphicsCapture"/> captures.</param>
+	/// <exception cref="NotSupportedException">A screen was asked for on Windows without Windows.Graphics.Capture.</exception>
 	public static IWindowCapturer Open( nint window )
 	{
+		if ( ScreenCatalog.IsScreen( window ) )
+		{
+			return OperatingSystem.IsWindowsVersionAtLeast( 10, 0, 19041 )
+				? GraphicsCapture.ForScreen( window )
+				: throw new NotSupportedException( "Streaming a screen needs Windows 10 version 2004 or later." );
+		}
+
 		try
 		{
 			if ( OperatingSystem.IsWindowsVersionAtLeast( 10, 0, 19041 ) )

@@ -182,7 +182,8 @@ public sealed partial class StreamContent : PanelContent
 				new Text { Content = window.Title, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, },
 				new Text
 				{
-					Content = window.Process.Length > 0 ? $"{window.Process} · {window.Width}×{window.Height}" : $"{window.Width}×{window.Height}",
+					Content = ScreenCatalog.IsScreen( window.Hwnd ) ? $"Whole screen · {window.Width}×{window.Height}"
+						: window.Process.Length > 0 ? $"{window.Process} · {window.Width}×{window.Height}" : $"{window.Width}×{window.Height}",
 					Color = theme.Muted,
 					FontSize = ViewStyle.SmallSize,
 				},

@@ -616,6 +616,12 @@ true on press for `key`. `cap.list`, `cap.start` and `cap.input` answer `err sco
 device. Input requests are handled in arrival order. Keys and clicks are sent only while the
 streamed window, or a window it owns, is in the foreground; otherwise they are dropped.
 
+Screens: since Remote 2.9.0 `cap.list` lists the host's screens before its windows, with a negative
+`hwnd` (-1 the main screen, then -2, -3 in the order Windows lists them), `process` empty and the
+screen's size in physical pixels (`ScreenCatalog`). A screen streams through Windows.Graphics.Capture with the
+pointer drawn in; its `cap.input` maps frame pixels to the screen's bounds and goes to whatever has the
+focus, with no foreground check. An older host lists no screens; an older client shows them as windows.
+
 Codecs: a client lists in `codecs` what it decodes, best first; without the field the host sends JPEG.
 With `"h264"` listed, the host encodes H.264 with Media Foundation (a hardware encoder when the GPU has
 one, else Windows' software one): baseline profile, low-latency mode, Annex B in `data`, one picture per

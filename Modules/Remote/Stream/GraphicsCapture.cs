@@ -49,42 +49,72 @@ public sealed class GraphicsCapture : IWindowCapturer
 	/// <summary>Stores which output buffer the next capture fills.</summary>
 	private int _next;
 
+	/// <summary>Stores the captured screen's negative id (<see cref="ScreenCatalog"/>), or 0 for a window.</summary>
+	private readonly long _screen;
+
 	/// <summary>Starts capturing a window.</summary>
 	/// <exception cref="NotSupportedException">This Windows has no Windows.Graphics.Capture, or the window cannot be captured.</exception>
-	public GraphicsCapture( nint window )
+	public GraphicsCapture( nint window ) : this( window, 0 )
+	{
+	}
+
+	/// <summary>Starts capturing a window, or a whole screen with the pointer drawn in.</summary>
+	/// <param name="window">The window, or 0 for a screen.</param>
+	/// <param name="screen">The screen's negative id, or 0 for a window.</param>
+	/// <exception cref="NotSupportedException">This Windows has no Windows.Graphics.Capture, or the source cannot be captured.</exception>
+	/// <exception cref="ArgumentException">The screen is not connected.</exception>
+	private GraphicsCapture( nint window, long screen )
 	{
 		if ( !GraphicsCaptureSession.IsSupported() )
 			throw new NotSupportedException( "Windows.Graphics.Capture is not available." );
 
 		_window = window;
-		if ( StreamNative.IsIconic( window ) )
-			_ = StreamNative.ShowWindow( window, StreamNative.ShowNoActivate );
+		_screen = screen;
+		GraphicsCaptureItem item;
+		if ( screen != 0 )
+		{
+			item = CreateItem( ScreenCatalog.Find( screen )?.Monitor ?? throw new ArgumentException( "The screen is not connected." ), isScreen: true );
+		}
+		else
+		{
+			if ( StreamNative.IsIconic( window ) )
+				_ = StreamNative.ShowWindow( window, StreamNative.ShowNoActivate );
+			item = CreateItem( window, isScreen: false );
+		}
 
-		var item = CreateItem( window );
 		_device = CreateDevice();
 		_poolSize = item.Size;
 		_pool = Direct3D11CaptureFramePool.CreateFreeThreaded( _device, DirectXPixelFormat.B8G8R8A8UIntNormalized, PoolFrames, _poolSize );
 		_session = _pool.CreateCaptureSession( item );
-		_session.IsCursorCaptureEnabled = false;
+		// A screen is used as a whole desktop, so its pointer shows; a window's stream draws no pointer of its own.
+		_session.IsCursorCaptureEnabled = screen != 0;
 		_session.StartCapture();
 	}
 
-	/// <summary>Gets the window's client size in physical pixels, or (0, 0) when it is closed or minimized.</summary>
+	/// <summary>Starts capturing a whole screen, the pointer included.</summary>
+	/// <param name="screen">The screen's negative id (<see cref="ScreenCatalog"/>).</param>
+	/// <exception cref="ArgumentException">The screen is not connected.</exception>
+	public static GraphicsCapture ForScreen( long screen ) => new( 0, screen );
+
+	/// <summary>Gets the window's client size, or the screen's size, in physical pixels; (0, 0) when the window is closed or minimized or the screen is gone.</summary>
 	public (int Width, int Height) SourceSize
 	{
 		get
 		{
+			if ( _screen != 0 )
+				return ScreenCatalog.Find( _screen ) is { } found ? (found.Bounds.Right - found.Bounds.Left, found.Bounds.Bottom - found.Bounds.Top) : (0, 0);
+
 			using var dpi = StreamNative.EnterPhysicalPixels();
 			return StreamNative.IsIconic( _window ) || !StreamNative.GetClientRect( _window, out var rect ) ? (0, 0) : (rect.Right - rect.Left, rect.Bottom - rect.Top);
 		}
 	}
 
-	/// <summary>Takes the newest frame, crops it to the client area and scales it down to <paramref name="maxWidth"/>; returns the last image while nothing new arrived.</summary>
-	/// <exception cref="InvalidOperationException">The window no longer exists.</exception>
+	/// <summary>Takes the newest frame, crops a window's to its client area and scales it down to <paramref name="maxWidth"/>; returns the last image while nothing new arrived.</summary>
+	/// <exception cref="InvalidOperationException">The window no longer exists, or the screen was disconnected.</exception>
 	public BgraFrame? Capture( int maxWidth )
 	{
-		if ( !StreamNative.IsWindow( _window ) )
-			throw new InvalidOperationException( "The window was closed." );
+		if ( !ScreenCatalog.Exists( _screen != 0 ? _screen : _window ) )
+			throw new InvalidOperationException( _screen != 0 ? "The screen was disconnected." : "The window was closed." );
 
 		Direct3D11CaptureFrame? frame = null;
 		while ( _pool.TryGetNextFrame() is { } newer )
@@ -124,19 +154,24 @@ public sealed class GraphicsCapture : IWindowCapturer
 		_device.Dispose();
 	}
 
-	/// <summary>Copies the client area out of the full window image into the next output buffer, scaled to <paramref name="maxWidth"/> by averaging the source pixels each output pixel covers.</summary>
+	/// <summary>Copies a window's client area, or the whole screen, out of the full image into the next output buffer, scaled to <paramref name="maxWidth"/>
+	/// by averaging the source pixels each output pixel covers.</summary>
 	private BgraFrame? Crop( int width, int height, int maxWidth )
 	{
-		using var dpi = StreamNative.EnterPhysicalPixels();
-		var origin = new StreamNative.NativePoint();
-		if ( !StreamNative.GetClientRect( _window, out var client ) || !StreamNative.ClientToScreen( _window, ref origin )
-			|| DwmGetWindowAttribute( _window, ExtendedFrameBounds, out var bounds, Marshal.SizeOf<StreamNative.NativeRect>() ) != 0 )
-			return null;
+		int left = 0, top = 0, clientWidth = width, clientHeight = height;
+		if ( _screen == 0 )
+		{
+			using var dpi = StreamNative.EnterPhysicalPixels();
+			var origin = new StreamNative.NativePoint();
+			if ( !StreamNative.GetClientRect( _window, out var client ) || !StreamNative.ClientToScreen( _window, ref origin )
+				|| DwmGetWindowAttribute( _window, ExtendedFrameBounds, out var bounds, Marshal.SizeOf<StreamNative.NativeRect>() ) != 0 )
+				return null;
 
-		var left = Math.Clamp( origin.X - bounds.Left, 0, width );
-		var top = Math.Clamp( origin.Y - bounds.Top, 0, height );
-		var clientWidth = Math.Min( client.Right - client.Left, width - left );
-		var clientHeight = Math.Min( client.Bottom - client.Top, height - top );
+			left = Math.Clamp( origin.X - bounds.Left, 0, width );
+			top = Math.Clamp( origin.Y - bounds.Top, 0, height );
+			clientWidth = Math.Min( client.Right - client.Left, width - left );
+			clientHeight = Math.Min( client.Bottom - client.Top, height - top );
+		}
 		if ( clientWidth <= 0 || clientHeight <= 0 )
 			return null;
 
@@ -187,17 +222,19 @@ public sealed class GraphicsCapture : IWindowCapturer
 		return new( outWidth, outHeight, output );
 	}
 
-	/// <summary>Creates the capture item of a window through IGraphicsCaptureItemInterop.</summary>
-	private static unsafe GraphicsCaptureItem CreateItem( nint window )
+	/// <summary>Creates the capture item of a window or a screen through IGraphicsCaptureItemInterop.</summary>
+	/// <param name="handle">The window, or the screen's monitor handle.</param>
+	/// <param name="isScreen">Whether <paramref name="handle"/> is a monitor.</param>
+	private static unsafe GraphicsCaptureItem CreateItem( nint handle, bool isScreen )
 	{
 		var interopId = new Guid( "3628E81B-3CAC-4C60-B7F4-23CE0E0C3356" );
 		var itemId = new Guid( "79C3F95B-31F7-4EC2-A464-632EF5D30760" );
 		using var factory = ActivationFactory.Get( "Windows.Graphics.Capture.GraphicsCaptureItem", interopId );
 		var vtable = *(nint**)factory.ThisPtr;
-		// IGraphicsCaptureItemInterop::CreateForWindow follows IUnknown's three methods.
-		var create = (delegate* unmanaged[Stdcall]<nint, nint, Guid*, nint*, int>)vtable[3];
+		// IGraphicsCaptureItemInterop::CreateForWindow follows IUnknown's three methods, then CreateForMonitor.
+		var create = (delegate* unmanaged[Stdcall]<nint, nint, Guid*, nint*, int>)vtable[isScreen ? 4 : 3];
 		nint result;
-		Marshal.ThrowExceptionForHR( create( factory.ThisPtr, window, &itemId, &result ) );
+		Marshal.ThrowExceptionForHR( create( factory.ThisPtr, handle, &itemId, &result ) );
 		try
 		{
 			return GraphicsCaptureItem.FromAbi( result );

@@ -98,15 +98,17 @@ public sealed class InputInjector( nint window )
 	/// <param name="input">The event.</param>
 	/// <param name="frameWidth">The width of the frame the coordinates refer to.</param>
 	/// <param name="frameHeight">The height of the frame the coordinates refer to.</param>
-	/// <returns>False when the window is gone, the frame size is unknown, the kind or button is unknown, or Windows refused the input.</returns>
+	/// <returns>False when the window or screen is gone, the frame size is unknown, the kind or button is unknown, or Windows refused the input.</returns>
+	/// <remarks>On a screen (<see cref="ScreenCatalog"/>), input goes wherever the user's focus is, as at the PC; no window is raised.</remarks>
 	public bool Send( StreamInput input, int frameWidth, int frameHeight )
 	{
-		if ( !StreamNative.IsWindow( window ) )
+		var isScreen = ScreenCatalog.IsScreen( window );
+		if ( !ScreenCatalog.Exists( window ) )
 			return false;
 
 		using var dpi = StreamNative.EnterPhysicalPixels();
 		// Hovering needs no focus; raising the window on every move would also pull it over whatever the user looks at.
-		if ( input.Kind != StreamInput.Move )
+		if ( input.Kind != StreamInput.Move && !isScreen )
 		{
 			UpdateForeground();
 			// Keys and clicks go wherever the focus is, so they are dropped unless the streamed window, or a popup it owns, really has it.
@@ -117,13 +119,29 @@ public sealed class InputInjector( nint window )
 		if ( input.Kind == StreamInput.Key )
 			return SendKey( input.Vk, input.IsDown );
 
-		if ( frameWidth <= 0 || frameHeight <= 0 || !StreamNative.GetClientRect( window, out var client ) )
+		if ( frameWidth <= 0 || frameHeight <= 0 )
 			return false;
 
-		var point = ComputeClientPoint( input.X, input.Y, frameWidth, frameHeight, client.Right - client.Left, client.Bottom - client.Top );
-		var screen = new StreamNative.NativePoint { X = point.X, Y = point.Y };
-		if ( !StreamNative.ClientToScreen( window, ref screen ) )
-			return false;
+		StreamNative.NativePoint screen;
+		if ( isScreen )
+		{
+			if ( ScreenCatalog.Find( window ) is not { } found )
+				return false;
+
+			var bounds = found.Bounds;
+			var point = ComputeClientPoint( input.X, input.Y, frameWidth, frameHeight, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top );
+			screen = new StreamNative.NativePoint { X = bounds.Left + point.X, Y = bounds.Top + point.Y };
+		}
+		else
+		{
+			if ( !StreamNative.GetClientRect( window, out var client ) )
+				return false;
+
+			var point = ComputeClientPoint( input.X, input.Y, frameWidth, frameHeight, client.Right - client.Left, client.Bottom - client.Top );
+			screen = new StreamNative.NativePoint { X = point.X, Y = point.Y };
+			if ( !StreamNative.ClientToScreen( window, ref screen ) )
+				return false;
+		}
 
 		var desktop = (Left: StreamNative.GetSystemMetrics( StreamNative.VirtualScreenLeft ), Top: StreamNative.GetSystemMetrics( StreamNative.VirtualScreenTop ),
 			Width: StreamNative.GetSystemMetrics( StreamNative.VirtualScreenWidth ), Height: StreamNative.GetSystemMetrics( StreamNative.VirtualScreenHeight ));
@@ -230,17 +248,20 @@ public sealed class InputInjector( nint window )
 		return StreamNative.SendInput( 1, [key], Marshal.SizeOf<StreamNative.Input>() ) == 1;
 	}
 
-	/// <summary>Types text into the window as Unicode characters, independent of the keyboard layout; a line break presses Enter.</summary>
+	/// <summary>Types text into the window, or wherever the focus is on a screen, as Unicode characters independent of the keyboard layout; a line break presses Enter.</summary>
 	/// <param name="text">The text; carriage returns are skipped.</param>
-	/// <returns>False when the window is gone, could not be brought to the foreground, or Windows refused the input.</returns>
+	/// <returns>False when the window or screen is gone, the window could not be brought to the foreground, or Windows refused the input.</returns>
 	public bool SendText( string text )
 	{
-		if ( !StreamNative.IsWindow( window ) )
+		if ( !ScreenCatalog.Exists( window ) )
 			return false;
 
-		UpdateForeground();
-		if ( !IsForeground() )
-			return false;
+		if ( !ScreenCatalog.IsScreen( window ) )
+		{
+			UpdateForeground();
+			if ( !IsForeground() )
+				return false;
+		}
 
 		var inputs = new List<StreamNative.Input>( text.Length * 2 );
 		foreach ( var character in text )

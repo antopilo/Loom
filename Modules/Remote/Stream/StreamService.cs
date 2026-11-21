@@ -18,7 +18,7 @@ public sealed class StreamService : IHostService
 	/// <summary>Defines the wire form of <see cref="CaptureWindow"/> and <see cref="StreamInput"/>: camelCase JSON.</summary>
 	internal static readonly JsonSerializerOptions Wire = new( JsonSerializerDefaults.Web );
 
-	/// <summary>Gets or sets the window lister; null lists this PC's windows with <see cref="WindowCatalog.List"/>. Tests supply their own.</summary>
+	/// <summary>Gets or sets the window lister; null lists this PC's screens and windows with <see cref="ScreenCatalog.ListSources"/>. Tests supply their own.</summary>
 	internal Func<IReadOnlyList<CaptureWindow>>? ListWindows
 	{
 		get; init;
@@ -171,17 +171,17 @@ public sealed class StreamService : IHostService
 		return sent;
 	}
 
-	/// <summary>Reads the windows to offer: the test lister, this PC's windows on Windows, or none elsewhere.</summary>
+	/// <summary>Reads the sources to offer: the test lister, this PC's screens and windows on Windows, or none elsewhere.</summary>
 	private IReadOnlyList<CaptureWindow> ReadWindows()
 	{
 		if ( ListWindows is { } list )
 			return list();
 
-		return OperatingSystem.IsWindows() ? WindowCatalog.List() : [];
+		return OperatingSystem.IsWindows() ? ScreenCatalog.ListSources() : [];
 	}
 
-	/// <summary>Builds the capturer of a window, refusing windows that do not exist and platforms without capture.</summary>
-	/// <exception cref="RemoteException">The window does not exist or capture is unavailable.</exception>
+	/// <summary>Builds the capturer of a window or a screen, refusing ones that do not exist and platforms without capture.</summary>
+	/// <exception cref="RemoteException">The window or screen does not exist or capture is unavailable.</exception>
 	private IWindowCapturer BuildCapturer( long window )
 	{
 		if ( CreateCapturer is { } create )
@@ -190,8 +190,8 @@ public sealed class StreamService : IHostService
 		if ( !OperatingSystem.IsWindows() )
 			throw new RemoteException( RemoteErrors.Failed, "Window streaming needs Windows." );
 
-		if ( !StreamNative.IsWindow( (nint)window ) )
-			throw new RemoteException( RemoteErrors.BadRequest, "The window was closed." );
+		if ( !ScreenCatalog.Exists( window ) )
+			throw new RemoteException( RemoteErrors.BadRequest, ScreenCatalog.IsScreen( window ) ? "The screen was disconnected." : "The window was closed." );
 
 		return WindowCapturers.Open( (nint)window );
 	}
