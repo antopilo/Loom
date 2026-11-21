@@ -86,11 +86,21 @@ public sealed class ChatHost
 		Synced?.Invoke();
 	}
 
+	/// <summary>Gets or sets how a paired host or the daemon names chats of one of its projects afresh itself, with its own history files and model, as
+	/// tidying asks: the project, the chats, and a token that cancels the wait; the Remote module sets it while it links the host, null otherwise.</summary>
+	/// <remarks>The task faults with the host's error; the titles arrive as the host's changes.</remarks>
+	public Func<Guid, IReadOnlyList<Guid>, CancellationToken, Task>? RenameChats
+	{
+		get;
+		set;
+	}
+
 	/// <summary>Leaves the mirror refusing changes and the sessions as offline proxies, with no delegate of the Remote module's
 	/// assembly left behind, so a reload of Remote can unload it.</summary>
 	/// <remarks>Changing the sessions' source stops every session; the Conversations module shows its open chats again over offline ones.</remarks>
 	public void Detach()
 	{
+		RenameChats = null;
 		Store.Forward = OfflineForward;
 		Projects.Forward = OfflineForward;
 		Sessions.Source = id => new RemoteChatSession( _app, Store, id, _backend(), OfflineChatChannel.Instance, _post );

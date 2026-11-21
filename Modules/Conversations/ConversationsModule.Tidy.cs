@@ -89,32 +89,18 @@ public sealed partial class ConversationsModule
 			return;
 
 		_tidying.Value = new HashSet<Guid>( _tidying.Value ) { plan.ProjectId };
-		_ = UpdateTitlesAsync( context, host.Store, host.Projects.Get( plan.ProjectId ), plan.Renamed );
+		_ = UpdateTitlesAsync( context, plan.ProjectId, host.Store.IsMirror
+			? lifetime => RenameOnHostAsync( host, plan.ProjectId, [.. plan.Renamed.Select( conversation => conversation.Id )], lifetime )
+			: lifetime => RenameAsync( context, host.Store, host.Projects.Get( plan.ProjectId ), plan.Renamed, lifetime ) );
 	}
 
-	/// <summary>Asks the project's model for a title per chat in one question, and applies each to a chat the user still did not name.</summary>
-	/// <remarks>A failure is reported in the shell notice; the chats keep their titles.</remarks>
-	private async Task UpdateTitlesAsync( ModuleContext context, ConversationStore history, ProjectInfo project, IReadOnlyList<ConversationInfo> conversations )
+	/// <summary>Runs a project's renaming, reports a failure in the shell notice and ends the project's tidying state when it ends.</summary>
+	/// <remarks>The chats keep their titles on a failure.</remarks>
+	private async Task UpdateTitlesAsync( ModuleContext context, Guid projectId, Func<CancellationToken, Task> rename )
 	{
 		try
 		{
-			var prompts = await history.ReadPromptsAsync( [.. conversations.Select( conversation => conversation.Id )], context.Lifetime ).ConfigureAwait( false );
-			var listed = conversations.Where( conversation => prompts.GetValueOrDefault( conversation.Id ) is { Count: > 0 } ).ToArray();
-			if ( listed.Length > 0 )
-			{
-				var material = BuildTidyMaterial( project, listed, prompts );
-				var agent = context.App.Services.Get<IAgentService>() ?? throw new InvalidOperationException( "Tidying chat titles needs the Omp module." );
-				var answer = await agent.AskAsync( project.Profile, TidyQuestion, material, context.Lifetime ).ConfigureAwait( false );
-				var titles = ReadTidyTitles( answer, listed.Length );
-				context.Post( () =>
-				{
-					foreach ( var (number, title) in titles )
-					{
-						if ( history.Find( listed[number - 1].Id ) is { IsTitleChosen: false } current )
-							history.SetAutomaticTitle( current.Id, title, isGenerated: true );
-					}
-				} );
-			}
+			await rename( context.Lifetime ).ConfigureAwait( false );
 		}
 		catch ( OperationCanceledException ) when ( context.Lifetime.IsCancellationRequested )
 		{
@@ -128,10 +114,66 @@ public sealed partial class ConversationsModule
 			context.Post( () =>
 			{
 				var tidying = new HashSet<Guid>( _tidying.Value );
-				tidying.Remove( project.Id );
+				tidying.Remove( projectId );
 				_tidying.Value = tidying;
 			} );
 		}
+	}
+
+	/// <summary>Has a mirrored host name the chats itself, from its own history files and with its own model; the titles arrive with its changes.</summary>
+	private static Task RenameOnHostAsync( ChatHost host, Guid projectId, IReadOnlyList<Guid> conversationIds, CancellationToken cancellationToken ) =>
+		(host.RenameChats ?? throw new IOException( $"Not connected to {host.Name}, so its chats were not named." ))( projectId, conversationIds, cancellationToken );
+
+	/// <summary>Names chats of a project of This PC afresh, as a client that mirrors this PC asked: each listed chat of the project the user did not
+	/// name; call on the UI thread.</summary>
+	/// <param name="projectId">The project.</param>
+	/// <param name="conversationIds">The chats to name.</param>
+	/// <param name="cancellationToken">Cancels the naming.</param>
+	/// <exception cref="InvalidOperationException">This PC's chats mirror another process's, or the module is not running.</exception>
+	/// <exception cref="KeyNotFoundException">This PC has no such project.</exception>
+	public Task RenameChatsAsync( Guid projectId, IReadOnlyList<Guid> conversationIds, CancellationToken cancellationToken )
+	{
+		var host = Hosts.Local;
+		if ( host.Store.IsMirror || _context is not { } context )
+			throw new InvalidOperationException( "This Loom does not hold its chats now, so it cannot name them." );
+
+		var project = host.Projects.Get( projectId );
+		var conversations = conversationIds.Select( host.Store.Find ).OfType<ConversationInfo>()
+			.Where( conversation => conversation is { HasChat: true, IsTitleChosen: false } && conversation.ProjectId == projectId ).ToArray();
+		return conversations.Length == 0 ? Task.CompletedTask : RenameLinkedAsync();
+
+		async Task RenameLinkedAsync()
+		{
+			using var lifetime = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken, context.Lifetime );
+			await RenameAsync( context, host.Store, project, conversations, lifetime.Token ).ConfigureAwait( false );
+		}
+	}
+
+	/// <summary>Asks the project's model for a title per chat in one question, and applies each to a chat the user still did not name.</summary>
+	private static async Task RenameAsync( ModuleContext context, ConversationStore history, ProjectInfo project, IReadOnlyList<ConversationInfo> conversations,
+		CancellationToken cancellationToken )
+	{
+		var prompts = await history.ReadPromptsAsync( [.. conversations.Select( conversation => conversation.Id )], cancellationToken ).ConfigureAwait( false );
+		var listed = conversations.Where( conversation => prompts.GetValueOrDefault( conversation.Id ) is { Count: > 0 } ).ToArray();
+		if ( listed.Length == 0 )
+			return;
+
+		var material = BuildTidyMaterial( project, listed, prompts );
+		var agent = context.App.Services.Get<IAgentService>() ?? throw new InvalidOperationException( "Tidying chat titles needs the Omp module." );
+		var answer = await agent.AskAsync( project.Profile, TidyQuestion, material, cancellationToken ).ConfigureAwait( false );
+		var titles = ReadTidyTitles( answer, listed.Length );
+		var applied = new TaskCompletionSource( TaskCreationOptions.RunContinuationsAsynchronously );
+		if ( !context.Post( () =>
+		{
+			foreach ( var (number, title) in titles )
+			{
+				if ( history.Find( listed[number - 1].Id ) is { IsTitleChosen: false } current )
+					history.SetAutomaticTitle( current.Id, title, isGenerated: true );
+			}
+			applied.SetResult();
+		} ) )
+			throw new OperationCanceledException( "Loom is stopping." );
+		await applied.Task.ConfigureAwait( false );
 	}
 
 	/// <summary>Writes the numbered list the title question reads: each chat's title, its first prompt and its latest ones, each cut short on one line.</summary>

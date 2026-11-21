@@ -342,7 +342,7 @@ withdraws the offer (`admin.unpair`) and asks to restart the daemon.
 | Scope | Allows |
 |---|---|
 | `view` | Read chats and the store (`sync`, `attach`, `detach`), the browser tabs (`browser.sync` and its pushes), web push. No files, terminals, processes or window streaming. |
-| `control` | Also prompts and dialogs (`call`), `store`, `upload`, browser tab changes (`browser.open`, `.navigate`, `.report`, `.close`), lending its browser to the host's agents (`tools.offer` of browser tools), tunnels to the host's loopback (`tcp.*`), and the host's workspace (`fs.*` including reads and watches, `proc.*`, `pty.*`) and windows (`cap.*`). Even then Loom's own keys and device list stay off-limits (see Workspace frames). |
+| `control` | Also prompts and dialogs (`call`), `store`, `upload`, naming chats with the host's model (`tidy`), browser tab changes (`browser.open`, `.navigate`, `.report`, `.close`), lending its browser to the host's agents (`tools.offer` of browser tools), tunnels to the host's loopback (`tcp.*`), and the host's workspace (`fs.*` including reads and watches, `proc.*`, `pty.*`) and windows (`cap.*`). Even then Loom's own keys and device list stay off-limits (see Workspace frames). |
 
 UI text: **View** — "View: read chats and the store. No files, terminals, processes or window
 streaming." **Control** — "Control: also send prompts, change the store, and use this PC's
@@ -388,6 +388,7 @@ Client → host requests (`control` scope needed where marked ●):
 | ● `call { ch, m, a: [...] }` | `{ r? }` | Invokes a whitelisted `IChatSession` method by name (see `ChatSessionCall`) on the UI thread; every method needs `control`, `CheckNewTaskAsync` too, as it runs a paid model request on the host's account. `Attach` and `Detach` are refused: panels use `attach` and `detach`. |
 | ● `store { op: StoreOp }` | `{}` | Applies a store operation on the host; the host broadcasts it back as a push. |
 | ● `upload { name, offset, data, final }` | `{ path? }` | Chunked attachment upload, at most 256 KiB per base64 chunk, `offset` = bytes already sent (0 starts the file); written to `attachments\remote\<deviceId>\<name>` in the host's data folder; `final` answers that path. The name keeps its last segment with valid characters only, and a Windows device name (`NUL`, `COM1`, …) gets a `_` in front. Uploads stay, since chats refer to them; a device may keep at most 1 GiB, after which uploads fail with `failed`. |
+| ● `tidy { project, chats: [ch] }` | `{}` | Names the listed chats of a host project afresh, as Tidy chats on a client asks: the host reads their prompts from its own history files, asks its own Omp, and gives each chat it still has in the project, with a chat the user did not name, its new title (`SetAutomaticTitle`), which reaches every client as `store` pushes; it answers once the titles are applied, or with the failure, which the client shows as its Tidy chats error. A host too old to know the request answers `bad-request` (`Unknown request`), which the client shows as "Update Loom on <host> to tidy its chats". |
 
 Host → client pushes: `store { op, rev }` and `working { ch, busy, rev }` to every connection,
 and to the connections attached to the chat `state { ch, seq, s: ChatSessionState }`,

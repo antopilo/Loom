@@ -60,7 +60,9 @@ if ( args.Contains( "config" ) && args.Contains( "list" ) )
 
 if ( args.Contains( "-p" ) )
 {
-	Console.WriteLine( args.Contains( "--smol" ) ? "Fixture small title" : "Fixture regular answer" );
+	// The tidy question gets a title per numbered chat; any other question gets one answer.
+	Console.WriteLine( args.Any( arg => arg.Contains( "one line per chat", StringComparison.Ordinal ) ) ? "1: Tidied by host\n2: Tidied by host"
+		: args.Contains( "--smol" ) ? "Fixture small title" : "Fixture regular answer" );
 	return;
 }
 

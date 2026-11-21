@@ -255,7 +255,8 @@ public sealed class HostGateway
 	{
 		var push = new PushService( Devices, _paths.Vapid );
 		push.Failed += message => _post( () => _app.ReportError( "Web push", new InvalidOperationException( message ) ) );
-		var chats = new ChatService( _store, _sessions, _post, _paths.Uploads, push, error => _app.ReportError( "Web push", error ), () => Network.Addresses );
+		var chats = new ChatService( _store, _sessions, _post, _paths.Uploads, push, error => _app.ReportError( "Web push", error ), () => Network.Addresses,
+			_app.GetModule<ConversationsModule>().RenameChatsAsync );
 		Chats = chats;
 		var streams = new StreamService();
 		Streams = streams;

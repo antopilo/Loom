@@ -42,6 +42,9 @@ internal static class HandoverChecks
 		await CheckFallbackAsync( loom );
 		Console.WriteLine( $"PASS daemon fallback: a daemon that exits before opening its pipe ({TestExitVariable}) fails {DaemonFailures.Limit} times, after which This PC's chats run in this Loom again with "
 			+ "the role saved as local, a notification and Remote access's note naming the reason and the daemon's log, and the chats intact." );
+		await CheckRemoteTidyAsync( loom );
+		Console.WriteLine( "PASS remote tidy: tidying a project of a real bare daemon's chats from a Loom that never loaded their messages has the daemon name them from its files with its Omp; "
+			+ "the titles reach the mirror and the daemon's files, and the tidying state ends." );
 	}
 
 	/// <summary>Checks the failure window: three failures within ten minutes count, older ones drop out, and the count starts over after giving up.</summary>
@@ -169,6 +172,47 @@ internal static class HandoverChecks
 		finally
 		{
 			Environment.SetEnvironmentVariable( TestExitVariable, null );
+			Finish( app, loom, bare, previousRoot );
+		}
+	}
+
+	/// <summary>Tidies a project of chats held by a real bare daemon from a Loom in the daemon role that never loaded their messages: the daemon names them
+	/// from its own history files with its own Omp, and the titles reach the Loom's mirror.</summary>
+	private static async Task CheckRemoteTidyAsync( string loom )
+	{
+		var bare = CreateBare( "lokn-tidy-", RemoteModule.DaemonRole );
+		var seed = new ConversationStore( new ProjectStore( Path.Combine( bare, "projects.json" ) ), Path.Combine( bare, "conversations.json" ) );
+		var projectId = seed.ProjectStore.Create( SettingsProfile.Personal, "Tidy", bare ).Id;
+		Guid[] chats = [.. new[] { "Untitled one", "Untitled two" }.Select( title =>
+		{
+			var id = seed.CreateConversation( SettingsProfile.Personal, projectId, title ).Id;
+			seed.AppendMessage( id, new ConversationMessage( Guid.NewGuid(), "user", "Make " + title, DateTimeOffset.UtcNow ) );
+			return id;
+		} )];
+		seed.Flush();
+		var previousRoot = LoknPaths.DataRoot;
+		var queue = new List<Action>();
+		LoknApplication? app = null;
+		try
+		{
+			LoknPaths.UseDataRoot( bare );
+			AppDomain.CurrentDomain.SetData( RoleSlot, null );
+			(app, var store, var module) = Start( bare, loom, queue );
+			CoreChecks.Check( await PumpUntilAsync( queue, () => module.Daemon is { Status: ClientState.Connected } && store.IsMirror && chats.All( id => store.Find( id ) is not null ) ),
+				$"The Loom mirrors the daemon's chats. {module.Daemon?.StatusText} {RemoteGatewayChecks.ReadLog( bare )}" );
+
+			var conversations = app.GetModule<ConversationsModule>();
+			var plan = conversations.ComputeTidy( app, projectId, DateTimeOffset.UtcNow );
+			CoreChecks.Check( plan.Renamed.Select( item => item.Id ).Order().SequenceEqual( chats.Order() ), "Tidying the daemon's project renames both started chats." );
+			conversations.Tidy( app, plan );
+			CoreChecks.Check( conversations.IsTidying( projectId ), "The sidebar shows the project tidying while the daemon names its chats." );
+			CoreChecks.Check( await PumpUntilAsync( queue, () => !conversations.IsTidying( projectId ) && chats.All( id => store.Find( id ) is { Title: "Tidied by host", IsTitleChosen: false } ) ),
+				$"The daemon names the chats with its Omp from its own files, and the titles reach the mirror. {app.LastError} {RemoteGatewayChecks.ReadLog( bare )}" );
+			CoreChecks.Check( await PumpUntilAsync( queue, () => chats.All( id => new ConversationStore( Path.Combine( bare, "conversations.json" ) ).Find( id ) is { Title: "Tidied by host" } ) ),
+				"The daemon saves the new titles." );
+		}
+		finally
+		{
 			Finish( app, loom, bare, previousRoot );
 		}
 	}

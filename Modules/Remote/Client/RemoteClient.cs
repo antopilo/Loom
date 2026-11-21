@@ -274,6 +274,7 @@ public sealed class RemoteClient
 	{
 		_projects.Forward = ForwardStore;
 		_store.Forward = ForwardStore;
+		Host.RenameChats = RenameChatsAsync;
 		// The daemon's tabs come from the same file, so they stay meanwhile; a paired host's are not this PC's, nor are its files and loopback.
 		Tabs.BeginMirror( ForwardBrowser, isRemote: Kind == HostLinkKind.Paired );
 		if ( Kind == HostLinkKind.Paired )
@@ -1057,6 +1058,28 @@ public sealed class RemoteClient
 		catch ( Exception exception ) when ( exception is RemoteException or IOException or OperationCanceledException )
 		{
 			_post( () => _app.ReportError( "Remote", exception ) );
+		}
+	}
+
+	/// <summary>Has the host name chats of one of its projects afresh with a <c>tidy</c> request, ending when it applied their titles; a host whose Loom
+	/// is too old to know the request fails it with a request to update that Loom.</summary>
+	private async Task RenameChatsAsync( Guid projectId, IReadOnlyList<Guid> conversationIds, CancellationToken cancellationToken )
+	{
+		var peer = _peer ?? throw new IOException( $"Not connected to {Host.Name}, so its chats were not named." );
+		if ( !Scopes.Contains( DeviceScopes.Control ) )
+			throw new UnauthorizedAccessException( $"This PC can only view {Host.Name}'s chats. Allow control for it in Remote access on that PC." );
+
+		var frame = Frame.Create( "tidy" );
+		frame["project"] = projectId.ToString( "N" );
+		frame["chats"] = Frame.BuildStrings( conversationIds.Select( id => id.ToString( "N" ) ) );
+		using var linked = CancellationTokenSource.CreateLinkedTokenSource( cancellationToken, _stopping.Token );
+		try
+		{
+			await peer.RequestAsync( frame, linked.Token ).ConfigureAwait( false );
+		}
+		catch ( RemoteException exception ) when ( exception.Code == RemoteErrors.BadRequest && exception.Message.StartsWith( "Unknown request", StringComparison.Ordinal ) )
+		{
+			throw new InvalidOperationException( $"Update Loom on {Host.Name} to tidy its chats.", exception );
 		}
 	}
 

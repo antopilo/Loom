@@ -10,7 +10,7 @@ using Lokn.Modules.Projects;
 namespace Lokn.Modules.Remote;
 
 /// <summary>Serves the host's chats and stores to every connection: <c>sync</c>, <c>attach</c>, <c>attach.page</c>, <c>detach</c>, <c>call</c>,
-/// <c>store</c> and <c>upload</c> requests, and the <c>store</c>, <c>state</c>, <c>msg</c>, <c>msgs</c>, <c>tool</c>, <c>evt</c> and <c>working</c>
+/// <c>store</c>, <c>upload</c> and <c>tidy</c> requests, and the <c>store</c>, <c>state</c>, <c>msg</c>, <c>msgs</c>, <c>tool</c>, <c>evt</c> and <c>working</c>
 /// pushes (docs/remote.md, Chat and store frames).</summary>
 /// <remarks>
 /// Create, register and dispose it on the host's UI thread; its handlers run there too. Each chat has one sequence number for the life of the
@@ -58,6 +58,9 @@ public sealed partial class ChatService : IHostService, IDisposable
 	/// <summary>Gets the addresses devices dial now, for the <c>sync</c> answer, or null without a network.</summary>
 	private readonly Func<IReadOnlyList<string>>? _addresses;
 
+	/// <summary>Names chats of one of the host's projects afresh with the host's model, or null when the host cannot.</summary>
+	private readonly Func<Guid, IReadOnlyList<Guid>, CancellationToken, Task>? _rename;
+
 	/// <summary>Holds the open connections.</summary>
 	private readonly List<Link> _links = [];
 
@@ -78,8 +81,9 @@ public sealed partial class ChatService : IHostService, IDisposable
 	/// <param name="push">The web push sender, or null.</param>
 	/// <param name="report">Reports a failure, on the UI thread.</param>
 	/// <param name="addresses">Gets the addresses devices dial now, which <c>sync</c> sends so a paired PC follows the host's address changes; null for none.</param>
+	/// <param name="rename">Names chats of a project afresh with the host's model on the UI thread, for <c>tidy</c>; null refuses it.</param>
 	public ChatService( ConversationStore store, ChatSessionService sessions, Func<Action, bool> post, string uploads, PushService? push, Action<Exception> report,
-		Func<IReadOnlyList<string>>? addresses = null )
+		Func<IReadOnlyList<string>>? addresses = null, Func<Guid, IReadOnlyList<Guid>, CancellationToken, Task>? rename = null )
 	{
 		_store = store;
 		_projects = store.ProjectStore;
@@ -89,6 +93,7 @@ public sealed partial class ChatService : IHostService, IDisposable
 		_push = push;
 		_report = report;
 		_addresses = addresses;
+		_rename = rename;
 		_store.Mutated += BroadcastStore;
 		_projects.Mutated += BroadcastStore;
 		_store.MessageApplied += BroadcastMessage;
@@ -112,7 +117,8 @@ public sealed partial class ChatService : IHostService, IDisposable
 			.On( "detach", frame => UiInvoke.RunAsync<JsonObject?>( _post, () => UpdateDetach( link, frame ) ) )
 			.On( "call", frame => UpdateCallAsync( link, frame ) )
 			.On( "store", frame => UpdateStoreAsync( link, frame ) )
-			.On( "upload", frame => UpdateUploadAsync( link, frame ) );
+			.On( "upload", frame => UpdateUploadAsync( link, frame ) )
+			.On( "tidy", frame => UpdateTidyAsync( link, frame ) );
 		connection.Peer.Closed += _ => _post( () => RemoveLink( link ) );
 	}
 
@@ -348,6 +354,37 @@ public sealed partial class ChatService : IHostService, IDisposable
 			}
 		} ).ConfigureAwait( false );
 		return new JsonObject();
+	}
+
+	/// <summary>Answers <c>tidy { project, chats }</c>: names the listed chats of the project the user did not name afresh, from the host's history files and
+	/// with its model, and answers once their titles are applied, which reach every client as store pushes.</summary>
+	private async Task<JsonObject?> UpdateTidyAsync( Link link, JsonObject frame )
+	{
+		link.Connection.RequireControl();
+		var rename = _rename ?? throw new RemoteException( RemoteErrors.BadRequest, "This host cannot name its chats." );
+		if ( Frame.ReadString( frame, "project" ) is not { } text || !Guid.TryParseExact( text, "N", out var project ) )
+			throw new RemoteException( RemoteErrors.BadRequest, "The tidy request names no project." );
+
+		var chats = new List<Guid>();
+		foreach ( var item in Frame.ReadStrings( frame, "chats" ) ?? [] )
+		{
+			if ( !Guid.TryParseExact( item, "N", out var chat ) )
+				throw new RemoteException( RemoteErrors.BadRequest, $"The tidy request names a chat {item} that is not an identifier." );
+			chats.Add( chat );
+		}
+
+		try
+		{
+			return await UiInvoke.RunAsync<JsonObject?>( _post, async () =>
+			{
+				await rename( project, chats, CancellationToken.None ).ConfigureAwait( false );
+				return new JsonObject();
+			} ).ConfigureAwait( false );
+		}
+		catch ( KeyNotFoundException exception )
+		{
+			throw new RemoteException( RemoteErrors.BadRequest, exception.Message );
+		}
 	}
 
 	/// <summary>Answers <c>upload</c>: writes one chunk of an attachment under the device's upload folder, answering the file's path with the final chunk.</summary>
