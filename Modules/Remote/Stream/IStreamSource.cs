@@ -24,9 +24,15 @@ public interface IStreamSource
 
 	/// <summary>Starts streaming a window (<c>cap.start</c>), stopping any stream already running.</summary>
 	/// <param name="window">The window's <see cref="CaptureWindow.Hwnd"/>.</param>
-	/// <param name="options">The frame rate, quality and width cap.</param>
+	/// <param name="options">The frame rate, quality, size cap, codec and, for a screen, the resolution to switch it to.</param>
 	/// <param name="cancellation">Cancels the request.</param>
-	Task StartAsync( long window, CaptureOptions options, CancellationToken cancellation );
+	/// <returns>What the user should read about the screen's resolution, such as that it has no mode of the size asked for, or null.</returns>
+	Task<string?> StartAsync( long window, CaptureOptions options, CancellationToken cancellation );
+
+	/// <summary>Caps the running stream's frames to a size in physical pixels, such as the panel's after it was resized (<c>cap.view</c>); 0 on an axis means none.</summary>
+	/// <param name="maxWidth">The widest frame.</param>
+	/// <param name="maxHeight">The tallest frame.</param>
+	void View( int maxWidth, int maxHeight );
 
 	/// <summary>Stops the running stream (<c>cap.stop</c>); does nothing when none runs.</summary>
 	void Stop();

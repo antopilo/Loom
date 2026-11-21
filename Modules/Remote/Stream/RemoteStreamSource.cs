@@ -64,7 +64,8 @@ public sealed class RemoteStreamSource : IStreamSource
 	}
 
 	/// <summary>Stops any running stream and starts one of a host window.</summary>
-	public async Task StartAsync( long window, CaptureOptions options, CancellationToken cancellation )
+	/// <returns>The host's note about a screen's resolution, such as that it has no mode of the size asked for, or null.</returns>
+	public async Task<string?> StartAsync( long window, CaptureOptions options, CancellationToken cancellation )
 	{
 		Stop();
 		lock ( _lock )
@@ -77,14 +78,22 @@ public sealed class RemoteStreamSource : IStreamSource
 		request["hwnd"] = window;
 		request["fps"] = options.Fps;
 		request["quality"] = options.Quality;
-		request["maxWidth"] = options.MaxWidth;
+		// Without a cap the host sends the source's full size; a host before Remote 2.11 takes a missing maxWidth as 1600.
+		if ( options.MaxWidth > 0 )
+			request["maxWidth"] = options.MaxWidth;
+		if ( options.MaxHeight > 0 )
+			request["maxHeight"] = options.MaxHeight;
+		if ( options.Resolution is { } resolution )
+			request["resolution"] = new JsonObject { ["w"] = resolution.Width, ["h"] = resolution.Height };
 		// H.264 only when this PC can decode it; the host still sends JPEG when it cannot encode.
 		request["codecs"] = options.Codec == CaptureOptions.H264 ? new JsonArray( CaptureOptions.H264, CaptureOptions.Jpeg ) : new JsonArray( CaptureOptions.Jpeg );
 		long cap;
+		string? note;
 		try
 		{
 			var answer = await _peer.RequestAsync( request, cancellation ).ConfigureAwait( false );
 			cap = Frame.ReadLong( answer, "cap" ) ?? throw new RemoteException( RemoteErrors.BadRequest, "The host did not name the stream." );
+			note = answer["resolution"] is JsonObject screen ? Frame.ReadString( screen, "message" ) : null;
 		}
 		catch
 		{
@@ -109,6 +118,7 @@ public sealed class RemoteStreamSource : IStreamSource
 
 		if ( early is not null )
 			FrameReceived?.Invoke( early );
+		return note;
 	}
 
 	/// <summary>Stops the running stream, telling the host without waiting.</summary>
@@ -131,6 +141,14 @@ public sealed class RemoteStreamSource : IStreamSource
 		var cap = ReadCap();
 		if ( cap != 0 && !_peer.IsClosed )
 			_ = PushQuietlyAsync( new JsonObject { ["t"] = "cap.ack", ["cap"] = cap } );
+	}
+
+	/// <summary>Caps the running stream's frames to the panel's size (<c>cap.view</c>), which a host before Remote 2.11 ignores.</summary>
+	public void View( int maxWidth, int maxHeight )
+	{
+		var cap = ReadCap();
+		if ( cap != 0 && !_peer.IsClosed )
+			_ = PushQuietlyAsync( new JsonObject { ["t"] = "cap.view", ["cap"] = cap, ["maxWidth"] = maxWidth, ["maxHeight"] = maxHeight } );
 	}
 
 	/// <summary>Sends a pointer or key event, when this device may control and a stream runs.</summary>

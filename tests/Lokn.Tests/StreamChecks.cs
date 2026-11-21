@@ -27,8 +27,9 @@ internal static class StreamChecks
 		CheckJpeg();
 		CheckAckGating();
 		CheckFrameRate();
+		CheckSizing();
 		CheckMapping();
-		Console.WriteLine( "PASS window stream: window list, cap.* field names, JPEG round trip, frames paced by acknowledgement and frame rate with unchanged frames skipped, and frame-to-window input mapping." );
+		Console.WriteLine( "PASS window stream: window list, cap.* field names, JPEG round trip, frames paced by acknowledgement and frame rate with unchanged frames skipped, full-size frames capped by the panel and H.264 limits, and frame-to-window input mapping." );
 	}
 
 	/// <summary>Verifies the window list on a desktop session, and reports a skip where there is no desktop, such as in CI.</summary>
@@ -168,6 +169,35 @@ internal static class StreamChecks
 		CoreChecks.Check( WaitFor( () => capturer.IsDisposed ), "Stopping a session releases its capturer." );
 	}
 
+	/// <summary>Verifies frames keep the source's full size unless a cap asks for less, a cap fits the source inside the panel without upscaling, H.264
+	/// frames stay within the encoder's largest frame, and a session follows a new cap (<c>cap.view</c>).</summary>
+	private static void CheckSizing()
+	{
+		CoreChecks.Check( CaptureOptions.Default.MaxWidth == 0 && CaptureOptions.Default.Clamp() is { MaxWidth: 0, MaxHeight: 0 }, "The default stream has no size cap." );
+		CoreChecks.Check( new CaptureOptions( 30, 0.7, 1600 ).Clamp().MaxWidth == 1600 && new CaptureOptions( 30, 0.7, 99999 ) { MaxHeight = 99999 }.Clamp() is { MaxWidth: CaptureOptions.MaxFrameWidth, MaxHeight: CaptureOptions.MaxFrameHeight },
+			"An older client's 1600 cap stays, and caps are brought into range." );
+
+		CoreChecks.Check( CaptureSession.ComputeCaptureWidth( 3440, 1440, 0, 0, isH264: false ) == 0 && CaptureSession.ComputeCaptureWidth( 3440, 1440, 0, 0, isH264: true ) == 0,
+			"An ultrawide 3440×1440 source streams at full size, as JPEG and as H.264." );
+		CoreChecks.Check( CaptureSession.ComputeCaptureWidth( 3440, 1440, 1600, 0, isH264: false ) == 1600, "An older client's maxWidth 1600 still scales the frame down." );
+		CoreChecks.Check( CaptureSession.ComputeCaptureWidth( 3440, 1440, 1720, 1000, isH264: true ) == 1720 && CaptureSession.ComputeCaptureWidth( 3440, 1440, 3000, 720, isH264: true ) == 1720,
+			"A panel smaller than the source fits the frame inside it, by whichever side is tighter." );
+		CoreChecks.Check( CaptureSession.ComputeCaptureWidth( 1920, 1080, 2560, 1440, isH264: true ) == 0, "A panel larger than the source never scales the frame up." );
+		CoreChecks.Check( CaptureSession.ComputeCaptureWidth( 5120, 2880, 0, 0, isH264: true ) == 4096 && CaptureSession.ComputeCaptureWidth( 7680, 2160, 0, 0, isH264: true ) == 4096
+			&& CaptureSession.ComputeCaptureWidth( 7680, 4320, 0, 0, isH264: false ) == 0, "H.264 frames stay within 4096 pixels a side and 4096×2304 in all; JPEG frames go up to 7680×4320." );
+		CoreChecks.Check( StreamContent.ComputeCap( 0, null ) == 0 && StreamContent.ComputeCap( 0, 1200 ) == 1200 && StreamContent.ComputeCap( 1600, 1200 ) == 1200 && StreamContent.ComputeCap( 1000, 1200 ) == 1000,
+			"The panel caps frames to its size in physical pixels once laid out, and to no size before." );
+
+		var capturer = new FakeCapturer { Size = (3440, 1440) };
+		var session = new CaptureSession( capturer, new( 60, 0.5, 0 ), _ => { }, encode: ( frame, _, _ ) => Task.FromResult( new[] { frame.Pixels[0] } ) );
+		session.Start();
+		CoreChecks.Check( WaitFor( () => capturer.Captures > 0 ) && capturer.LastMaxWidth == 0, "A session with no cap captures at the source's full size." );
+		session.Limit( 1720, 1000 );
+		session.Ack();
+		CoreChecks.Check( WaitFor( () => capturer.LastMaxWidth == 1720 ), "A new cap applies to the next capture." );
+		session.Dispose();
+	}
+
 	/// <summary>Verifies frame pixels map to client and screen pixels, the panel maps its surface to frame pixels, and keys and buttons get their Windows codes.</summary>
 	private static void CheckMapping()
 	{
@@ -239,7 +269,19 @@ internal static class StreamChecks
 		internal volatile bool IsDisposed;
 
 		/// <summary>Gets the frame size.</summary>
-		public (int Width, int Height) SourceSize => (Width, Height);
+		public (int Width, int Height) SourceSize => Size;
+
+		/// <summary>Gets or sets the size the capturer reports as its source's.</summary>
+		internal (int Width, int Height) Size
+		{
+			get; init;
+		} = (Width, Height);
+
+		/// <summary>Gets the width cap of the last capture.</summary>
+		internal int LastMaxWidth => Volatile.Read( ref _lastMaxWidth );
+
+		/// <summary>Stores the width cap of the last capture.</summary>
+		private int _lastMaxWidth = -1;
 
 		/// <summary>Returns a new frame, filled with a new value while changing.</summary>
 		public BgraFrame? Capture( int maxWidth )
@@ -247,6 +289,7 @@ internal static class StreamChecks
 			if ( Error is { } error )
 				throw error;
 
+			Volatile.Write( ref _lastMaxWidth, maxWidth );
 			Interlocked.Increment( ref _captures );
 			if ( IsChanging )
 				_value++;

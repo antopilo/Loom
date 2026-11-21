@@ -24,6 +24,9 @@ internal sealed record GatewayPaths( string DataFolder, string? PipeName )
 
 	/// <summary>Gets the folder remote uploads go to.</summary>
 	public string Uploads => Path.Combine( DataFolder, "attachments", "remote" );
+
+	/// <summary>Gets the file the original modes of screens switched for a viewer are recorded in while they are switched (<see cref="ScreenResolutions"/>).</summary>
+	public string ScreenModes => Path.Combine( DataFolder, "screen-modes.json" );
 }
 
 /// <summary>The network mode, port and relay the listeners were last asked to run with.</summary>
@@ -258,7 +261,10 @@ public sealed class HostGateway
 		var chats = new ChatService( _store, _sessions, _post, _paths.Uploads, push, error => _app.ReportError( "Web push", error ), () => Network.Addresses,
 			_app.GetModule<ConversationsModule>().RenameChatsAsync );
 		Chats = chats;
-		var streams = new StreamService();
+		// A daemon that ended with a screen switched for a viewer, such as by a crash, puts it back first.
+		var resolutions = new ScreenResolutions( new Win32DisplayModes(), _paths.ScreenModes );
+		_ = resolutions.RestoreRecorded();
+		var streams = new StreamService { Resolutions = resolutions };
 		Streams = streams;
 		var tools = new ToolService( _app, _post );
 		var tabs = _app.Hosts.Local.BrowserTabs;

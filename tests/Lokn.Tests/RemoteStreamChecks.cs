@@ -8,7 +8,7 @@ namespace Lokn.Tests;
 internal static class RemoteStreamChecks
 {
 	/// <summary>Bounds every wait, so a broken check fails rather than hangs.</summary>
-	private static readonly TimeSpan Patience = TimeSpan.FromSeconds( 10 );
+	internal static readonly TimeSpan Patience = TimeSpan.FromSeconds( 10 );
 
 	/// <summary>Defines how long a check watches for frames that must not come.</summary>
 	private static readonly TimeSpan Quiet = TimeSpan.FromMilliseconds( 250 );
@@ -159,7 +159,7 @@ internal static class RemoteStreamChecks
 	};
 
 	/// <summary>Connects a client source to a host service over memory and starts both peers.</summary>
-	private static Pair Connect( StreamService service, bool canControl )
+	internal static Pair Connect( StreamService service, bool canControl )
 	{
 		var (first, second) = MemoryConnection.CreatePair();
 		var host = new RpcPeer( first );
@@ -172,7 +172,7 @@ internal static class RemoteStreamChecks
 	}
 
 	/// <summary>Collects a source's frames.</summary>
-	private static Channel<StreamFrame> Watch( IStreamSource source )
+	internal static Channel<StreamFrame> Watch( IStreamSource source )
 	{
 		var frames = Channel.CreateUnbounded<StreamFrame>();
 		source.FrameReceived += frame => frames.Writer.TryWrite( frame );
@@ -195,7 +195,7 @@ internal static class RemoteStreamChecks
 	}
 
 	/// <summary>Waits until a condition holds or <see cref="Patience"/> passes.</summary>
-	private static async Task WaitUntilAsync( Func<bool> condition )
+	internal static async Task WaitUntilAsync( Func<bool> condition )
 	{
 		var deadline = DateTime.UtcNow + Patience;
 		while ( !condition() && DateTime.UtcNow < deadline )
@@ -206,7 +206,7 @@ internal static class RemoteStreamChecks
 	/// <param name="Host">The host peer.</param>
 	/// <param name="Client">The client peer.</param>
 	/// <param name="Source">The client's stream source.</param>
-	private sealed record Pair( RpcPeer Host, RpcPeer Client, RemoteStreamSource Source ) : IAsyncDisposable
+	internal sealed record Pair( RpcPeer Host, RpcPeer Client, RemoteStreamSource Source ) : IAsyncDisposable
 	{
 		/// <summary>Closes both peers.</summary>
 		public async ValueTask DisposeAsync()

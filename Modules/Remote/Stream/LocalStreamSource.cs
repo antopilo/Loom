@@ -37,8 +37,9 @@ public sealed class LocalStreamSource : IStreamSource, IDisposable
 	public Task<IReadOnlyList<CaptureWindow>> ListAsync( CancellationToken cancellation ) => Task.Run( WindowCatalog.List, cancellation );
 
 	/// <summary>Starts capturing a window of this PC, and follows what agents do in it (<see cref="AgentWindowActivity"/>).</summary>
+	/// <returns>Null: a window has no resolution to switch.</returns>
 	/// <exception cref="InvalidOperationException">The window does not exist, or a screen was asked for.</exception>
-	public Task StartAsync( long window, CaptureOptions options, CancellationToken cancellation )
+	public Task<string?> StartAsync( long window, CaptureOptions options, CancellationToken cancellation )
 	{
 		Stop();
 		var handle = (nint)window;
@@ -59,8 +60,11 @@ public sealed class LocalStreamSource : IStreamSource, IDisposable
 		Interlocked.Exchange( ref _window, window );
 		AgentWindowActivity.Used += RaiseAgentUsed;
 		session.Start();
-		return Task.CompletedTask;
+		return Task.FromResult<string?>( null );
 	}
+
+	/// <summary>Caps the running capture's frames.</summary>
+	public void View( int maxWidth, int maxHeight ) => Volatile.Read( ref _session )?.Limit( maxWidth, maxHeight );
 
 	/// <summary>Stops the running capture and stops following agents.</summary>
 	public void Stop()

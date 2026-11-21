@@ -7,6 +7,14 @@ version being packed. Write for users: what changed for them, not how.
 
 - **No more flicker or crash from streaming your own screen.** A PC now offers its screens only to other PCs. Streamed
   on the PC itself, the screen showed itself again and again, and its clicks moved the pointer the stream read.
+- **Sharper streams.** The Window stream no longer shrinks windows and screens to 1600 pixels wide: it streams them
+  at their full size, or at the size of the panel showing them when that is smaller, and follows the panel when you
+  resize it. A 3440×1440 ultrawide screen streams at full size.
+- **Stream a screen at your own resolution.** Streaming another PC's screen switches it to the resolution of the
+  screen you watch on, or the closest it has, and puts it back when you stop, when the connection drops, or when
+  that PC's background service stops; after a crash, the service puts it back when it starts again. Turn it off with
+  **Use this device's resolution** in the stream's toolbar. When the screen has no matching mode, the stream says
+  which one it uses.
 
 ## 0.4.9
 

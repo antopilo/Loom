@@ -210,6 +210,7 @@ public sealed partial class StreamContent : PanelContent
 				theme.BuildButton( "Windows", () => _context.Run( UpdateBack ) ),
 				new Text { Content = window.Title, FlexShrink = 1, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, },
 				.. BuildAgentLabel( theme ),
+				.. BuildResolutionSwitch( window, theme ),
 				new Text { Content = stats, Color = theme.Muted, FontSize = ViewStyle.SmallSize, FlexShrink = 0, TextWrap = TextWrap.NoWrap, },
 			],
 		};
@@ -245,6 +246,8 @@ public sealed partial class StreamContent : PanelContent
 		var children = new List<Blob> { toolbar };
 		if ( _status.Length > 0 )
 			children.Add( new Text { Content = _status, Color = theme.Error, Selectable = true, Padding = new Edges( 0, theme.Spacing ), } );
+		if ( _resolutionNote.Length > 0 )
+			children.Add( new Text { Content = _resolutionNote, Color = theme.Muted, FontSize = ViewStyle.SmallSize, Selectable = true, Padding = new Edges( 0, theme.Spacing ), } );
 
 		children.Add( surface );
 		return new Container
@@ -259,6 +262,7 @@ public sealed partial class StreamContent : PanelContent
 	private Blob BuildFrame( LayoutSize size )
 	{
 		_ = _version.Value;
+		NoteViewport( size );
 		if ( _frame is not { } frame || !double.IsFinite( size.Width ) || !double.IsFinite( size.Height ) || size.Width <= 0 || size.Height <= 0 )
 		{
 			_fit = null;
@@ -348,6 +352,7 @@ public sealed partial class StreamContent : PanelContent
 		_isChosen = isChosen;
 		_streaming = window;
 		_status = "";
+		_resolutionNote = "";
 		_latency = 0;
 		_arrivals.Clear();
 		_lastMove = (-1, -1);
@@ -356,15 +361,16 @@ public sealed partial class StreamContent : PanelContent
 		_requestedAt = Stopwatch.GetTimestamp();
 		var generation = ++_generation;
 		UpdateVersion();
-		_ = UpdateStartAsync( window, generation );
+		_ = UpdateStartAsync( window, BuildStartOptions( window.Hwnd ), generation );
 	}
 
-	/// <summary>Asks the source to start, and returns to the picker with the error when it cannot.</summary>
-	private async Task UpdateStartAsync( CaptureWindow window, int generation )
+	/// <summary>Asks the source to start, shows the host's note about the screen's resolution, and returns to the picker with the error when it cannot.</summary>
+	private async Task UpdateStartAsync( CaptureWindow window, CaptureOptions options, int generation )
 	{
 		try
 		{
-			await _source.StartAsync( window.Hwnd, _options, _context.Lifetime ).ConfigureAwait( false );
+			var note = await _source.StartAsync( window.Hwnd, options, _context.Lifetime ).ConfigureAwait( false );
+			_context.Post( () => ApplyStarted( note, generation ) );
 		}
 		catch ( Exception error ) when ( error is not OperationCanceledException )
 		{
@@ -386,6 +392,7 @@ public sealed partial class StreamContent : PanelContent
 		_frame?.Dispose();
 		_frame = null;
 		_status = "";
+		_resolutionNote = "";
 		UpdateList();
 		UpdateVersion();
 	}
@@ -399,6 +406,7 @@ public sealed partial class StreamContent : PanelContent
 		_frame?.Dispose();
 		_frame = null;
 		_status = message;
+		_resolutionNote = "";
 		UpdateList();
 		UpdateVersion();
 	}

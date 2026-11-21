@@ -197,6 +197,7 @@ else
 		RelayChecks.Run();
 		StreamChecks.Run();
 		await RemoteStreamChecks.RunAsync();
+		await ScreenResolutionChecks.RunAsync();
 		await RemoteAgentWindowChecks.RunAsync();
 		await RemoteWorkspaceChecks.RunAsync();
 		await RemoteRelayChecks.RunAsync();

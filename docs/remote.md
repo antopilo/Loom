@@ -604,7 +604,7 @@ data folder.
 | Frame | Answer |
 |---|---|
 | `cap.list {}` | `{ windows: [{ hwnd, title, process, w, h }] }` |
-| `cap.start { hwnd, fps, quality, maxWidth, codecs? }` | `{ cap, codec }`; host pushes `cap.frame { cap, w, h, codec, jpeg \| data }` (base64) at most `fps` per second, with at most 3 frames waiting for the client's `cap.ack { cap }`; each ack frees one |
+| `cap.start { hwnd, fps, quality, maxWidth?, maxHeight?, codecs?, resolution?: { w, h } }` | `{ cap, codec, resolution?: { w?, h?, message? } }`; host pushes `cap.frame { cap, w, h, codec, jpeg \| data }` (base64) at most `fps` per second, with at most 3 frames waiting for the client's `cap.ack { cap }`; each ack frees one |
 | ● `cap.input { cap, kind: "move"|"down"|"up"|"wheel"|"key", x, y, button?, delta?, vk?, down? }` | `{}` (x, y in frame pixels) |
 | `cap.stop { cap }` | `{}` |
 
@@ -622,6 +622,36 @@ Screens: since Remote 2.9.0 `cap.list` lists the host's screens before its windo
 screen's size in physical pixels (`ScreenCatalog`). A screen streams through Windows.Graphics.Capture with the
 pointer drawn in; its `cap.input` maps frame pixels to the screen's bounds and goes to whatever has the
 focus, with no foreground check. An older host lists no screens; an older client shows them as windows.
+
+Frame size: since Remote 2.11.0 frames keep the source's full size, scaled down only to fit `maxWidth`
+and `maxHeight` (physical pixels; missing or 0 means no cap, and frames are never scaled up). The stream
+panel sends its surface's size in physical pixels once it is laid out, and after a resize settles
+(300 ms) the push `cap.view { cap, maxWidth, maxHeight }` gives the running stream the new cap (0 for
+none); a host before 2.11 ignores it. Before its first layout the panel sends no cap. An older Loom sends
+`maxWidth: 1600`, which still caps its frames, and an older host takes a missing `maxWidth` as 1600. H.264
+frames are also kept within 4096 pixels a side and 4096×2304 pixels in all (H.264 level 5.1's largest
+frame), so a 3440×1440 screen streams at full size; JPEG frames go up to 7680×4320. The H.264 bitrate
+follows the frame's pixels: 0.05 to 0.2 bits per pixel per frame by `quality`, between 0.5 and 50 Mbit/s.
+
+Screen resolution: since Remote 2.11.0 a screen stream may ask the host to switch that screen to a size
+with `resolution: { w, h }` in physical pixels; window streams ignore it. The stream panel sends the size
+of the screen its Loom window is on, while the toolbar's **Use this device's resolution** switch is on
+(the default; it shows for screens only, and flipping it restarts the stream). The host picks the screen's
+supported mode (current orientation and color depth) closest to the size: the largest that fits within
+it, else the smallest; of the same aspect ratio (within 2 %) first; at the current refresh rate when that
+size has it, else its highest. It applies the mode with `ChangeDisplaySettingsEx` and `CDS_FULLSCREEN`,
+a temporary change never written to the registry, before it opens the capture, and answers the screen's
+mode in `resolution { w, h }`. When the screen is not at the size asked for, `resolution.message` says
+why, and the panel shows it under the toolbar: `This screen has no 2560×1600 mode; streaming at
+1680×1050.`, `This screen could not switch to …; streaming at …` (Windows refused; the screen stays as it
+was), `Another viewer chose this screen's resolution; streaming at …`, or that the screen cannot change
+its resolution. The first stream that asks wins; later streams of that screen, from any connection, use
+its mode. The original mode returns when the last of those streams stops (`cap.stop`, a failed capture,
+or its connection closing) and when the gateway stops (`StreamService.Dispose`). Before a switch the
+host writes the original modes to `screen-modes.json` in its data folder (the bare folder of a bare
+daemon); a daemon that starts and finds the file, because the last one ended with a screen switched,
+restores those modes and deletes it. Every mode change goes through `IDisplayModes`
+(`Win32DisplayModes` in the daemon), so the checks use a fake and never switch a real screen.
 
 Codecs: a client lists in `codecs` what it decodes, best first; without the field the host sends JPEG.
 With `"h264"` listed, the host encodes H.264 with Media Foundation (a hardware encoder when the GPU has

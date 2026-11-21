@@ -54,8 +54,11 @@ public sealed class ClientStreamSource : IStreamSource
 
 	/// <summary>Starts streaming a window of the host.</summary>
 	/// <exception cref="IOException">The client is not connected.</exception>
-	public Task StartAsync( long window, CaptureOptions options, CancellationToken cancellation ) =>
+	public Task<string?> StartAsync( long window, CaptureOptions options, CancellationToken cancellation ) =>
 		(_current ?? throw new IOException( "Not connected to the host." )).StartAsync( window, options, cancellation );
+
+	/// <summary>Caps the running stream's frames; ignored while disconnected.</summary>
+	public void View( int maxWidth, int maxHeight ) => _current?.View( maxWidth, maxHeight );
 
 	/// <summary>Stops the running stream, if any.</summary>
 	public void Stop() => _current?.Stop();
