@@ -147,7 +147,7 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 			return;
 		}
 
-		var root = new PopupRoot( input.Content, () => (_appear?.Value ?? 1, Rise) );
+		var root = new PopupRoot( input.Content );
 		var window = new PopupWindow( Host, root, input.Kind );
 		window.Dismissed += UpdateDismissed;
 		_root = root;
@@ -220,10 +220,13 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 			: new ElementRect { X = box.X, Y = box.Y, Width = box.Width, Height = box.Height };
 	}
 
-	/// <summary>Shows the latest content inside the native popup, at the owner's point of the entrance.</summary>
+	/// <summary>Shows the latest content inside the native popup, at rest from the first frame.</summary>
+	/// <remarks>
+	/// No entrance plays here: the popup window has no transparency behind its content, so a fade or shrink shows black, and the
+	/// owner's animation rebuilds the owner, not this root, which kept the first frame, fully faded, on screen.
+	/// </remarks>
 	/// <param name="content">The first content.</param>
-	/// <param name="motion">Reads the entrance's progress and rise from the owner.</param>
-	private sealed class PopupRoot( Blob content, Func<(double Progress, double Rise)> motion ) : Cell
+	private sealed class PopupRoot( Blob content ) : Cell
 	{
 		/// <summary>Stores the content shown.</summary>
 		private Blob _content = content;
@@ -236,12 +239,6 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 		}
 
 		/// <summary>Builds the content filling the popup.</summary>
-		public override Blob Build()
-		{
-			var surface = new Container { FlexGrow = 1, Children = [_content] };
-			var (progress, rise) = motion();
-			PopupMotion.Apply( surface, progress, rise );
-			return surface;
-		}
+		public override Blob Build() => new Container { FlexGrow = 1, Children = [_content] };
 	}
 }
