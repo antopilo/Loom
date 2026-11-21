@@ -152,6 +152,9 @@ public sealed partial class RemoteModule : ILoknModule
 	/// <summary>Stores what publishes the daemon's status for its notification-area icon, in the host role.</summary>
 	private HostStatusFeed? _statusFeed;
 
+	/// <summary>Stores what gives the daemon's unused memory back to Windows once it is idle, in the host role.</summary>
+	private MemoryTrim? _memoryTrim;
+
 	/// <summary>Counts changes of the running role, the daemon link, the switch under way and the notice, so views reading them rebuild.</summary>
 	private readonly State<int> _roleVersion = new( 0 );
 
@@ -329,6 +332,7 @@ public sealed partial class RemoteModule : ILoknModule
 			}
 
 			_statusFeed = new HostStatusFeed( app, conversations.Hosts.Local, Gateway, isUserDaemon: _hooks is null && !LoknPaths.IsCustom );
+			_memoryTrim = new MemoryTrim( app );
 			FollowLoginItem();
 			StartWindowTools( app, dataFolder );
 			return;
@@ -357,6 +361,8 @@ public sealed partial class RemoteModule : ILoknModule
 			EndSwitch( pending, isDone: false );
 		_statusFeed?.Dispose();
 		_statusFeed = null;
+		_memoryTrim?.Dispose();
+		_memoryTrim = null;
 		Gateway?.Stop();
 		Gateway = null;
 		foreach ( var link in _links )

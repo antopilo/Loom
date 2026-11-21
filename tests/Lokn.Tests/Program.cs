@@ -191,6 +191,7 @@ else
 	if ( featureChecks || remoteChecks )
 	{
 		await RemoteChecks.RunAsync();
+		MemoryTrimChecks.Run();
 		RelayChecks.Run();
 		StreamChecks.Run();
 		await RemoteStreamChecks.RunAsync();

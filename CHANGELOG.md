@@ -3,6 +3,11 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## Unreleased
+
+- **The background service uses far less memory.** After it loads your chats, it gives the memory it no longer needs
+  back to Windows once no agent works, instead of keeping about 250 MB for good.
+
 ## 0.4.7
 
 - **Loom rests when nothing moves.** An idle chat or Settings no longer redraws the window 20 times a second, which
