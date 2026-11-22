@@ -5,6 +5,8 @@ version being packed. Write for users: what changed for them, not how.
 
 ## Unreleased
 
+## 0.4.10
+
 - **WebP project icons now show.** Project folders can use WebP for their explicit or automatically found icon.
 - **No more flicker or crash from streaming your own screen.** A PC now offers its screens only to other PCs. Streamed
   on the PC itself, the screen showed itself again and again, and its clicks moved the pointer the stream read.
@@ -16,9 +18,8 @@ version being packed. Write for users: what changed for them, not how.
   that PC's background service stops; after a crash, the service puts it back when it starts again. Turn it off with
   **Use this device's resolution** in the stream's toolbar. When the screen has no matching mode, the stream says
   which one it uses.
-
-## 0.4.10
-
+- **Window streams stay steady while new frames arrive.** A decoded frame remains visible until its replacement
+  finishes uploading to the graphics card instead of flashing the panel background between frames.
 - **Agents inspect Loom without opening a stream of Loom.** The Shell now captures one visible panel
   directly. Browser pages and other native panel surfaces are included without opening a Window stream.
 
