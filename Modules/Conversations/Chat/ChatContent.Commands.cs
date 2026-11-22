@@ -33,8 +33,17 @@ public sealed partial class ChatContent
 	/// <summary>Defines Lokn's own command that empties the conversation; Lokn runs it, not Omp.</summary>
 	internal static readonly SlashCommand ClearCommand = new( "clear", "Clear this conversation and start a fresh session", "", [] );
 
+	/// <summary>Defines Lokn's plan mode, which Omp offers only in its terminal interface (<see cref="ChatModes"/>).</summary>
+	internal static readonly SlashCommand PlanCommand = new( ChatModes.PlanName, "Explore and write a plan; nothing changes until you approve it", "<task>", [] );
+
+	/// <summary>Defines Lokn's goal command, run through Omp's <c>goal</c> RPC command (<see cref="ChatModes"/>).</summary>
+	internal static readonly SlashCommand GoalCommand = new( ChatModes.GoalName, "Set a goal the agent works on until it is done; or show, pause, resume or drop it", "[objective|pause|resume|drop]", [] );
+
+	/// <summary>Lists Lokn's own commands, which come before Omp's.</summary>
+	private static readonly SlashCommand[] LoknCommands = [ClearCommand, PlanCommand, GoalCommand];
+
 	/// <summary>Gets Lokn's commands followed by Omp's; an Omp command of the same name gives way to Lokn's.</summary>
-	private SlashCommand[] AllCommands => [ClearCommand, .. session.Commands.Where( command => command.Name != ClearCommand.Name )];
+	private SlashCommand[] AllCommands => [.. LoknCommands, .. session.Commands.Where( command => !LoknCommands.Any( own => own.Name == command.Name ) )];
 
 	/// <summary>Stores the command name typed so far, or null when the list is closed.</summary>
 	private string? _commandQuery;

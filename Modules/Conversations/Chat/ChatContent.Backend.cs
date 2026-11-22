@@ -157,8 +157,21 @@ public sealed partial class ChatContent
 			return;
 		}
 
+		// A goal command acts on the session at any time, even while the agent works.
+		if ( ChatModes.ReadGoal( text ) is not null )
+		{
+			session.Send( text, [] );
+			return;
+		}
+
 		if ( session.IsBusy )
 		{
+			if ( ChatModes.ReadPlanTask( text ) is not null )
+			{
+				session.UpdateStatus( "Wait for this turn to end, then send /plan." );
+				return;
+			}
+
 			// While the agent works, Enter queues the message for after the turn or steers it, as the switch beside Send says.
 			UpdateInterject( steer: _isSteerMode );
 			return;
@@ -258,12 +271,14 @@ public sealed partial class ChatContent
 		return text[..length];
 	}
 
-	/// <summary>Converts an authoritative Omp message into durable local rich history.</summary>
+	/// <summary>Converts an authoritative Omp message into durable local rich history; a prompt's text leaves out the plan instructions <c>/plan</c> added.</summary>
 	internal static ConversationMessage BuildStoredMessage( Guid id, JsonElement message )
 	{
 		var createdAt = message.TryGetProperty( "timestamp", out var timestamp ) && timestamp.TryGetInt64( out var milliseconds )
 			? DateTimeOffset.FromUnixTimeMilliseconds( milliseconds ) : DateTimeOffset.UtcNow;
-		return new( id, ReadText( message, "role", "assistant" ), ComputeMessageText( message ), createdAt, message.Clone() );
+		var role = ReadText( message, "role", "assistant" );
+		var text = ComputeMessageText( message );
+		return new( id, role, role == "user" ? ChatModes.StripPlanRequest( text ) : text, createdAt, message.Clone() );
 	}
 
 	/// <summary>Extracts visible message text while preserving full rich blocks separately.</summary>

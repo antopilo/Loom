@@ -29,6 +29,16 @@ public sealed partial class OmpService( SettingsService settings )
 	/// <remarks>Omp refuses to start RPC for a profile without a default model, which a profile that never signed in has; any built-in model lets it start, signed in to or not.</remarks>
 	internal const string AccountSessionModel = "anthropic/claude-sonnet-4-5";
 
+	/// <summary>Defines the Omp settings every chat's Omp loads over its own, as a <c>--config</c> overlay.</summary>
+	/// <remarks>Omp continues an active goal between turns only in the run modes <c>goal.continuationModes</c> names, and names only its terminal
+	/// interface by default, so over RPC a goal would stop after one turn.</remarks>
+	internal const string ChatConfig = """
+		goal:
+		  continuationModes:
+		    - interactive
+		    - rpc
+		""";
+
 	/// <summary>Starts a profile-pinned RPC session that continues the conversation directory.</summary>
 	/// <remarks>A process still closing the same conversation, such as the one a reloaded chat panel left, exits first, so two never write one session.</remarks>
 	public Task<OmpSession> OpenSessionAsync(
@@ -103,7 +113,7 @@ public sealed partial class OmpService( SettingsService settings )
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
 		};
-		foreach ( var argument in new[] { "--mode", "rpc-ui", "--profile", profileName, "--session-dir", Path.GetFullPath( sessionDirectory ), "--continue" } )
+		foreach ( var argument in new[] { "--mode", "rpc-ui", "--profile", profileName, "--session-dir", Path.GetFullPath( sessionDirectory ), "--continue", "--config", WriteChatConfig() } )
 			start.ArgumentList.Add( argument );
 
 		var model = settings.Get( OmpModule.Model, scope ).Trim();
@@ -122,6 +132,18 @@ public sealed partial class OmpService( SettingsService settings )
 		}
 
 		return start;
+	}
+
+	/// <summary>Writes <see cref="ChatConfig"/> to its file under the data folder when the file is missing or differs, and returns its path.</summary>
+	private static string WriteChatConfig()
+	{
+		var path = LoknPaths.Combine( "omp", "chat-config.yml" );
+		if ( !File.Exists( path ) || File.ReadAllText( path ) != ChatConfig )
+		{
+			Directory.CreateDirectory( Path.GetDirectoryName( path )! );
+			File.WriteAllText( path, ChatConfig );
+		}
+		return path;
 	}
 
 	/// <summary>Defines how long a one-off question may take to answer, in seconds.</summary>

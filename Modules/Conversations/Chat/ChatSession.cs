@@ -224,6 +224,7 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 		QueuedSteering = _queuedSteering,
 		QueuedFollowUps = _queuedFollowUps,
 		LiveSteered = _liveSteered,
+		Goal = _goal,
 	};
 
 	/// <summary>Attaches a panel that shows this session; host tools the agent calls see the panel attached last as their caller.</summary>
@@ -451,6 +452,7 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 				_connectedModel = model;
 				UpdateContextUsage( state );
 				UpdateEffortState( state );
+				UpdateGoalState( state );
 				if ( economyEfforts.Length > 0 )
 					_efforts = economyEfforts;
 				if ( economyEffort is not null )
@@ -562,6 +564,7 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 		_sentCommand = null;
 		_isCompacting = false;
 		_isAutoCompacting = false;
+		_goal = null;
 		_messageIds.Clear();
 		_tools.Clear();
 		_intents.Clear();
@@ -571,12 +574,30 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 	}
 
 	/// <summary>Sends a prompt and its attachments to the conversation's captured account, connecting first when needed.</summary>
-	/// <remarks>Once Omp admits it, <see cref="PromptAdmitted"/> lets the view empty its composer; when Omp never accepts it, <see cref="PromptRefused"/> keeps it there.</remarks>
+	/// <remarks>
+	/// Once Omp admits it, <see cref="PromptAdmitted"/> lets the view empty its composer; when Omp never accepts it, <see cref="PromptRefused"/> keeps it there.
+	/// <c>/goal</c> runs Omp's <c>goal</c> command instead, and <c>/plan</c> sends its task with the plan instructions (<see cref="ChatModes"/>).
+	/// </remarks>
 	public void Send( string text, string[] attachments )
 	{
+		if ( ChatModes.ReadGoal( text ) is { } goal )
+		{
+			PromptAdmitted?.Invoke( text, attachments );
+			UpdateGoalCommand( text.Trim(), goal );
+			return;
+		}
+
+		var task = ChatModes.ReadPlanTask( text );
+		if ( task is "" && attachments.Length == 0 )
+		{
+			PromptRefused?.Invoke();
+			UpdateStatus( "Type the task after /plan, such as /plan Add a dark theme." );
+			return;
+		}
+
 		UpdateFollowFolder();
 		_isBusy = true;
-		_sentCommand = text.TrimStart().StartsWith( '/' ) ? text.Trim() : null;
+		_sentCommand = task is null && text.TrimStart().StartsWith( '/' ) ? text.Trim() : null;
 		_status = "Sending…";
 		MarkChanged();
 		_ = UpdateSendAsync( EnsureConnection(), text, attachments );
@@ -741,9 +762,10 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 		try
 		{
 			var session = await connection;
+			var task = ChatModes.ReadPlanTask( text );
 			var admission = await session.RequestAsync( "prompt", new
 			{
-				message = ComposePrompt( text, attachments )
+				message = ComposePrompt( task is null ? text : ChatModes.ComposePlan( task ), attachments )
 			}, Lifetime );
 			Post( () =>
 			{
@@ -867,6 +889,8 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 			UpdateQueue( frame );
 		else if ( type == "available_commands_update" )
 			_commands = ReadCommands( frame );
+		else if ( type == "goal_updated" )
+			UpdateGoalState( frame );
 		else if ( type == "command_output" )
 			UpdateCommandOutput( frame );
 		else if ( type == "agent_start" )
@@ -975,9 +999,13 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 	private void UpdateCommandOutput( JsonElement frame )
 	{
 		var text = TerminalText.BuildPlain( ReadText( frame, "text" ) ).Trim();
-		if ( _sentCommand is not { } command || text.Length == 0 )
-			return;
+		if ( _sentCommand is { } command && text.Length > 0 )
+			AppendCommandOutput( command, text );
+	}
 
+	/// <summary>Records what a command Lokn or Omp ran printed in the transcript, under the command as typed.</summary>
+	private void AppendCommandOutput( string command, string text )
+	{
 		var rich = JsonSerializer.SerializeToElement( new
 		{
 			command

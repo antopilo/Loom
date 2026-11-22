@@ -110,20 +110,20 @@ public sealed partial class ChatContent
 	/// <summary>Writes text to the clipboard.</summary>
 	private void CopyText( string text ) => context.Run( () => context.App.Window?.Clipboard.WriteText( text ) );
 
-	/// <summary>Computes a message's raw text: its text blocks separated by blank lines, or its stored text.</summary>
+	/// <summary>Computes a message's raw text: its text blocks separated by blank lines, or its stored text; a prompt leaves out the plan instructions <c>/plan</c> added.</summary>
 	private static string ComputeMessageSource( ConversationMessage message )
 	{
 		if ( message.RichContent is not { ValueKind: JsonValueKind.Object } rich || !rich.TryGetProperty( "content", out var content ) )
 			return message.Text;
 		if ( content.ValueKind == JsonValueKind.String )
-			return content.GetString() ?? "";
+			return ChatModes.StripPlanRequest( content.GetString() ?? "" );
 		if ( content.ValueKind != JsonValueKind.Array )
 			return message.Text;
 
-		return string.Join( "\n\n", content.EnumerateArray()
+		return ChatModes.StripPlanRequest( string.Join( "\n\n", content.EnumerateArray()
 			.Where( block => ReadText( block, "type" ) == "text" )
 			.Select( block => ReadText( block, "text" ).Trim( '\n', '\r' ) )
-			.Where( text => !string.IsNullOrWhiteSpace( text ) ) );
+			.Where( text => !string.IsNullOrWhiteSpace( text ) ) ) );
 	}
 
 	/// <summary>Computes the contents of every fenced code block, quotes included, separated by blank lines.</summary>

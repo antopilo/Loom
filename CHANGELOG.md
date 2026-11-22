@@ -3,7 +3,16 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
-## Unreleased
+## 0.4.11
+
+- **The agent's questions show again.** Omp's ask tool now sends a form, which Loom did not show, so a chat waited
+  for an answer you could not give. Loom, its clients and the web page now show the form and send your answers.
+- **Quicker answers to the agent's questions.** A question shows its answers as a row of buttons, and one click
+  answers a single-choice question. The recommended answer is highlighted: press Ctrl+Enter to give it.
+- **Plan before the agent changes anything.** Type `/plan` and your task: the agent explores, asks its questions and
+  writes a plan, with **Implement** and **Revise** buttons. Nothing changes until you click **Implement**.
+- **Give a chat a goal.** `/goal` and an objective make the agent work turn after turn until the goal is done. A line
+  above the prompt shows it, with **Pause**, **Resume** and **Drop**.
 
 ## 0.4.10
 

@@ -142,6 +142,9 @@ public interface IChatSession : IDisposable
 	/// <summary>Gets how many leading steering messages the model already received.</summary>
 	int LiveSteered { get; }
 
+	/// <summary>Gets the chat's goal as Omp reports it: <c>objective</c>, <c>status</c>, <c>tokensUsed</c> and <c>tokenBudget</c>; null without one.</summary>
+	JsonElement? Goal { get; }
+
 	/// <summary>Captures every value a view reads, for a view in another process.</summary>
 	ChatSessionState CaptureState();
 

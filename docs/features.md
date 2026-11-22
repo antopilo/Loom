@@ -302,6 +302,20 @@ model stay. An empty chat, new or cleared, looks like Home: the wordmark and the
 recent project cards above the chat's own prompt. It is unavailable while the agent
 is working.
 
+Omp runs `/plan` and `/goal` only in its terminal interface, so Loom runs them itself:
+
+- `/plan <task>` asks the agent for a plan, as Codex's plan mode does: Loom sends the task
+  with instructions to change nothing, explore, ask its questions, and end with the plan
+  between `<lokn-plan>` tags. The prompt shows as the task with a **Plan** label, and the
+  plan as a card in the reply. Once the plan is finished, a card above the prompt offers
+  **Implement**, which sends the approval, and **Revise**, which starts a `/plan` prompt for
+  your notes. Nothing blocks edits: the agent keeps to the plan by instruction only.
+- `/goal <objective>` (or `/goal set <objective>`) gives the chat a goal the agent works on,
+  turn after turn, until it is done; a new objective replaces the goal. `/goal` or `/goal show`
+  shows it, `/goal pause`, `/goal resume` and `/goal drop` act on it, also while the agent
+  works. A line above the prompt shows the goal, its status and the tokens it used, with
+  **Pause** or **Resume** and **Drop**.
+
 Work and Personal have separate history and Omp account profiles. An existing chat
 keeps its original profile when the profile switcher changes. Open **Omp accounts**
 from the command palette to sign in. First-time sign-in opens Omp's interactive

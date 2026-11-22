@@ -110,6 +110,7 @@ public sealed partial class ChatSession
 			{
 				UpdateContextUsage( read );
 				UpdateEffortState( read );
+				UpdateGoalState( read );
 				MarkChanged();
 			}
 		} );

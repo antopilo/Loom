@@ -187,6 +187,9 @@ public sealed class RemoteChatSession( LoknApplication app, ConversationStore st
 	/// <summary>Gets how many leading steering messages the model already received.</summary>
 	public int LiveSteered => _state.LiveSteered;
 
+	/// <summary>Gets the chat's goal as the host's Omp reports it, or null without one.</summary>
+	public JsonElement? Goal => _state.Goal;
+
 	/// <summary>Gets the host's last state.</summary>
 	public ChatSessionState CaptureState() => _state;
 

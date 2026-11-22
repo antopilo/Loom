@@ -71,6 +71,7 @@ internal static class ChatChecks
 		CoreChecks.Check( store.GetMessages( chat.Id ).Count == 2, "Transport failures retain already recorded history." );
 		CheckSlashCommands( panel );
 		CheckCommandOutput( panel, store, chat.Id );
+		CheckModes( panel );
 		CheckActivity( app, module );
 		CheckToolImages( app, module );
 		CheckAttention( app, module );
@@ -131,6 +132,32 @@ internal static class ChatChecks
 		CoreChecks.Check( HtmlForm.Validate( days, HtmlForm.ComputeTextValue( days, "" ) ) == "Required" && HtmlForm.Validate( days, HtmlForm.ComputeTextValue( days, "40" ) ) == "Must be at most 30"
 			&& HtmlForm.Validate( days, HtmlForm.ComputeTextValue( days, "7" ) ) is null, "Form checks use Omp's messages, so an answer Omp would refuse is never sent." );
 		panel.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"cancel","targetId":"f1"}""" ) );
+	}
+
+	/// <summary>Checks how <c>/plan</c> and <c>/goal</c> are read, that a plan prompt shows only its task, and that a finished plan waits for Implement until the user writes again.</summary>
+	private static void CheckModes( ChatContent panel )
+	{
+		CoreChecks.Check( ChatModes.ReadPlanTask( "/plan Add a theme " ) == "Add a theme" && ChatModes.ReadPlanTask( "/plan" ) == "" && ChatModes.ReadPlanTask( "/planner x" ) is null && ChatModes.ReadPlanTask( "plan x" ) is null,
+			"Only /plan itself, alone or followed by a task, is the plan command." );
+		CoreChecks.Check( ChatModes.ReadGoal( "/goal" ) == new GoalCommand( "get", "" ) && ChatModes.ReadGoal( "/goal show" ) == new GoalCommand( "get", "" )
+			&& ChatModes.ReadGoal( "/goal Pause" ) == new GoalCommand( "pause", "" ) && ChatModes.ReadGoal( "/goal set Ship it" ) == new GoalCommand( "create", "Ship it" )
+			&& ChatModes.ReadGoal( "/goal pause the build when red" ) == new GoalCommand( "create", "pause the build when red" ) && ChatModes.ReadGoal( "/goals" ) is null,
+			"/goal reads or acts on the goal by its one-word actions, and any other text is a new objective." );
+		var sent = ChatModes.ComposePlan( "Add a theme" );
+		CoreChecks.Check( ChatModes.IsPlanRequest( sent ) && ChatModes.StripPlanRequest( sent ) == "Add a theme" && ChatModes.StripPlanRequest( sent + "\n\n@\"C:\\a.png\"" ) == "Add a theme\n\n@\"C:\\a.png\"",
+			"A plan prompt's instructions come out again whole, keeping the task and the attachments after them." );
+		CoreChecks.Check( ChatModes.SplitPlan( "Intro\n<lokn-plan>\n1. Step\n</lokn-plan>\nDone" ) is { Before: "Intro\n", Plan: "\n1. Step\n", After: "\nDone", IsClosed: true }
+			&& ChatModes.SplitPlan( "Intro <lokn-plan>1. Ste" ) is { Plan: "1. Ste", IsClosed: false } && ChatModes.SplitPlan( "No plan" ) is null,
+			"A reply splits at its plan, also while the plan still streams." );
+
+		var pending = typeof( ChatContent ).GetMethod( "HasPendingPlan", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance )!;
+		var prompt = JsonSerializer.SerializeToElement( new { role = "user", content = new[] { new { type = "text", text = sent } } } );
+		CoreChecks.Check( ChatContent.BuildStoredMessage( Guid.NewGuid(), prompt ).Text == "Add a theme", "A plan prompt is stored with its task as its text, which titles and copies use." );
+		panel.Session.UpdateFrame( JsonSerializer.SerializeToElement( new { type = "message_end", messageId = "plan-user", message = prompt } ) );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_end","messageId":"plan-reply","message":{"role":"assistant","content":[{"type":"text","text":"Looked around.\n<lokn-plan>\n1. Add it\n</lokn-plan>"}]}}""" ) );
+		CoreChecks.Check( pending.Invoke( panel, null ) is true, "A finished plan waits for Implement or Revise." );
+		panel.Session.UpdateFrame( Parse( """{"type":"message_end","messageId":"plan-next","message":{"role":"user","content":"Something else"}}""" ) );
+		CoreChecks.Check( pending.Invoke( panel, null ) is false, "Once the user writes again, the plan no longer waits." );
 	}
 
 	/// <summary>Checks that a chat session connects to a real (fixture) Omp child and runs a whole turn with no chat panel open.</summary>
@@ -202,6 +229,29 @@ internal static class ChatChecks
 			&& store.GetMessages( racingChat.Id ).Any( message => message.Role == "assistant" && message.Text.StartsWith( "Streaming complete.", StringComparison.Ordinal ) ),
 			"The ended connection's startup finishing late changes nothing: the new turn completes." );
 		racing.Dispose();
+
+		// /goal and /plan run through Omp's goal command and a plan prompt, which Omp's RPC mode does not run as slash commands.
+		var modesChat = store.CreateConversation( SettingsProfile.Personal );
+		store.SaveBackendSession( modesChat.Id, Path.Combine( Path.GetTempPath(), "lokn-modes-" + Guid.NewGuid().ToString( "N" ) ) );
+		var modes = new ChatSession( app, store, modesChat.Id, omp.Service, app.Post );
+		string Output() => store.GetMessages( modesChat.Id ).LastOrDefault( message => message.Role == ChatContent.CommandRole )?.Text ?? "";
+		string? GoalField( string name ) => modes.Goal is { } goal ? ChatContent.ReadText( goal, name ) : null;
+		modes.Send( "/goal Ship the fixture", [] );
+		CoreChecks.Check( PumpUntil( () => Output().Length > 0 ) && GoalField( "status" ) == "active" && Output() == $"Goal (active): Ship the fixture\n{ChatModes.DescribeGoalTokens( modes.Goal!.Value )}"
+			&& !modes.IsBusy && modes.Status == "Ready", "/goal with an objective creates the goal through Omp's goal command and shows it under the command." );
+		modes.Send( "/goal pause", [] );
+		CoreChecks.Check( PumpUntil( () => GoalField( "status" ) == "paused" ), "/goal pause pauses the goal." );
+		modes.Send( "/goal Replace the fixture", [] );
+		CoreChecks.Check( PumpUntil( () => GoalField( "objective" ) == "Replace the fixture" ) && GoalField( "status" ) == "active",
+			"A new objective replaces the goal, which Omp creates only once the old one is dropped." );
+		modes.Send( "/goal drop", [] );
+		CoreChecks.Check( PumpUntil( () => Output() == "Goal dropped." ) && modes.Goal is null, "/goal drop removes the goal." );
+		modes.Send( "/plan Add a theme", [] );
+		CoreChecks.Check( PumpUntil( () => !modes.IsBusy && store.GetMessages( modesChat.Id ).Any( message => message.Role == "assistant" && message.Text.Contains( "<lokn-plan>", StringComparison.Ordinal ) ) )
+			&& store.GetMessages( modesChat.Id ).Single( message => message.Role == "user" ) is { Text: "Add a theme" } sentPlan
+			&& ChatModes.IsPlanRequest( ChatContent.ComputeMessageText( sentPlan.RichContent!.Value ) ),
+			"/plan sends its task with the plan instructions, and the chat keeps the task as the prompt's text." );
+		modes.Dispose();
 		CheckDisconnectReset( app, store, omp.Service );
 		app.Shutdown();
 	}

@@ -257,6 +257,17 @@ The catalog comes from Omp's `available_commands_update` frame, pushed at startu
 whenever command metadata changes. Typing `/` in a chat that is not connected yet
 connects it so the list can load; no prompt is sent.
 
+Omp's catalog over RPC leaves out `/plan` and `/goal`, which Omp runs only in its terminal
+interface; Lokn lists and runs them itself (`ChatModes`). `/goal` uses RPC `goal` (`get`,
+`create`, `pause`, `resume`, `drop`; a new objective first drops the current goal, since
+`create` refuses while one is active or paused) and follows `goal_updated` and
+`get_state.goal`; Omp has no RPC to change a goal's budget. Omp continues a goal between
+turns only in the modes `goal.continuationModes` names, so each chat's Omp starts with
+`--config` and `OmpService.ChatConfig`, an overlay that adds `rpc`. `/plan <task>` is a
+prompt: the task, then the instructions in `<lokn-plan-mode>`, which the transcript, titles
+and copies leave out; the reply's `<lokn-plan>` block shows as a card. Omp's RPC has no plan
+mode, so nothing blocks the agent's edit tools.
+
 A command Omp runs locally, such as `/session` or `/usage`, answers with a
 `command_output` frame instead of a turn. The chat shows it in the transcript under the
 command as typed, without terminal colors; output fenced in ```` ``` ```` renders as

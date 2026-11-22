@@ -51,8 +51,22 @@ public sealed partial class ChatContent
 	}
 
 	/// <summary>Builds a sent prompt's text without its <c>@path</c> mentions, then shows the mentioned files: images as thumbnails, other files as chips.</summary>
+	/// <remarks>A <c>/plan</c> prompt shows a Plan label and its task, without the instructions sent with it.</remarks>
 	private IEnumerable<Blob> BuildSentText( Guid messageId, string text )
 	{
+		if ( ChatModes.IsPlanRequest( text ) )
+		{
+			text = ChatModes.StripPlanRequest( text );
+			yield return new Text
+			{
+				Key = "sent-plan",
+				Content = "Plan",
+				FontSize = ViewStyle.SmallSize,
+				FontWeight = AuthorWeight,
+				Color = Theme.Current.Accent,
+			};
+		}
+
 		var paths = Mention().Matches( text ).Select( match => match.Groups["path"].Value ).Distinct( StringComparer.OrdinalIgnoreCase ).ToArray();
 		var prose = paths.Length == 0 ? text : Mention().Replace( text, "" ).Trim();
 		if ( !string.IsNullOrWhiteSpace( prose ) )

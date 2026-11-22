@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<!-- This module's release version; raise it to publish the module as an update (scripts/release.ps1). -->
-		<Version>2.11.2</Version>
+		<Version>2.12.0</Version>
 		<!-- Windows.Graphics.Capture reaches IGraphicsCaptureItemInterop through its vtable. -->
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 	</PropertyGroup>

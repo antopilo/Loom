@@ -82,6 +82,9 @@ public sealed record ChatSessionState
 
 	/// <summary>Gets how many leading steering messages the model already received.</summary>
 	public int LiveSteered { get; init; }
+
+	/// <summary>Gets the chat's goal as Omp reports it, or null without one.</summary>
+	public JsonElement? Goal { get; init; }
 }
 
 /// <summary>Carries one event a chat session raised, other than <see cref="IChatSession.Changed"/>, which a new state implies, and

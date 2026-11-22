@@ -146,6 +146,11 @@ public sealed partial class ChatContent
 				yield break;
 			if ( role == "toolResult" )
 				yield return BuildEntering( key, MarkdownView.BuildCode( TerminalText.BuildPlain( text ), text.StartsWith( "diff ", StringComparison.Ordinal ) || text.StartsWith( "@@", StringComparison.Ordinal ) ? "diff" : "text" ) );
+			else if ( role == "assistant" && ChatModes.SplitPlan( text ) is { } plan )
+			{
+				foreach ( var part in BuildPlanText( key, plan ) )
+					yield return part;
+			}
 			else
 				yield return BuildStreamText( key, text );
 		}

@@ -67,6 +67,8 @@ internal static class OmpUiFixture
 
 		// The long turn scripts/bench.ps1 asks for runs until the chat stops it.
 		CancellationTokenSource? longTurn = null;
+		// Omp's goal command keeps one goal, which create refuses to replace, and reports each change in goal_updated.
+		Dictionary<string, object?>? goal = null;
 		while ( await Console.In.ReadLineAsync() is { } line )
 		{
 			using var document = JsonDocument.Parse( line );
@@ -141,6 +143,28 @@ internal static class OmpUiFixture
 				};
 				await SendAsync( new { type = "queue_update", steering, followUp = followUps, liveSteered = 0 } );
 				await SendAsync( new { type = "response", id = request.GetProperty( "id" ).GetString(), command = type, success = true, data = new { removed = taken, promoted = taken } } );
+				continue;
+			}
+
+			if ( type == "goal" )
+			{
+				var op = request.GetProperty( "op" ).GetString();
+				var goalId = request.GetProperty( "id" ).GetString();
+				if ( op == "create" && goal is not null )
+				{
+					await SendAsync( new { type = "response", id = goalId, command = type, success = false, error = "A goal is already active." } );
+					continue;
+				}
+
+				if ( op == "create" )
+					goal = new() { ["id"] = "fixture-goal", ["objective"] = request.GetProperty( "objective" ).GetString(), ["status"] = "active", ["tokensUsed"] = 1200, ["tokenBudget"] = 50000, ["timeUsedSeconds"] = 3 };
+				else if ( op is "pause" or "resume" && goal is not null )
+					goal["status"] = op == "pause" ? "paused" : "active";
+				else if ( op == "drop" )
+					goal = null;
+				if ( op != "get" )
+					await SendAsync( new { type = "goal_updated", goal } );
+				await SendAsync( new { type = "response", id = goalId, command = type, success = true, data = new { goal, state = (object?)null } } );
 				continue;
 			}
 
@@ -271,6 +295,24 @@ internal static class OmpUiFixture
 					type = "agent_end",
 					isTerminal = true
 				} );
+				continue;
+			}
+
+			// A /plan prompt carries Lokn's plan instructions; the plan comes back between its tags.
+			if ( prompt.Contains( "<lokn-plan-mode>", StringComparison.Ordinal ) )
+			{
+				await SendAsync( new { type = "agent_start" } );
+				await SendMessageAsync( "fixture-plan-user", new
+				{
+					role = "user",
+					content = new[] { new { type = "text", text = prompt } },
+				} );
+				await SendMessageAsync( "fixture-plan-assistant", new
+				{
+					role = "assistant",
+					content = new[] { new { type = "text", text = "Explored the fixture.\n\n<lokn-plan>\n1. Add the theme.\n2. Verify it.\n</lokn-plan>" } },
+				} );
+				await SendAsync( new { type = "agent_end", isTerminal = true } );
 				continue;
 			}
 

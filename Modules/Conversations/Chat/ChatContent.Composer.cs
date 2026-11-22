@@ -178,6 +178,10 @@ public sealed partial class ChatContent
 			column.Add( BuildCommands( query ) );
 		if ( BuildNewTaskCard() is { } newTask )
 			column.Add( newTask );
+		if ( BuildPlanActions() is { } plan )
+			column.Add( plan );
+		if ( BuildGoalBar() is { } goal )
+			column.Add( goal );
 		var frameBox = new List<Blob>
 		{
 			new Container
