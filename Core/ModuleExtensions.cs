@@ -1,3 +1,5 @@
+using Goo;
+
 namespace Lokn.Core;
 
 /// <summary>Names the window areas the shell builds from module contributions; register them with <see cref="ModuleBuilder.Slot"/>.</summary>
@@ -21,6 +23,47 @@ public static class ShellSlots
 	/// <summary>The status bar's right side, before the shell's hint.</summary>
 	public const string StatusRight = "shell.status.right";
 }
+
+/// <summary>Names the extension point for a native capture provider that lets the shell include child surfaces when it captures one of its panels.</summary>
+public static class ShellPanelCapture
+{
+	/// <summary>Gets the extension point identifier.</summary>
+	public const string Point = "shell.panel-capture";
+}
+
+/// <summary>Names a panel rectangle as fractions of its Loom window, from zero to one.</summary>
+/// <param name="X">The left edge as a fraction of the window width.</param>
+/// <param name="Y">The top edge as a fraction of the window height.</param>
+/// <param name="Width">The width as a fraction of the window width.</param>
+/// <param name="Height">The height as a fraction of the window height.</param>
+public sealed record PanelCaptureRegion( double X, double Y, double Width, double Height )
+{
+	/// <summary>Converts the region to a nonempty rectangle inside an image of the given pixel size.</summary>
+	/// <param name="imageWidth">The image width in pixels.</param>
+	/// <param name="imageHeight">The image height in pixels.</param>
+	/// <returns>The left edge, top edge, width and height in pixels.</returns>
+	public (int X, int Y, int Width, int Height) ToPixels( int imageWidth, int imageHeight )
+	{
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero( imageWidth );
+		ArgumentOutOfRangeException.ThrowIfNegativeOrZero( imageHeight );
+		var left = Math.Clamp( (int)Math.Floor( X * imageWidth ), 0, imageWidth - 1 );
+		var top = Math.Clamp( (int)Math.Floor( Y * imageHeight ), 0, imageHeight - 1 );
+		var right = Math.Clamp( (int)Math.Ceiling( (X + Width) * imageWidth ), left + 1, imageWidth );
+		var bottom = Math.Clamp( (int)Math.Ceiling( (Y + Height) * imageHeight ), top + 1, imageHeight );
+		return (left, top, right - left, bottom - top);
+	}
+}
+
+/// <summary>Holds one encoded image of a Loom panel.</summary>
+/// <param name="Extension">The file extension, including its leading dot.</param>
+/// <param name="Width">The image width in pixels.</param>
+/// <param name="Height">The image height in pixels.</param>
+/// <param name="Bytes">The complete encoded image bytes.</param>
+public sealed record PanelCaptureImage( string Extension, int Width, int Height, byte[] Bytes );
+
+/// <summary>Captures one region of Loom's native window, including child surfaces that Goo's scene capture cannot see.</summary>
+/// <param name="CaptureAsync">Captures the region, or returns null when this provider does not support the current platform.</param>
+public sealed record PanelCaptureProvider( Func<Window, PanelCaptureRegion, CancellationToken, Task<PanelCaptureImage?>> CaptureAsync );
 
 /// <summary>Describes one live slot contribution.</summary>
 /// <param name="Id">A unique identifier for this contribution's lifetime, for keying its mount.</param>

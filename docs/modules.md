@@ -576,15 +576,19 @@ builder.Tool(
   A paired host's chats get only this PC's browser tools; their calls carry the host in
   `context.Host`.
 
-The Shell module's own tools (`shell_state`, `shell_open_panel`,
+The Shell module's own tools (`shell_state`, `shell_capture_panel`, `shell_open_panel`,
 `shell_focus_panel`, `shell_move_panel`, `shell_close_panel`,
-`shell_list_commands`, `shell_run_command`) are in `Shell/ShellTools.cs`. The module was
-called `workspace` before; Lokn moves saved `workspace.*` settings to `shell.*` at startup.
-Workspaces (saved layouts) is a separate feature module and is always on.
+`shell_list_commands`, `shell_run_command`) are in `Shell/ShellTools.cs`.
+`shell_capture_panel` saves only the named visible panel without opening another panel. It uses the
+Remote module's native capture contribution when available, so native child surfaces such as a
+Browser page appear too; Goo's scene capture is the fallback. Agents use it instead of the Remote
+module's window tools to inspect Loom itself. The module was called `workspace` before; Lokn moves
+saved `workspace.*` settings to `shell.*` at startup. Workspaces (saved layouts) is a separate
+feature module and is always on.
 
 The Remote module's window tools (`window_list`, `window_show`, `window_capture`, `window_click`,
-`window_type`, `window_key`, `window_scroll`) let agents see and drive this PC's windows, which the
-user watches in a Window stream panel beside the chat; they are offered with `app.Tools.Offer`
+`window_type`, `window_key`, `window_scroll`) let agents see and drive other desktop windows, which
+the user watches in a Window stream panel beside the chat; they are offered with `app.Tools.Offer`
 while `remote.agent-windows` is on ([Window tools](remote.md#window-tools)).
 
 ### Tool cards

@@ -20,6 +20,10 @@ internal static class ShellTools
 			"Describes the Lokn window: every open panel (id, type, title), the split layout tree, the active pane, the panel types that can be opened, and which panel is \"self\" (the one you are running in). Call this before arranging panels.",
 			"""{ "type": "object", "properties": {}, "additionalProperties": false }""",
 			( context, _ ) => BuildState( context ) )
+		.ToolAsync( "capture_panel",
+			"Captures one visible Loom panel directly and saves an image without opening a Window stream. Use this instead of window_capture to inspect Loom's own panels. For the contents of a Browser page, prefer browser_read or browser_screenshot when available.",
+			$$"""{ "type": "object", "properties": { {{PanelArgument}} }, "required": ["panel"], "additionalProperties": false }""",
+			CapturePanelAsync )
 		.Tool( "open_panel",
 			"Opens a new panel of a registered type. By default it splits the target panel's pane along its longer side: to the right of a wide pane, below a tall one. It fills the target pane when it is empty. Returns the new panel's id.",
 			$$"""
@@ -114,6 +118,21 @@ internal static class ShellTools
 
 				return await context.App.Commands.ExecuteAsync( id ) ? new( $"Ran {id}." ) : AgentToolResult.Error( $"{id} did not complete." );
 			} );
+
+	/// <summary>Captures one visible panel through the shell and saves the resulting image for the agent to read.</summary>
+	private static async Task<AgentToolResult> CapturePanelAsync( AgentToolContext context, JsonElement arguments )
+	{
+		var panel = ResolvePanel( context, arguments, "panel" );
+		if ( context.App.Window?.Root is not ShellView shell )
+			throw new InvalidOperationException( "Loom has no mounted shell window to capture." );
+
+		var image = await shell.CapturePanelAsync( panel.Id, context.Cancellation );
+		var folder = Path.Combine( LoknPaths.DataRoot, "screenshots" );
+		Directory.CreateDirectory( folder );
+		var path = Path.Combine( folder, $"{DateTime.Now:yyyyMMdd-HHmmss-fffffff}-panel-{panel.Id.ToString( "N" )[..8]}{image.Extension}" );
+		await File.WriteAllBytesAsync( path, image.Bytes, context.Cancellation );
+		return AgentToolResult.Json( new { Path = path, image.Width, image.Height, Panel = panel.Id, StreamOpened = false } );
+	}
 
 	/// <summary>Describes the panels, the layout tree, the active pane and the openable panel types.</summary>
 	private static AgentToolResult BuildState( AgentToolContext context )

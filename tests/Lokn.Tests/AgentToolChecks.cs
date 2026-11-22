@@ -16,7 +16,7 @@ internal static class AgentToolChecks
 		await CheckRegistryAsync();
 		await CheckHostAsync();
 		await CheckWorkspaceAsync();
-		Console.WriteLine( "PASS agent tool registration, failures as results, module removal, the calling host, and workspace state, open, move, focus, close and command tools." );
+		Console.WriteLine( "PASS agent tool registration, failures as results, module removal, the calling host, and workspace state, panel capture, open, move, focus, close and command tools." );
 	}
 
 	/// <summary>Runs the host-tool protocol against a synthetic Omp child.</summary>
@@ -80,6 +80,12 @@ internal static class AgentToolChecks
 		CoreChecks.Check( state.GetProperty( "self" ).GetGuid() == chat && state.GetProperty( "layout" ).GetProperty( "type" ).GetString() == "fixture.chat"
 			&& state.GetProperty( "panelTypes" ).EnumerateArray().Any( type => type.GetProperty( "type" ).GetString() == "fixture.notes" ),
 			"The state tool shows the agent's own panel, the layout and the openable panel types." );
+
+		var region = new PanelCaptureRegion( 0.25, 0.125, 0.5, 0.75 );
+		CoreChecks.Check( region.ToPixels( 100, 80 ) == (25, 10, 50, 60), "Panel capture regions map logical window fractions to image pixels." );
+		var capture = await Call( "shell_capture_panel", """{ "panel": "self" }""" );
+		CoreChecks.Check( capture.IsError && capture.Text.Contains( "mounted shell window", StringComparison.Ordinal ) && app.Panels.Panels.Count == 1,
+			"The shell capture tool is available by default and fails without opening or changing panels when no window is mounted." );
 
 		var opened = await Call( "shell_open_panel", """{ "type": "fixture.notes", "beside": "self", "placement": "left" }""" );
 		var notes = JsonDocument.Parse( opened.Text ).RootElement.GetProperty( "panel" ).GetGuid();

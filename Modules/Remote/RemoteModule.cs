@@ -289,6 +289,7 @@ public sealed partial class RemoteModule : ILoknModule
 			.Setting( LendBrowser )
 			.Setting( AgentWindows )
 			.Setting( FollowHostScreen )
+			.Contribute( ShellPanelCapture.Point, new PanelCaptureProvider( CapturePanelAsync ) )
 			.Service<IHostLoginItem>( new HostLoginItem( this ) )
 			.Setting( Access )
 			.Slot( ShellSlots.StatusRight, 0, context => new RemoteStatusContent( context, this ) )

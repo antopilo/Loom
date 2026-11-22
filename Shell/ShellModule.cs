@@ -23,6 +23,7 @@ internal sealed class ShellModule : ILoknModule
 	public void Register( ModuleBuilder builder )
 	{
 		builder
+			.ExtensionPoint<PanelCaptureProvider>( "panel-capture" )
 			.Setting( ShellSettings.Backdrop )
 			.Setting( ShellSettings.CanvasOpacity )
 			.Setting( ShellSettings.PanelOpacity )

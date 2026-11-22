@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Goo;
 using Lokn.Core;
 
 namespace Lokn.Modules.Remote;
@@ -80,6 +81,45 @@ public sealed partial class RemoteModule
 			}
 			""",
 			( context, arguments ) => RunDesktopAsync( () => ActDesktop( arguments ) ) );
+
+	/// <summary>Captures one region of Loom's own window without opening a stream, including native child surfaces such as browser pages.</summary>
+	private static async Task<PanelCaptureImage?> CapturePanelAsync( Window window, PanelCaptureRegion region, CancellationToken cancellation )
+	{
+		if ( !OperatingSystem.IsWindows() )
+			return null;
+
+		var lease = await window.AcquireNativeDialogOwnerAsync( cancellation );
+		if ( lease.Owner is not { } owner )
+			throw new InvalidOperationException( "Windows did not provide Loom's native window for capture." );
+		var handle = owner.Handle;
+		owner.Dispose();
+
+		var frame = await Task.Run( () => CapturePanelFrame( handle, cancellation ), cancellation );
+		var (x, y, width, height) = region.ToPixels( frame.Width, frame.Height );
+		var pixels = new byte[checked(width * height * 4)];
+		var sourceStride = checked(frame.Width * 4);
+		var targetStride = checked(width * 4);
+		for ( var row = 0; row < height; row++ )
+			Buffer.BlockCopy( frame.Pixels, (y + row) * sourceStride + x * 4, pixels, row * targetStride, targetStride );
+
+		var image = await JpegEncoder.EncodeAsync( new( width, height, pixels ), 0.9, cancellation );
+		return new( ".jpg", width, height, image );
+	}
+
+	/// <summary>Waits for the first compositor capture of Loom's native window.</summary>
+	private static BgraFrame CapturePanelFrame( nint window, CancellationToken cancellation )
+	{
+		using var capturer = WindowCapturers.Open( window );
+		var deadline = DateTime.UtcNow + TimeSpan.FromSeconds( 1 );
+		BgraFrame? frame;
+		while ( (frame = capturer.Capture( 1920 )) is null && DateTime.UtcNow < deadline )
+		{
+			cancellation.ThrowIfCancellationRequested();
+			Thread.Sleep( 15 );
+		}
+
+		return frame ?? throw new InvalidOperationException( "Loom's window has nothing to capture now." );
+	}
 
 	/// <summary>Runs a desktop tool off the UI thread, refusing it on platforms without the desktop.</summary>
 	private static Task<AgentToolResult> RunDesktopAsync( Func<AgentToolResult> run ) => OperatingSystem.IsWindows()

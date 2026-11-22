@@ -70,6 +70,7 @@ internal static class NativeChecks
 		{
 			var preview = app.Panels.Open( "welcome.home" );
 			Pump( window );
+			CheckPanelCapture( window, app, preview );
 			var settingsCaptureIndex = Array.IndexOf( args, "--capture" );
 			var settingsCapture = settingsCaptureIndex >= 0 && settingsCaptureIndex + 1 < args.Length ? args[settingsCaptureIndex + 1] : null;
 			SettingsUiChecks.Run( window, shell, app, state, semantics, preview, settingsCapture );
@@ -171,6 +172,8 @@ internal static class NativeChecks
 			Pump( window );
 		CoreChecks.Check( toolCall.Result is { IsError: false } && app.Panels.ActivePanelId == panel, $"An agent tool called from another thread runs on the UI thread ({toolCall.Result.Text})." );
 
+		CheckPanelCapture( window, app, panel );
+
 		Shortcut( window, Key.P, KeyModifiers.PrimaryShift );
 		PumpUntil( window, semantics, () => app.NativeSurfacesOccluded, "The command palette hides native child surfaces while it is open." );
 		window.PlatformInput.CommitText( "Open Welcome" );
@@ -248,7 +251,6 @@ internal static class NativeChecks
 	{
 		var active = app.Panels.ActivePanelId;
 		var paneCount = app.Panels.Panes.Count;
-		var panelCount = app.Panels.Panels.Count;
 		var handle = (ElementHandle)typeof( ShellView )
 			.GetField( "_workspaceHandle", BindingFlags.Instance | BindingFlags.NonPublic )!
 			.GetValue( shell )!;
@@ -261,9 +263,9 @@ internal static class NativeChecks
 		PumpUntil( window, semantics, () => app.Settings.Get( ShellSettings.ShowSidebar ) == isSidebarShown, "The titlebar sidebar icon toggles back." );
 
 		ClickTitlebarAction( window, semantics, "Settings" );
-		PumpUntil( window, semantics, () => app.Panels.Panels.Count == panelCount + 1 && app.Panels.Panels.Single( item => item.Id == app.Panels.ActivePanelId ).TypeId == "shell.settings",
-			"The titlebar Settings icon opens the Settings panel." );
-		app.Panels.CloseActive();
+		PumpUntil( window, semantics, () => app.Popups.Top?.TypeId == "shell.settings",
+			"The titlebar Settings icon opens the Settings window." );
+		app.Popups.Close( app.Popups.Top! );
 		Pump( window );
 
 		Shortcut( window, Key.BackSlash, KeyModifiers.Primary );
@@ -280,6 +282,29 @@ internal static class NativeChecks
 		PointerMove( window, window.Size.Width / 2, TitleBar.BarHeight );
 		Pump( window );
 		CoreChecks.Check( window.State == WindowState.Normal, "Workspace titlebar icons leave native window state unchanged." );
+	}
+
+	/// <summary>Captures one mounted panel through the shell tool and checks that it saves an image without opening another panel.</summary>
+	private static void CheckPanelCapture( Window window, LoknApplication app, Guid panel )
+	{
+		var panelCount = app.Panels.Panels.Count;
+		var captureCall = Task.Run( () => app.Tools.InvokeAsync( "shell_capture_panel", JsonDocument.Parse( $$"""{ "panel": "{{panel}}" }""" ).RootElement, null, CancellationToken.None ) );
+		while ( !captureCall.IsCompleted )
+			Pump( window );
+		var captureResult = captureCall.Result;
+		CoreChecks.Check( !captureResult.IsError, $"The shell captures a mounted panel ({captureResult.Text})." );
+		var capture = JsonDocument.Parse( captureResult.Text ).RootElement;
+		var capturePath = capture.GetProperty( "path" ).GetString()!;
+		try
+		{
+			using var image = ImageSource.Decode( File.ReadAllBytes( capturePath ) );
+			CoreChecks.Check( image.Width > 0 && image.Height > 0 && capture.GetProperty( "streamOpened" ).ValueKind == JsonValueKind.False
+				&& app.Panels.Panels.Count == panelCount, "A shell panel capture saves a readable image without opening another panel." );
+		}
+		finally
+		{
+			File.Delete( capturePath );
+		}
 	}
 
 	/// <summary>Finds the center of the titlebar button with the accessible name, in layout coordinates.</summary>

@@ -67,6 +67,9 @@ internal sealed partial class ShellView
 		var children = new List<Blob>();
 		var slots = new List<DockSlot>();
 		var panes = panels.Panes;
+		foreach ( var panelId in _panelHandles.Keys.Where( panelId => panels.Sessions.All( session => session.Info.Id != panelId ) ).ToArray() )
+			_panelHandles.Remove( panelId );
+
 		var isSplit = panels.Root is DockSplit;
 		var bodies = new Dictionary<Guid, ElementHandle>();
 
@@ -81,14 +84,17 @@ internal sealed partial class ShellView
 		// current layout hides stays mounted, invisible, so switching workspaces back keeps its state.
 		foreach ( var session in panels.Sessions )
 		{
+			var handle = _panelHandles.GetValueOrDefault( session.Info.Id );
+			if ( handle is null )
+				_panelHandles.Add( session.Info.Id, handle = new() );
 			if ( panes.FirstOrDefault( pane => pane.PanelId == session.Info.Id ) is not { } pane )
 			{
-				children.Add( BuildHiddenBody( session ) );
+				children.Add( BuildHiddenBody( session, handle ) );
 				slots.Add( new( DockSlotKind.Hidden, session.Info.Id ) );
 				continue;
 			}
 
-			var handle = bodies[pane.Id] = new ElementHandle();
+			bodies[pane.Id] = handle;
 			children.Add( BuildPanelBody( session, pane, handle, isSplit ) );
 			slots.Add( new( DockSlotKind.Body, pane.Id ) );
 		}
@@ -130,6 +136,62 @@ internal sealed partial class ShellView
 			Layout = new DockLayout( panels.Root, slots, PaneGap ),
 			Children = children,
 		};
+	}
+
+	/// <summary>Captures one visible panel without opening a Window stream, preferring a native provider so child surfaces such as WebView2 are included.</summary>
+	internal async Task<PanelCaptureImage> CapturePanelAsync( Guid panelId, CancellationToken cancellation )
+	{
+		if ( !_app.Panels.IsShown( panelId ) )
+			throw new InvalidOperationException( "That panel is not visible in the current workspace; focus it before capturing it." );
+		if ( !_panelHandles.TryGetValue( panelId, out var handle ) || !handle.IsMounted )
+			throw new InvalidOperationException( "That panel is not mounted in the Loom window." );
+
+		var window = _app.Window ?? throw new InvalidOperationException( "Loom has no mounted window to capture." );
+		var bounds = handle.BorderBox;
+		var size = window.Size;
+		if ( bounds.Width < 1 || bounds.Height < 1 || size.Width < 1 || size.Height < 1 )
+			throw new InvalidOperationException( "That panel has no visible area to capture." );
+		var region = new PanelCaptureRegion( bounds.X / size.Width, bounds.Y / size.Height, bounds.Width / size.Width, bounds.Height / size.Height );
+		foreach ( var provider in _app.Extensions.Get<PanelCaptureProvider>( ShellPanelCapture.Point ) )
+		{
+			if ( await provider.CaptureAsync( window, region, cancellation ) is { } image )
+				return image;
+		}
+
+		return await CaptureSceneAsync( window, region, cancellation );
+	}
+
+	/// <summary>Captures and crops Goo's current scene when no native provider is available.</summary>
+	private static async Task<PanelCaptureImage> CaptureSceneAsync( Window window, PanelCaptureRegion region, CancellationToken cancellation )
+	{
+		var status = window.RequestCapture();
+		if ( status != WindowCaptureRequestStatus.Accepted )
+			throw new InvalidOperationException( $"Loom could not start a panel capture ({status})." );
+
+		var deadline = DateTime.UtcNow + TimeSpan.FromSeconds( 2 );
+		WindowCapture? capture;
+		while ( (capture = window.PollCapture()) is null )
+		{
+			if ( DateTime.UtcNow >= deadline )
+				throw new InvalidOperationException( "Loom's panel capture did not finish." );
+			await Task.Delay( 15, cancellation );
+		}
+
+		return await Task.Run( () => EncodeRegion( capture, region ), cancellation );
+	}
+
+	/// <summary>Crops a captured scene to one panel and encodes its premultiplied RGBA pixels as PNG.</summary>
+	private static PanelCaptureImage EncodeRegion( WindowCapture capture, PanelCaptureRegion region )
+	{
+		var (x, y, width, height) = region.ToPixels( checked((int)capture.Width), checked((int)capture.Height) );
+		var pixels = new byte[checked(width * height * 4)];
+		var sourceStride = checked((int)capture.RowBytes);
+		var targetStride = checked(width * 4);
+		for ( var row = 0; row < height; row++ )
+			Buffer.BlockCopy( capture.Pixels, (y + row) * sourceStride + x * 4, pixels, row * targetStride, targetStride );
+
+		using var image = new ImageSource( width, height, pixels );
+		return new( ".png", width, height, image.EncodePng() );
 	}
 
 	/// <summary>Builds a pane's dotted grip: hidden until its top section is hovered, dragged to dock, right-clicked for pane actions.</summary>
@@ -458,10 +520,11 @@ internal sealed partial class ShellView
 	/// <summary>Defines the opacity of the cover over a panel whose host is not online.</summary>
 	private const double HostOverlayAlpha = 0.92;
 
-	/// <summary>Builds a panel the current layout hides: same key and content, so it keeps its state, but not drawn and not hit.</summary>
-	private static Blob BuildHiddenBody( PanelSession session ) => new Container
+	/// <summary>Builds a panel the current layout hides: same key, handle and content, so it keeps its state, but not drawn and not hit.</summary>
+	private static Blob BuildHiddenBody( PanelSession session, ElementHandle handle ) => new Container
 	{
 		Key = $"panel:{session.Info.Id}",
+		Handle = handle,
 		MinWidth = 0,
 		MinHeight = 0,
 		Overflow = Overflow.Hidden,

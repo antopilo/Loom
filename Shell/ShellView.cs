@@ -12,6 +12,9 @@ internal sealed partial class ShellView : Cell
 	/// <summary>Retains the workspace handle for divider coordinates.</summary>
 	private readonly ElementHandle _workspaceHandle = new();
 
+	/// <summary>Retains the element handle of every open panel so shell tools can capture its exact visible rectangle.</summary>
+	private readonly Dictionary<Guid, ElementHandle> _panelHandles = [];
+
 	/// <summary>Tracks whether the Search palette is open.</summary>
 	private bool _isPaletteOpen;
 
