@@ -93,15 +93,15 @@ internal static class HomeChecks
 			"The gradient's hues turn and come back around after a full turn." );
 		var now = DateTimeOffset.UtcNow;
 		CoreChecks.Check( HomeContent.FormatAge( now.AddMinutes( -5 ), now ) == "5 min ago" && HomeContent.FormatAge( now.AddDays( -1.5 ), now ) == "yesterday", "Card ages read naturally." );
-		CheckProjectIcons( root, projects, profile );
+		await CheckProjectIcons( root, projects, profile );
 
 		app.Shutdown();
 		Directory.Delete( root, recursive: true );
 		Console.WriteLine( "PASS Home: the empty conversation panel, reused when a chat opens or starts, emptied on return, back after a delete; project sessions; folders as projects; cards and project icons, none read from This PC for a paired host's project; logo mesh, characters and gradient." );
 	}
 
-	/// <summary>Checks conventional icon discovery, its explicit Lokn override, and that a paired host's project never reads This PC's disk.</summary>
-	private static void CheckProjectIcons( string root, ProjectsModule projects, SettingsProfile profile )
+	/// <summary>Checks conventional icon discovery, WebP decoding, the explicit Lokn override, and that a paired host's project never reads This PC's disk.</summary>
+	private static async Task CheckProjectIcons( string root, ProjectsModule projects, SettingsProfile profile )
 	{
 		var directory = Path.Combine( root, "icons" );
 		Directory.CreateDirectory( directory );
@@ -117,6 +117,15 @@ internal static class HomeChecks
 
 		File.Delete( explicitIcon );
 		File.Delete( logo );
+		var webpIcon = Path.Combine( overrideDirectory, "icon.webp" );
+		File.WriteAllBytes( webpIcon, Convert.FromBase64String( "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==" ) );
+		CoreChecks.Check( ProjectIcons.FindPath( directory ) == webpIcon, "A WebP image is discovered as an explicit project icon." );
+		using ( var decoded = await ProjectIcons.LoadAsync( webpIcon, 64, CancellationToken.None ) )
+		{
+			CoreChecks.Check( decoded.Width == 1 && decoded.Height == 1, "A WebP project icon decodes to Goo image pixels." );
+		}
+
+		File.Delete( webpIcon );
 		File.WriteAllBytes( Path.Combine( directory, "icon.svg" ), [] );
 		CoreChecks.Check( ProjectIcons.FindPath( directory ) is null, "Unsupported project image formats are ignored." );
 

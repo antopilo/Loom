@@ -11,9 +11,9 @@ outside projects), an **Open folder…** card that opens a directory as a projec
 prompt bar. Loom opens on Home. Enter in the prompt bar starts a chat in that same panel,
 in the current project's session when you are in one, and sends what you typed.
 Project cards and sidebar headings pick their icons automatically. Put
-`.lokn/icon.png` (or `.jpg`, `.jpeg`, `.gif`) in a project for an explicit icon.
-Without that override, an s&box project (`.sbproj`) or engine checkout uses the
-s&box program icon from its engine installation. Other projects use conventional
+`.lokn/icon.png` (or `.jpg`, `.jpeg`, `.gif`, `.webp`) in a project for an explicit
+icon. Without that override, an s&box project (`.sbproj`) or engine checkout uses
+the s&box program icon from its engine installation. Other projects use conventional
 `icon`, `logo`, and `favicon` images in the root, then `assets`, `public`, and `docs`.
 **Ctrl+Shift+H** comes back to Home. The wordmark holds still when
 Windows asks for reduced motion.

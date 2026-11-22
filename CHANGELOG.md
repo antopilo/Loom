@@ -5,6 +5,7 @@ version being packed. Write for users: what changed for them, not how.
 
 ## Unreleased
 
+- **WebP project icons now show.** Project folders can use WebP for their explicit or automatically found icon.
 - **No more flicker or crash from streaming your own screen.** A PC now offers its screens only to other PCs. Streamed
   on the PC itself, the screen showed itself again and again, and its clicks moved the pointer the stream read.
 - **Sharper streams.** The Window stream no longer shrinks windows and screens to 1600 pixels wide: it streams them

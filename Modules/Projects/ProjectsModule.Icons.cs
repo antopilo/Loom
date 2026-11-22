@@ -1,5 +1,7 @@
+using System.Runtime.Versioning;
 using Goo;
 using Lokn.Core;
+using Windows.Graphics.Imaging;
 
 namespace Lokn.Modules.Projects;
 
@@ -27,8 +29,7 @@ public sealed partial class ProjectsModule
 			return known;
 
 		var path = ProjectIcons.FindPath( project.Directory );
-		var source = path is null ? null : new AsyncImageSource( cancellation => Task.Run(
-			() => ImageSource.LoadThumbnail( path, IconPixels, IconPixels, cancellation ), cancellation ) );
+		var source = path is null ? null : new AsyncImageSource( cancellation => ProjectIcons.LoadAsync( path, IconPixels, cancellation ) );
 		_icons.Add( project.Directory, source );
 		return source;
 	}
@@ -52,7 +53,7 @@ public sealed partial class ProjectsModule
 internal static class ProjectIcons
 {
 	/// <summary>Lists supported encoded image extensions in preference order.</summary>
-	private static readonly string[] _extensions = [".png", ".jpg", ".jpeg", ".gif"];
+	private static readonly string[] _extensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
 
 	/// <summary>Defines the path to the PNG used as the s&box program icon, relative to its game directory.</summary>
 	private static readonly string _sboxProgramIcon = Path.Combine( "addons", "tools", "assets", "window", "icon.png" );
@@ -139,6 +140,42 @@ internal static class ProjectIcons
 			}
 		}
 		return null;
+	}
+
+	/// <summary>Loads a bounded project icon, using Windows' image decoder for WebP and Goo for its native formats.</summary>
+	internal static Task<ImageSource> LoadAsync( string path, int maximumPixels, CancellationToken cancellation )
+	{
+		if ( !path.EndsWith( ".webp", StringComparison.OrdinalIgnoreCase ) )
+		{
+			return Task.Run( () => ImageSource.LoadThumbnail( path, maximumPixels, maximumPixels, cancellation ), cancellation );
+		}
+		if ( !OperatingSystem.IsWindowsVersionAtLeast( 10, 0, 10240 ) )
+			throw new PlatformNotSupportedException( "WebP project icons need Windows 10 or later." );
+		return LoadWebpAsync( path, maximumPixels, cancellation );
+	}
+
+	/// <summary>Decodes a WebP image to bounded premultiplied RGBA pixels through Windows Imaging Component.</summary>
+	[SupportedOSPlatform( "windows10.0.10240.0" )]
+	private static async Task<ImageSource> LoadWebpAsync( string path, int maximumPixels, CancellationToken cancellation )
+	{
+		using var input = File.OpenRead( path );
+		using var stream = input.AsRandomAccessStream();
+		var decoder = await BitmapDecoder.CreateAsync( stream ).AsTask( cancellation );
+		if ( decoder.PixelWidth == 0 || decoder.PixelHeight == 0 )
+			throw new InvalidDataException( "The WebP icon has no pixels." );
+
+		var scale = Math.Min( 1, Math.Min( maximumPixels / (double)decoder.PixelWidth, maximumPixels / (double)decoder.PixelHeight ) );
+		var width = Math.Max( 1, (uint)Math.Round( decoder.PixelWidth * scale ) );
+		var height = Math.Max( 1, (uint)Math.Round( decoder.PixelHeight * scale ) );
+		var transform = new BitmapTransform
+		{
+			ScaledWidth = width,
+			ScaledHeight = height,
+			InterpolationMode = BitmapInterpolationMode.Fant,
+		};
+		var data = await decoder.GetPixelDataAsync( BitmapPixelFormat.Rgba8, BitmapAlphaMode.Premultiplied, transform,
+			ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage ).AsTask( cancellation );
+		return ImageSource.Transfer( (int)width, (int)height, data.DetachPixelData(), static () => { } );
 	}
 
 	/// <summary>Builds a square project icon from its asynchronously loaded source.</summary>
