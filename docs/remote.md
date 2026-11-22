@@ -738,7 +738,9 @@ secure context.
   picks. The composer calls `Send`, or `Interject` with the Steer switch while the agent is
   busy, and `Stop`. Pending dialogs answer through `AnswerDialog` with the same
   `extension_ui_response` objects as the desktop (`DismissDialog` for `open_url`;
-  questionnaire picks through `UpdateSelection`). An `Interject` the host answers `false` (its agent is
+  questionnaire picks through `UpdateSelection`). A form (`method: "form"`) shows its HTML rebuilt through an allow list of elements
+  and attributes, keeps its picks and typed text on the page, and checks fields with Omp's rules before it sends `data`. An `Interject`
+  the host answers `false` (its agent is
   still connecting) keeps the message in the composer and says so. Without `control` the page says it
   is view only and disables the actions. Messages render as a Markdown subset with every text escaped
   and raw HTML left as text; links open only `http` and `https` pages, in a new tab with

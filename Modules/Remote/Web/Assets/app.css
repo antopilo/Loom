@@ -574,6 +574,121 @@ details.fold pre {
 	font-size: 13px;
 }
 
+.dialog .hint.error {
+	color: var(--error);
+}
+
+.dialog .actions .primary {
+	background: var(--text);
+	border-color: var(--text);
+	color: var(--canvas);
+}
+
+.dialog .actions .primary:hover:not(:disabled) {
+	background: var(--text);
+	opacity: 0.85;
+}
+
+.dialog .choices {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 0 0 10px;
+}
+
+.dialog .choices .option {
+	width: auto;
+	flex-direction: row;
+	align-items: center;
+	padding: 6px 14px;
+	border-color: transparent;
+	border-radius: 999px;
+	background: var(--hover);
+}
+
+.dialog .choices .option:hover:not(:disabled, .on) {
+	border-color: var(--muted);
+}
+
+.dialog .choices .option.on {
+	background: var(--text);
+	border-color: var(--text);
+	color: var(--canvas);
+}
+
+.dialog .html-form label {
+	display: block;
+	margin: 0 0 4px;
+}
+
+.dialog .html-form label.choice {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 36px;
+	margin: 0 6px 6px 0;
+	padding: 6px 14px;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	background: var(--hover);
+	cursor: pointer;
+}
+
+.dialog .html-form label.choice.on {
+	border-color: var(--accent);
+}
+
+.dialog .html-form input[type="radio"],
+.dialog .html-form input[type="checkbox"] {
+	margin: 0;
+	accent-color: var(--accent);
+}
+
+.dialog .html-form select,
+.dialog .html-form input:not([type="radio"], [type="checkbox"], [type="range"], [type="hidden"]) {
+	width: 100%;
+	background: var(--panel);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: 8px 10px;
+	outline: none;
+}
+
+.dialog .html-form select:focus {
+	border-color: var(--accent);
+}
+
+.dialog .html-form input[type="range"] {
+	width: 100%;
+	accent-color: var(--accent);
+}
+
+.dialog .html-form .other,
+.dialog .html-form .hint.error {
+	margin: 4px 0 10px;
+}
+
+.dialog .html-form fieldset {
+	min-width: 0;
+	margin: 0 0 10px;
+	padding: 8px 12px;
+	border: 1px solid var(--divider);
+	border-radius: var(--radius);
+}
+
+.dialog .html-form legend {
+	padding: 0 4px;
+	font-weight: 600;
+}
+
+.dialog .html-form img {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	margin: 0 0 10px;
+	border-radius: var(--radius);
+}
+
 .composer {
 	display: flex;
 	align-items: flex-end;

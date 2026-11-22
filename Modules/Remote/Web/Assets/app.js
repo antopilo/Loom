@@ -904,7 +904,7 @@ function applyStoreOp(op) {
 
 // A new chat's seq of -1 makes its first attach always carry the messages.
 function createChat(id) {
-	return { id, seq: -1, attempt: 0, messages: [], tools: new Map(), intents: {}, session: null, attached: false, buffer: null, missing: false, composer: '', lastSent: '', inputs: new Map() };
+	return { id, seq: -1, attempt: 0, messages: [], tools: new Map(), intents: {}, session: null, attached: false, buffer: null, missing: false, composer: '', lastSent: '', inputs: new Map(), picks: new Map() };
 }
 
 function openChat(id) {
@@ -1969,6 +1969,8 @@ function buildDialog(chat, dialog) {
 		}
 		card.append(field);
 		actions.append(element('button', { type: 'button', class: 'primary', disabled, onclick: submit }, 'Submit answer'));
+	} else if (method === 'form' && typeof dialog.html === 'string') {
+		buildHtmlForm(chat, id, dialog.html, card, actions, disabled);
 	}
 
 	actions.prepend(method === 'open_url'
@@ -1976,6 +1978,460 @@ function buildDialog(chat, dialog) {
 		: element('button', { type: 'button', class: 'quiet', disabled, onclick: () => answerDialog(chat, id, { cancelled: true }) }, 'Cancel'));
 	card.append(actions);
 	return card;
+}
+
+// ---------- HTML form dialogs ----------
+
+// Omp's ask tool sends its questions as an HTML form. Only these elements and attributes reach the page:
+// elements Omp ignores and embedded content are dropped with their content, any other element is unwrapped.
+const formTags = new Set([
+	'p', 'div', 'span', 'br', 'hr', 'b', 'strong', 'i', 'em', 'code', 'kbd', 'samp', 'tt', 'pre', 'ul', 'ol', 'li',
+	'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'fieldset', 'legend', 'label',
+	'blockquote', 'section', 'details', 'summary', 'figure', 'figcaption', 'dl', 'dt', 'dd',
+	'input', 'select', 'option', 'optgroup', 'textarea',
+]);
+const formDroppedTags = new Set([
+	'applet', 'audio', 'button', 'canvas', 'embed', 'frame', 'frameset', 'head', 'iframe', 'link', 'meta', 'noembed',
+	'noframes', 'noscript', 'object', 'script', 'style', 'template', 'title', 'video',
+]);
+const formAttributes = new Set([
+	'name', 'value', 'type', 'checked', 'selected', 'disabled', 'required', 'multiple', 'min', 'max', 'step', 'pattern',
+	'minlength', 'maxlength', 'placeholder', 'rows', 'for', 'id', 'alt', 'title', 'aria-label', 'colspan', 'rowspan',
+]);
+const formDroppedInputTypes = new Set(['button', 'file', 'image', 'reset', 'submit']);
+const isSafeImageSource = src => /^(https?:|data:image\/)/i.test(src);
+const normalizeText = text => text.replace(/\s+/g, ' ').trim();
+
+// Copies the children of a parsed node into this document through the allow lists. Ids and label targets get the
+// dialog's prefix so they cannot reach the page's own elements.
+function sanitizeFormNodes(source, prefix) {
+	const copies = [];
+	for (const node of source.childNodes) {
+		if (node.nodeType === Node.TEXT_NODE) {
+			copies.push(document.createTextNode(node.data));
+			continue;
+		}
+		if (node.nodeType !== Node.ELEMENT_NODE) {
+			continue;
+		}
+		const tag = node.localName.toLowerCase();
+		if (tag === 'svg') {
+			// An SVG drawn as an image runs no script and loads nothing.
+			const markup = new XMLSerializer().serializeToString(node);
+			const alt = normalizeText(node.querySelector('title')?.textContent ?? '') || node.getAttribute('aria-label');
+			copies.push(element('img', { src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(markup), alt }));
+		} else if (tag === 'img') {
+			const src = (node.getAttribute('src') ?? '').trim();
+			const alt = node.getAttribute('alt');
+			if (isSafeImageSource(src)) {
+				copies.push(element('img', { src, alt, title: node.getAttribute('title') }));
+			} else if (alt) {
+				copies.push(element('span', { class: 'hint' }, alt));
+			}
+		} else if (formTags.has(tag)) {
+			if (tag === 'input' && formDroppedInputTypes.has((node.getAttribute('type') ?? '').trim().toLowerCase())) {
+				continue;
+			}
+			const copy = document.createElement(tag);
+			for (const attribute of node.attributes) {
+				if (formAttributes.has(attribute.name)) {
+					copy.setAttribute(attribute.name, attribute.name === 'id' || attribute.name === 'for' ? prefix + attribute.value : attribute.value);
+				}
+			}
+			copy.append(...sanitizeFormNodes(node, prefix));
+			copies.push(copy);
+		} else if (!formDroppedTags.has(tag)) {
+			copies.push(...sanitizeFormNodes(node, prefix));
+		}
+	}
+	return copies;
+}
+
+// The label that wraps a control, else the control itself: what the form places things after.
+function formAnchor(control, root) {
+	const label = control.closest('label');
+	return label && root.contains(label) ? label : control;
+}
+
+// A node's text without the text of the controls inside it.
+function formTextOutsideControls(node) {
+	const copy = node.cloneNode(true);
+	copy.querySelectorAll('input, select, textarea').forEach(control => control.remove());
+	return normalizeText(copy.textContent);
+}
+
+// A control's label: its <label>, else in a table its cell's text or column header, else aria-label or title.
+function formLabelText(control, root) {
+	const label = control.closest('label') ?? (control.id ? [...root.querySelectorAll('label[for]')].find(node => node.getAttribute('for') === control.id) : null);
+	const labelText = label && root.contains(label) ? formTextOutsideControls(label) : '';
+	if (labelText) {
+		return labelText;
+	}
+	const cell = control.closest('td, th');
+	if (cell && root.contains(cell)) {
+		const cellText = formTextOutsideControls(cell);
+		if (cellText) {
+			return cellText;
+		}
+		const header = [...cell.closest('table')?.querySelectorAll('tr') ?? []].find(row => row.cells.length > 0 && [...row.cells].every(node => node.localName === 'th'));
+		const headerText = header ? normalizeText(header.cells[cell.cellIndex]?.textContent ?? '') : '';
+		if (headerText) {
+			return headerText;
+		}
+	}
+	return control.getAttribute('aria-label') || control.getAttribute('title') || '';
+}
+
+const formNumberAttribute = (control, name) => {
+	const raw = control.getAttribute(name);
+	const number = raw === null || !raw.trim() ? NaN : Number(raw);
+	return Number.isFinite(number) ? number : undefined;
+};
+
+// Reads the fields the way Omp does: hidden values, one choice field per radio or checkbox name (at its first
+// option), one per select, and one text field per other control. Controls without a name carry no answer.
+function readHtmlForm(root) {
+	const hidden = [];
+	const fields = [];
+	const groups = new Map();
+	for (const control of root.querySelectorAll('input, select, textarea')) {
+		const name = control.getAttribute('name');
+		const tag = control.localName;
+		const type = tag === 'input' ? (control.getAttribute('type') ?? '').trim().toLowerCase() || 'text' : tag;
+		if (type === 'hidden') {
+			if (name) {
+				hidden.push([name, control.getAttribute('value') ?? '']);
+			}
+			continue;
+		}
+		if (!name) {
+			control.disabled = true;
+			continue;
+		}
+		if (type === 'radio' || type === 'checkbox') {
+			const groupKey = type + '\n' + name;
+			let field = groups.get(groupKey);
+			if (!field) {
+				field = { kind: 'choice', name, multi: type === 'checkbox', select: false, required: false, options: [] };
+				groups.set(groupKey, field);
+				fields.push(field);
+			}
+			const value = control.getAttribute('value');
+			field.options.push({
+				control, value: value ?? 'on', label: formLabelText(control, root) || value || name,
+				checked: control.hasAttribute('checked'), disabled: control.hasAttribute('disabled'),
+			});
+			field.required ||= control.hasAttribute('required');
+		} else if (type === 'select') {
+			const multi = control.hasAttribute('multiple');
+			const options = [...control.querySelectorAll('option')].map(node => {
+				const label = normalizeText(node.textContent);
+				return { node, value: node.getAttribute('value') ?? label, label, checked: node.hasAttribute('selected'), disabled: node.hasAttribute('disabled') };
+			});
+			if (!multi) {
+				const chosen = options.findIndex(option => option.checked);
+				const index = chosen >= 0 ? chosen : options.findIndex(option => !option.disabled);
+				options.forEach((option, optionIndex) => option.checked = optionIndex === index);
+			}
+			fields.push({ kind: 'choice', name, multi, select: true, required: control.hasAttribute('required'), control, options });
+		} else {
+			if (type === 'textarea' && !control.hasAttribute('rows')) {
+				control.rows = 4;
+			}
+			fields.push({
+				kind: 'text', name, type, control, required: control.hasAttribute('required'),
+				value: type === 'textarea' ? control.textContent : control.getAttribute('value') ?? '',
+				label: formLabelText(control, root),
+				min: formNumberAttribute(control, 'min'), max: formNumberAttribute(control, 'max'),
+				minLength: formNumberAttribute(control, 'minlength'), maxLength: formNumberAttribute(control, 'maxlength'),
+				pattern: control.getAttribute('pattern') ?? undefined,
+			});
+		}
+	}
+	for (const field of fields) {
+		field.other = field.kind === 'choice' && !field.select && field.options.length >= 2
+			&& !field.options.some(option => /^\s*other\b/i.test(option.label));
+	}
+	return { hidden, fields };
+}
+
+function formTextValue(field, text) {
+	if (field.type === 'number' || field.type === 'range') {
+		const trimmed = text.trim();
+		const number = Number(trimmed);
+		if (trimmed && Number.isFinite(number)) {
+			return number;
+		}
+	}
+	return text;
+}
+
+// Omp's own checks and messages, so an answer it would refuse is never sent.
+function validateFormField(field, value, text) {
+	if (field.kind === 'choice') {
+		const empty = value === undefined || (Array.isArray(value) && value.length === 0);
+		return field.required && empty ? (field.multi && field.options.length > 1 ? 'Select at least one' : 'Required') : '';
+	}
+	const trimmed = text.trim();
+	if (!trimmed) {
+		return field.required ? 'Required' : '';
+	}
+	if (field.type === 'number' || field.type === 'range') {
+		const number = Number(trimmed);
+		if (!Number.isFinite(number)) {
+			return 'Enter a number';
+		}
+		if (field.min !== undefined && number < field.min) {
+			return `Must be at least ${field.min}`;
+		}
+		if (field.max !== undefined && number > field.max) {
+			return `Must be at most ${field.max}`;
+		}
+	}
+	if (field.minLength !== undefined && text.length < field.minLength) {
+		return `Needs at least ${field.minLength} characters`;
+	}
+	if (field.maxLength !== undefined && text.length > field.maxLength) {
+		return `At most ${field.maxLength} characters`;
+	}
+	if (field.type === 'email' && !/^[^\s@]+@[^\s@]+$/.test(trimmed)) {
+		return 'Enter an email address';
+	}
+	if (field.type === 'url') {
+		try {
+			new URL(trimmed);
+		} catch {
+			return 'Enter a full URL';
+		}
+	}
+	if (field.pattern !== undefined) {
+		let pattern = null;
+		try {
+			pattern = new RegExp('^(?:' + field.pattern + ')$');
+		} catch {
+			// Omp ignores a pattern it cannot compile.
+		}
+		if (pattern && !pattern.test(text)) {
+			return 'Must match ' + (field.pattern.length > 40 ? field.pattern.slice(0, 39) + '…' : field.pattern);
+		}
+	}
+	return '';
+}
+
+// Removes nodes and the line breaks after them, then any container they leave empty.
+function removeFormNodes(nodes, root) {
+	const parents = new Set();
+	for (const node of nodes) {
+		let next = node.nextSibling;
+		while (next?.nodeType === Node.TEXT_NODE && !next.data.trim()) {
+			next = next.nextSibling;
+		}
+		if (next?.localName === 'br') {
+			next.remove();
+		}
+		parents.add(node.parentNode);
+		node.remove();
+	}
+	for (let parent of parents) {
+		while (parent && parent !== root && root.contains(parent) && !parent.matches('td, th') && !parent.textContent.trim() && !parent.querySelector('input, select, textarea, img, .choices')) {
+			const up = parent.parentNode;
+			parent.remove();
+			parent = up;
+		}
+	}
+}
+
+function buildHtmlForm(chat, id, html, card, actions, disabled) {
+	const source = new DOMParser().parseFromString(html, 'text/html');
+	const root = element('div', { class: 'markdown html-form' }, sanitizeFormNodes(source.querySelector('form') ?? source.body, 'form-' + id + '-'));
+	const { hidden, fields } = readHtmlForm(root);
+	const send = entries => answerDialog(chat, id, { data: Object.fromEntries([...hidden, ...entries]) });
+
+	// Typed text and picked options live on the chat, because the card is rebuilt on every render.
+	const names = new Map();
+	for (const field of fields) {
+		const count = (names.get(field.name) ?? 0) + 1;
+		names.set(field.name, count);
+		field.key = id + '.' + field.name + (count > 1 ? '#' + count : '');
+		if (field.kind === 'text') {
+			if (!chat.inputs.has(field.key)) {
+				chat.inputs.set(field.key, field.value);
+			}
+			continue;
+		}
+		if (!chat.picks.has(field.key)) {
+			chat.picks.set(field.key, field.options.flatMap((option, index) => option.checked ? [index] : []));
+		}
+		if (field.other && !chat.inputs.has(field.key + '.other')) {
+			chat.inputs.set(field.key + '.other', '');
+		}
+	}
+	const otherText = field => field.other ? (chat.inputs.get(field.key + '.other') ?? '').trim() : '';
+	const valueOf = field => {
+		if (field.kind === 'text') {
+			return formTextValue(field, chat.inputs.get(field.key) ?? '');
+		}
+		const picked = (chat.picks.get(field.key) ?? [])
+			.filter(index => field.options[index] && !field.options[index].disabled)
+			.map(index => field.options[index].value);
+		const other = otherText(field);
+		if (field.multi && field.options.length > 1) {
+			return other ? [...picked, other] : picked;
+		}
+		return other || picked[0];
+	};
+	const otherInput = (field, placeholder) => {
+		const input = element('input', { type: 'text', class: 'other', placeholder, 'aria-label': 'Other answer', enterkeyhint: 'send', disabled });
+		input.value = chat.inputs.get(field.key + '.other') ?? '';
+		return input;
+	};
+
+	// One radio group and nothing else to fill: its options answer at once.
+	const lone = fields.length === 1 && fields[0].kind === 'choice' && !fields[0].select && !fields[0].multi ? fields[0] : null;
+	if (lone) {
+		const row = element('div', { class: 'choices' }, lone.options.map(option => element('button', {
+			type: 'button', class: 'option' + (option.checked ? ' on' : ''), disabled: disabled || option.disabled, 'aria-pressed': String(option.checked),
+			onclick: () => send([[lone.name, option.value]]),
+		}, element('span', {}, option.label))));
+		// Buttons go where the first option was, or before the outermost table that held it.
+		const first = formAnchor(lone.options[0].control, root);
+		let table = first.closest('table');
+		while (table?.parentElement?.closest('table')) {
+			table = table.parentElement.closest('table');
+		}
+		(table ?? first).before(row);
+		const labels = [...root.querySelectorAll('label[for]')];
+		removeFormNodes(new Set(lone.options.flatMap(option => [
+			formAnchor(option.control, root),
+			...labels.filter(label => option.control.id && label.getAttribute('for') === option.control.id),
+		])), root);
+		if (lone.other) {
+			const other = otherInput(lone, 'Or write your own answer');
+			other.addEventListener('input', () => chat.inputs.set(lone.key + '.other', other.value));
+			other.addEventListener('keydown', event => {
+				if (event.key === 'Enter' && !event.isComposing) {
+					event.preventDefault();
+					const text = other.value.trim();
+					if (text) {
+						send([[lone.name, text]]);
+					}
+				}
+			});
+			row.after(other);
+		}
+		card.append(root);
+		return;
+	}
+
+	const errors = new Map();
+	const check = field => {
+		const message = validateFormField(field, valueOf(field), chat.inputs.get(field.key) ?? '');
+		const node = errors.get(field);
+		node.textContent = message;
+		node.hidden = !message;
+		return message;
+	};
+	const submit = () => {
+		const invalid = fields.filter(field => check(field));
+		if (invalid.length > 0) {
+			(invalid[0].control ?? invalid[0].options[0].control).focus();
+			return;
+		}
+		send(fields.flatMap(field => {
+			const value = valueOf(field);
+			return value === undefined ? [] : [[field.name, value]];
+		}));
+	};
+	const submitOnEnter = input => input.addEventListener('keydown', event => {
+		if (event.key === 'Enter' && !event.isComposing) {
+			event.preventDefault();
+			submit();
+		}
+	});
+
+	for (const field of fields) {
+		const error = element('div', { class: 'hint error', role: 'alert', hidden: true });
+		errors.set(field, error);
+		const recheck = () => {
+			if (!error.hidden) {
+				check(field);
+			}
+		};
+		if (field.kind === 'text') {
+			const control = field.control;
+			control.value = chat.inputs.get(field.key);
+			control.addEventListener('input', () => {
+				chat.inputs.set(field.key, control.value);
+				recheck();
+			});
+			if (control.localName === 'input') {
+				submitOnEnter(control);
+			}
+			const anchor = formAnchor(control, root);
+			if (!field.label) {
+				anchor.before(element('div', { class: 'hint' }, field.name.replace(/[_-]+/g, ' ')));
+			}
+			anchor.after(error);
+			continue;
+		}
+		if (field.select) {
+			const sync = () => field.options.forEach((option, index) => option.node.selected = chat.picks.get(field.key).includes(index));
+			field.control.addEventListener('change', () => {
+				chat.picks.set(field.key, field.options.flatMap((option, index) => option.node.selected ? [index] : []));
+				recheck();
+			});
+			sync();
+			formAnchor(field.control, root).after(error);
+			continue;
+		}
+		const other = field.other ? otherInput(field, 'Other') : null;
+		const pills = field.options.map(option => {
+			const label = option.control.closest('label');
+			return label && root.contains(label) && label.querySelectorAll('input, select, textarea').length === 1 ? label : null;
+		});
+		const sync = () => field.options.forEach((option, index) => {
+			option.control.checked = chat.picks.get(field.key).includes(index);
+			pills[index]?.classList.toggle('on', option.control.checked);
+		});
+		field.options.forEach((option, index) => {
+			pills[index]?.classList.add('choice');
+			option.control.addEventListener('change', () => {
+				if (field.multi) {
+					chat.picks.set(field.key, field.options.flatMap((item, itemIndex) => item.control.checked ? [itemIndex] : []));
+				} else {
+					// A picked option replaces the Other text, which would otherwise win.
+					chat.picks.set(field.key, [index]);
+					if (other) {
+						other.value = '';
+						chat.inputs.set(field.key + '.other', '');
+					}
+				}
+				sync();
+				recheck();
+			});
+		});
+		sync();
+		let last = formAnchor(field.options.at(-1).control, root);
+		if (other) {
+			other.addEventListener('input', () => {
+				chat.inputs.set(field.key + '.other', other.value);
+				if (!field.multi && other.value.trim()) {
+					chat.picks.set(field.key, []);
+					sync();
+				}
+				recheck();
+			});
+			submitOnEnter(other);
+			last.after(other);
+			last = other;
+		}
+		last.after(error);
+	}
+	if (disabled) {
+		root.querySelectorAll('input, select, textarea').forEach(control => control.disabled = true);
+	}
+	card.append(root);
+	actions.append(element('button', { type: 'button', class: 'primary', disabled, onclick: submit }, 'Submit'));
 }
 
 // ---------- Composer ----------

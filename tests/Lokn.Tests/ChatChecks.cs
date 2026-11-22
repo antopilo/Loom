@@ -76,6 +76,7 @@ internal static class ChatChecks
 		CheckAttention( app, module );
 		CheckFolder( app, module );
 		CheckCompactionTitle( panel, store, chat.Id );
+		CheckForm( panel );
 		panel.Closed();
 		app.Shutdown();
 		CheckReloadContinue();
@@ -86,6 +87,51 @@ internal static class ChatChecks
 	/// <summary>Builds a chat view over a session of its own, as a panel hosted outside the Conversations module does in focused checks.</summary>
 	internal static ChatContent BuildChat( PanelContext context, ConversationStore store, Guid conversationId, OmpService backend ) =>
 		new( context, store, new ChatSession( context.App, store, conversationId, backend, context.Post ) );
+
+	/// <summary>Checks that the ask tool's HTML form becomes a pending question whose fields, defaults and checks follow Omp's own form reader, so
+	/// the data Loom sends is data Omp accepts.</summary>
+	private static void CheckForm( ChatContent panel )
+	{
+		const string html = """
+			<form>
+			  <p>Clean <b>the cache</b>?</p>
+			  <fieldset><legend>Scope</legend>
+			    <label><input type="radio" name="scope" value="all" checked> Everything</label>
+			    <label><input type="radio" name="scope" value="temp"> Temporary files</label>
+			  </fieldset>
+			  <label><input type="checkbox" name="parts" value="a" checked> A</label>
+			  <label><input type="checkbox" name="parts" value="b"> B</label>
+			  <label><input type="checkbox" name="parts" value="other"> Other</label>
+			  <label><input type="checkbox" name="dry"> Dry run</label>
+			  <label>Level <select name="level"><option value="1">Low</option><option value="2" selected>High</option></select></label>
+			  <label>Days <input type="number" name="days" value="3" min="1" max="30" required></label>
+			  <label>Notes <textarea name="notes" placeholder="Why?"></textarea></label>
+			  <input type="hidden" name="token" value="t1">
+			  <script>alert(1)</script>
+			</form>
+			""";
+		panel.Session.UpdateFrame( JsonSerializer.SerializeToElement( new { type = "extension_ui_request", id = "f1", method = "form", html } ) );
+		CoreChecks.Check( panel.Session.PendingDialog is { } dialog && dialog.GetProperty( "method" ).GetString() == "form", "The ask tool's form waits for an answer." );
+		CoreChecks.Check( panel.Session.ReadSelection( "f1.scope" ).SetEquals( ["0"] ) && panel.Session.ReadSelection( "f1.level" ).SetEquals( ["1"] ),
+			"A form's checked radio and selected option start picked." );
+
+		var form = HtmlForm.Parse( html );
+		var fields = form.Fields.ToDictionary( field => field.Name );
+		CoreChecks.Check( form.Sections[0].Blocks[0] is FormMarkdown { Markdown: "Clean **the cache**?" } && form.Sections.Any( section => section.Title == "Scope" ),
+			"Form prose keeps its emphasis, and a fieldset's legend titles its section." );
+		CoreChecks.Check( fields["scope"] is FormChoiceField { HasOther: true, ReturnsArray: false } && fields["parts"] is FormChoiceField { HasOther: false, ReturnsArray: true }
+			&& fields["dry"] is FormChoiceField { ReturnsArray: false, HasOther: false } && fields["notes"] is FormTextField { IsMultiline: true, Placeholder: "Why?" },
+			"Radio and checkbox groups offer an answer of one's own unless they have an Other option; a lone checkbox gives one value." );
+		CoreChecks.Check( form.ComputeDefaults().ToJsonString() == """{"token":"t1","scope":"all","parts":["a"],"level":"2","days":3,"notes":""}""",
+			"An untouched form sends its hidden values, checked options, and typed values, with numbers as numbers." );
+		var scope = (FormChoiceField)fields["scope"];
+		CoreChecks.Check( HtmlForm.ComputeChoiceValue( scope, new HashSet<int> { 0 }, "Only logs" )!.GetValue<string>() == "Only logs"
+			&& HtmlForm.ComputeChoiceValue( (FormChoiceField)fields["dry"], new HashSet<int>(), null ) is null, "An answer of one's own replaces a single choice, and an unchecked lone checkbox is left out." );
+		var days = (FormTextField)fields["days"];
+		CoreChecks.Check( HtmlForm.Validate( days, HtmlForm.ComputeTextValue( days, "" ) ) == "Required" && HtmlForm.Validate( days, HtmlForm.ComputeTextValue( days, "40" ) ) == "Must be at most 30"
+			&& HtmlForm.Validate( days, HtmlForm.ComputeTextValue( days, "7" ) ) is null, "Form checks use Omp's messages, so an answer Omp would refuse is never sent." );
+		panel.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"cancel","targetId":"f1"}""" ) );
+	}
 
 	/// <summary>Checks that a chat session connects to a real (fixture) Omp child and runs a whole turn with no chat panel open.</summary>
 	private static void CheckHeadlessTurn()

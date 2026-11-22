@@ -512,13 +512,14 @@ public sealed partial class ChatContent
 		MarkChanged();
 	}
 
-	/// <summary>Sends on Enter, or queues or steers it while the agent works; Ctrl+Enter does the other; Shift+Enter breaks lines. While the command list is open, the arrows, Tab and Escape drive it instead of the editor.</summary>
+	/// <summary>Sends on Enter, or queues or steers it while the agent works; Ctrl+Enter does the other, or gives a pending question its recommended answer
+	/// while the prompt is empty; Shift+Enter breaks lines. While the command list is open, the arrows, Tab and Escape drive it instead of the editor.</summary>
 	private KeyBinding[] BuildPromptKeys()
 	{
 		KeyBinding[] keys =
 		[
 			new( Key.Enter, KeyModifiers.None, () => context.Run( UpdateEnter ) ),
-			new( Key.Enter, KeyModifiers.Primary, () => context.Run( UpdateSteer ) ),
+			new( Key.Enter, KeyModifiers.Primary, () => context.Run( UpdateModifiedEnter ) ),
 			new( Key.Enter, new KeyModifiers { Shift = true }, () => _composer.Execute( new TextCommand( TextCommandKind.Insert, "\n", false ) ) ),
 			new( Key.V, KeyModifiers.Primary, () => context.Run( UpdatePaste ) ),
 		];
@@ -567,6 +568,15 @@ public sealed partial class ChatContent
 		}
 		if ( !UpdateCommandSelected( run: true ) )
 			UpdateSend();
+	}
+
+	/// <summary>Gives the pending question its recommended answer when the prompt is empty, as the answer's Ctrl+Enter hint shows; otherwise steers or queues.</summary>
+	private void UpdateModifiedEnter()
+	{
+		if ( _composer.Document.Length == 0 && _attachments.Count == 0 && ReadPrimaryAnswer() is { } answer )
+			answer();
+		else
+			UpdateSteer();
 	}
 
 	/// <summary>Rebuilds only when the prompt's visible line count changes, or it fills or empties, which lights or dims the send button.</summary>

@@ -78,6 +78,17 @@ internal static class OmpUiFixture
 				continue;
 			}
 
+			// A form answer is echoed as it arrived, so checks can read the data Loom sent.
+			if ( type == "extension_ui_response" && request.TryGetProperty( "data", out var formData ) )
+			{
+				await SendMessageAsync( "fixture-form", new
+				{
+					role = "assistant",
+					content = new[] { new { type = "text", text = "Fixture form data: " + formData.GetRawText() } },
+				} );
+				continue;
+			}
+
 			if ( type == "extension_ui_response" )
 			{
 				var accepted = request.TryGetProperty( "confirmed", out var confirmed ) && confirmed.ValueKind == JsonValueKind.True;

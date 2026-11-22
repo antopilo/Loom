@@ -359,8 +359,26 @@ where it left off. Closing a chat or restarting Loom never sends one.
 
 Rich messages support Markdown headings/emphasis, lists/checklists, tables, code
 and diffs, images, reasoning folds, task phases, tool status/output, and native
-select, confirmation, input, editor, and questionnaire dialogs. Unknown structured
+select, confirmation, input, editor, questionnaire, and form dialogs. Unknown structured
 content remains available in a readable JSON fold.
+
+A tool's question shows above the prompt as a card: the question, **×** to cancel it,
+and its answers as a row of buttons, one under another when they have descriptions.
+The recommended answer (Confirm, the option the agent recommends or checked, a list's
+first-focused option, or Submit) is filled and shows **Ctrl ⏎**: Ctrl+Enter gives it while
+the prompt is empty or the card has focus. A lone question with one choice is answered by
+a click, and an answer of your own typed in the prompt replaces the choice; questions with
+several answers, or several questions, are picked and then submitted.
+
+Omp's `ask` tool sends an HTML `<form>` (`method: "form"`). Loom reads it the way Omp's
+terminal does (`HtmlForm`): sections from `<fieldset>`/`<legend>`, prose, lists, tables
+and `<pre>` as Markdown, radio and checkbox groups and `<select>` as buttons, an **Other**
+box for a radio or checkbox group of two or more options that has no "Other" option, text
+inputs and text areas, and `<img>` (data URI or a file relative to the chat's folder; a web
+image is a link) and `<svg>` as pictures. Submit checks `required`, numbers, `min`/`max`,
+lengths, email, URL and `pattern` with Omp's messages before it sends `data`, since Omp
+refuses a form answer that breaks them. A file image on a host's disk shows as its
+description in a client.
 
 When a chat finishes its turn or asks you a question, its pane gets a calm blue
 outline until you click into it. If you are in another pane, a soft two-note chime

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using static Lokn.Modules.Chat.ChatContent;
 
@@ -83,16 +84,29 @@ public sealed partial class ChatSession
 		var id = ReadText( frame, "id" );
 		if ( method == "cancel" )
 			UpdateDialogLeave( ReadText( frame, "targetId" ) );
-		else if ( method is "select" or "confirm" or "input" or "editor" or "ask" or "open_url" )
+		else if ( method is "select" or "confirm" or "input" or "editor" or "ask" or "form" or "open_url" )
 		{
 			_dialogs.RemoveAll( dialog => ReadText( dialog, "id" ) == id );
 			_dialogs.Add( frame.Clone() );
+			if ( method == "form" )
+				UpdateFormDefaults( id, ReadText( frame, "html" ) );
 			_status = "Waiting for your answer";
 		}
 		else if ( method == "set_editor_text" )
 			EditorTextRequested?.Invoke( ReadText( frame, "text" ) );
 		else if ( method is "notify" or "setStatus" && ReadText( frame, "message", ReadText( frame, "text", ReadText( frame, "content" ) ) ) is { Length: > 0 } notice )
 			_status = notice;
+	}
+
+	/// <summary>Picks a form's checked options, by index, as its choice fields' first selections; a form sent again keeps the picks already made.</summary>
+	private void UpdateFormDefaults( string id, string html )
+	{
+		foreach ( var field in HtmlForm.Parse( html ).Fields.OfType<FormChoiceField>() )
+		{
+			var key = id + "." + field.Name;
+			if ( !_answers.ContainsKey( key ) )
+				_answers.Add( key, [.. field.Options.Index().Where( entry => entry.Item.IsChecked ).Select( entry => entry.Index.ToString( CultureInfo.InvariantCulture ) )] );
+		}
 	}
 
 	/// <summary>Dismisses a question that takes no answer, such as an authorization page to open.</summary>

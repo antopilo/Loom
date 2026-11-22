@@ -145,6 +145,47 @@ internal static class ChatViewChecks
 		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Open usage and resets" ) );
 		CoreChecks.Check( HasText( semantics, "Usage 63% left" ), "Escape closes usage, and the prompt rail shows the connected provider's remaining share." );
 		CoreChecks.Check( app.LastError is null, "The Omp layout handles streaming and conditional dialogs without a render failure." );
+		// The ask tool's form: a lone single choice shows its options as buttons, and a click sends the form's data with its hidden values.
+		var chat = app.Panels.Sessions.Select( session => session.Content ).OfType<ConversationPanel>().Select( panel => panel.View ).OfType<ChatContent>().Single();
+		chat.Session.UpdateFrame( JsonSerializer.SerializeToElement( new
+		{
+			type = "extension_ui_request",
+			id = "form-1",
+			method = "form",
+			html = "<form><p>Remove the old cache folder?</p><label><input type=radio name=choice value=both checked> Remove both</label>"
+				+ "<label><input type=radio name=choice value=one> Cache only</label><input type=hidden name=token value=t1></form>",
+		} ) );
+		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Cache only" ) );
+		if ( capture >= 0 && capture + 1 < args.Length )
+			NativeChecks.BuildCapture( window, args[capture + 1], "chat-form" );
+		Click( window, Find( semantics, AccessibilityRole.Button, "Cache only" ) );
+		PumpUntil( window, () => store.GetMessages( conversation.Id ).Any( message => message.Text == """Fixture form data: {"token":"t1","choice":"one"}""" ) );
+		// A form to fill: Ctrl+Enter submits it, a required field stops it with Omp's message, and picks and typed text reach Omp.
+		chat.Session.UpdateFrame( JsonSerializer.SerializeToElement( new
+		{
+			type = "extension_ui_request",
+			id = "form-2",
+			method = "form",
+			html = "<form><fieldset><legend>Clean up</legend><label><input type=checkbox name=parts value=cache checked> Cache</label>"
+				+ "<label><input type=checkbox name=parts value=logs> Logs</label></fieldset><label>Reason <input name=reason required></label></form>",
+		} ) );
+		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Logs" ) );
+		if ( capture >= 0 && capture + 1 < args.Length )
+			NativeChecks.BuildCapture( window, args[capture + 1], "chat-form-fill" );
+		Click( window, Find( semantics, AccessibilityRole.TextEditor, "Message" ) );
+		window.PlatformInput.KeyPress( Key.Enter, KeyModifiers.Primary );
+		window.PlatformInput.KeyRelease( Key.Enter );
+		PumpUntil( window, () => HasText( semantics, "Required" ) );
+		Click( window, Find( semantics, AccessibilityRole.Button, "Logs" ) );
+		Click( window, Nodes( semantics ).First( node => node.Name == "reason" ) );
+		window.PlatformInput.CommitText( "Disk full" );
+		Pump( window );
+		window.PlatformInput.KeyPress( Key.Enter, KeyModifiers.Primary );
+		window.PlatformInput.KeyRelease( Key.Enter );
+		PumpUntil( window, () => store.GetMessages( conversation.Id ).Any( message => message.Text == """Fixture form data: {"parts":["cache","logs"],"reason":"Disk full"}""" ) );
+		// The answered question plays its exit before the transcript below is scrolled.
+		PumpUntil( window, () => !Nodes( semantics ).Any( node => node.Name == "Tool question" ) );
+		CoreChecks.Check( app.LastError is null, "Form questions render and answer without a render failure." );
 		var first = Nodes( semantics ).First( node => node.Role == AccessibilityRole.Group && (node.Name ?? "").EndsWith( " message", StringComparison.Ordinal ) );
 		window.PerformAccessibilityAction( first.Id, new( AccessibilityAction.ScrollIntoView ) );
 		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "Latest" ) );

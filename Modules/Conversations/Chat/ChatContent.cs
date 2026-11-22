@@ -483,6 +483,7 @@ public sealed partial class ChatContent : PanelContent
 		_gitWatch?.Dispose();
 		_gitWatch = null;
 		ReleaseImages();
+		ReleaseFormPictures();
 	}
 
 	/// <summary>Builds selectable body text in the shell's typography.</summary>
