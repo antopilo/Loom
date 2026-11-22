@@ -44,8 +44,8 @@ public sealed partial class StreamContent : PanelContent
 	/// <summary>Stores the frame on screen, or null before the first.</summary>
 	private ImageSource? _frame;
 
-	/// <summary>Stores the frame shown before <see cref="_frame"/>, kept until the next one arrives so the renderer never draws a frame that was just freed.</summary>
-	private ImageSource? _previousFrame;
+	/// <summary>Publishes frames through one provider identity, so Goo keeps the displayed frame until its replacement upload completes.</summary>
+	private readonly FrameImageSource _frameSource = new();
 
 	/// <summary>Stores the status or error line, or empty.</summary>
 	private string _status = "";
@@ -99,7 +99,8 @@ public sealed partial class StreamContent : PanelContent
 		if ( _streaming is not null )
 			_source.Stop();
 
-		ReleaseFrames();
+		_frameSource.Dispose();
+		_frame = null;
 		lock ( _decoder )
 		{
 			_decoder.Value.Decoder?.Dispose();
@@ -288,7 +289,7 @@ public sealed partial class StreamContent : PanelContent
 			[
 				new Image
 				{
-					Source = frame,
+					Source = _frameSource,
 					Fit = ImageFit.Fill,
 					Position = PositionType.Absolute,
 					Left = fit.Left,
@@ -358,7 +359,7 @@ public sealed partial class StreamContent : PanelContent
 		_latency = 0;
 		_arrivals.Clear();
 		_lastMove = (-1, -1);
-		ReleaseFrames();
+		ClearFrame();
 		_requestedAt = Stopwatch.GetTimestamp();
 		var generation = ++_generation;
 		UpdateVersion();
@@ -390,7 +391,7 @@ public sealed partial class StreamContent : PanelContent
 		_generation++;
 		_source.Stop();
 		_streaming = null;
-		ReleaseFrames();
+		ClearFrame();
 		_status = "";
 		_resolutionNote = "";
 		UpdateList();
@@ -403,7 +404,7 @@ public sealed partial class StreamContent : PanelContent
 		ReleaseKeys();
 		_generation++;
 		_streaming = null;
-		ReleaseFrames();
+		ClearFrame();
 		_status = message;
 		_resolutionNote = "";
 		UpdateList();
@@ -470,22 +471,18 @@ public sealed partial class StreamContent : PanelContent
 		}
 
 		_arrivals.Enqueue( now );
-		// Freeing the shown frame at once let the panel draw nothing until the new one was on the GPU, which flickered on every update.
-		_previousFrame?.Dispose();
-		_previousFrame = _frame;
 		_frame = image;
+		_frameSource.Publish( image );
 		_requestedAt = Stopwatch.GetTimestamp();
 		_source.Ack();
 		UpdateVersion();
 	}
 
-	/// <summary>Frees the shown frame and the one before it.</summary>
-	private void ReleaseFrames()
+	/// <summary>Releases the current frame and resets the stable provider before the viewer leaves or starts another stream.</summary>
+	private void ClearFrame()
 	{
-		_frame?.Dispose();
 		_frame = null;
-		_previousFrame?.Dispose();
-		_previousFrame = null;
+		_frameSource.Clear();
 	}
 
 	/// <summary>Returns to the picker when the source ends the stream.</summary>
@@ -531,5 +528,71 @@ public readonly record struct FrameFit( double Left, double Top, double Scale )
 			return (frameX, frameY);
 
 		return clamp ? (Math.Clamp( frameX, 0, frameWidth - 1 ), Math.Clamp( frameY, 0, frameHeight - 1 )) : null;
+	}
+}
+
+/// <summary>Publishes immutable stream frames through one Goo image-provider identity, retaining the displayed generation until Goo uploads its replacement.</summary>
+internal sealed class FrameImageSource : ImageSourceProvider, IDisposable
+{
+	/// <summary>Stores the newest frame owned by this provider, or null before one is published.</summary>
+	private ImageSource? _image;
+
+	/// <summary>Counts published and cleared generations.</summary>
+	private ulong _contentVersion;
+
+	/// <summary>Tracks whether this provider released its owner reference.</summary>
+	private bool _isDisposed;
+
+	/// <inheritdoc/>
+	public ulong ContentVersion => _contentVersion;
+
+	/// <inheritdoc/>
+	public event Action? ContentChanged;
+
+	/// <inheritdoc/>
+	public ImageSourceLease Acquire()
+	{
+		if ( _image is { } image )
+			return image.Acquire();
+
+		var lease = new ImageSourceLease();
+		_ = lease.Fail();
+		return lease;
+	}
+
+	/// <summary>Publishes a new frame and takes ownership of it.</summary>
+	/// <param name="image">The immutable frame.</param>
+	public void Publish( ImageSource image )
+	{
+		ObjectDisposedException.ThrowIf( _isDisposed, this );
+		var previous = _image;
+		_image = image;
+		_contentVersion++;
+		previous?.Dispose();
+		ContentChanged?.Invoke();
+	}
+
+	/// <summary>Clears and releases the published frame.</summary>
+	public void Clear()
+	{
+		if ( _image is null )
+			return;
+
+		var previous = _image;
+		_image = null;
+		_contentVersion++;
+		previous.Dispose();
+		ContentChanged?.Invoke();
+	}
+
+	/// <summary>Releases this provider's current frame owner.</summary>
+	public void Dispose()
+	{
+		if ( _isDisposed )
+			return;
+
+		_isDisposed = true;
+		_image?.Dispose();
+		_image = null;
 	}
 }

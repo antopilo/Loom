@@ -25,11 +25,12 @@ internal static class StreamChecks
 		CheckWindows();
 		CheckWire();
 		CheckJpeg();
+		CheckFramePublishing();
 		CheckAckGating();
 		CheckFrameRate();
 		CheckSizing();
 		CheckMapping();
-		Console.WriteLine( "PASS window stream: window list, cap.* field names, JPEG round trip, frames paced by acknowledgement and frame rate with unchanged frames skipped, full-size frames capped by the panel and H.264 limits, and frame-to-window input mapping." );
+		Console.WriteLine( "PASS window stream: window list, cap.* field names, JPEG round trip, flicker-free frame publication, frames paced by acknowledgement and frame rate with unchanged frames skipped, full-size frames capped by the panel and H.264 limits, and frame-to-window input mapping." );
 	}
 
 	/// <summary>Verifies the window list on a desktop session, and reports a skip where there is no desktop, such as in CI.</summary>
@@ -95,6 +96,28 @@ internal static class StreamChecks
 
 		using var image = ImageSource.Decode( jpeg );
 		CoreChecks.Check( image.Width == width && image.Height == height, "Goo decodes the JPEG the panel shows at the frame's size." );
+	}
+
+	/// <summary>Verifies one stable provider publishes new frame generations while a mounted lease keeps the preceding frame renderable.</summary>
+	private static void CheckFramePublishing()
+	{
+		using var provider = new FrameImageSource();
+		var changes = 0;
+		provider.ContentChanged += () => changes++;
+		var first = new ImageSource( 1, 1, [255, 0, 0, 255] );
+		provider.Publish( first );
+		using var displayed = provider.Acquire();
+		var firstVersion = provider.ContentVersion;
+
+		var second = new ImageSource( 1, 1, [0, 255, 0, 255] );
+		provider.Publish( second );
+		CoreChecks.Check( firstVersion > 0 && provider.ContentVersion > firstVersion && changes == 2, "Stream frames publish as increasing generations of one image provider." );
+		CoreChecks.Check( first.IsDisposed && displayed.IsComplete && !displayed.IsDisposed, "Replacing a frame releases its owner while the displayed frame lease stays valid for Goo." );
+
+		using var latest = provider.Acquire();
+		provider.Clear();
+		using var empty = provider.Acquire();
+		CoreChecks.Check( second.IsDisposed && latest.IsComplete && empty.IsFailed && changes == 3, "Clearing the stream releases its frame while mounted leases stay valid." );
 	}
 
 	/// <summary>Verifies up to <see cref="CaptureSession.MaxInFlight"/> frames go out before an acknowledgement, a stray acknowledgement does not widen the

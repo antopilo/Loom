@@ -659,7 +659,9 @@ one, else Windows' software one): baseline profile, low-latency mode, Annex B in
 frame and no B-frames; the first frame, and the first after the window's size changes, is a key frame.
 A host that cannot encode H.264, or whose encoder fails, sends JPEG in `jpeg`, so a client decodes each
 frame by its `codec` (a frame with no `codec` is JPEG). Frames are never dropped after encoding: the ack
-window holds back the capture instead, so an H.264 stream stays decodable. The host captures with
+window holds back the capture instead, so an H.264 stream stays decodable. The panel publishes decoded
+frames as generations of one image source, so Goo keeps the displayed generation until the replacement's
+GPU upload completes instead of showing the background between frames. The host captures with
 Windows.Graphics.Capture, falling back to `PrintWindow` where it is unavailable, and writes per-stream
 timings to `%TEMP%\Lokn\stream.log` every five seconds.
 
