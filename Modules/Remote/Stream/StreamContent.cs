@@ -44,6 +44,9 @@ public sealed partial class StreamContent : PanelContent
 	/// <summary>Stores the frame on screen, or null before the first.</summary>
 	private ImageSource? _frame;
 
+	/// <summary>Stores the frame shown before <see cref="_frame"/>, kept until the next one arrives so the renderer never draws a frame that was just freed.</summary>
+	private ImageSource? _previousFrame;
+
 	/// <summary>Stores the status or error line, or empty.</summary>
 	private string _status = "";
 
@@ -96,8 +99,7 @@ public sealed partial class StreamContent : PanelContent
 		if ( _streaming is not null )
 			_source.Stop();
 
-		_frame?.Dispose();
-		_frame = null;
+		ReleaseFrames();
 		lock ( _decoder )
 		{
 			_decoder.Value.Decoder?.Dispose();
@@ -356,8 +358,7 @@ public sealed partial class StreamContent : PanelContent
 		_latency = 0;
 		_arrivals.Clear();
 		_lastMove = (-1, -1);
-		_frame?.Dispose();
-		_frame = null;
+		ReleaseFrames();
 		_requestedAt = Stopwatch.GetTimestamp();
 		var generation = ++_generation;
 		UpdateVersion();
@@ -389,8 +390,7 @@ public sealed partial class StreamContent : PanelContent
 		_generation++;
 		_source.Stop();
 		_streaming = null;
-		_frame?.Dispose();
-		_frame = null;
+		ReleaseFrames();
 		_status = "";
 		_resolutionNote = "";
 		UpdateList();
@@ -403,8 +403,7 @@ public sealed partial class StreamContent : PanelContent
 		ReleaseKeys();
 		_generation++;
 		_streaming = null;
-		_frame?.Dispose();
-		_frame = null;
+		ReleaseFrames();
 		_status = message;
 		_resolutionNote = "";
 		UpdateList();
@@ -471,11 +470,22 @@ public sealed partial class StreamContent : PanelContent
 		}
 
 		_arrivals.Enqueue( now );
-		_frame?.Dispose();
+		// Freeing the shown frame at once let the panel draw nothing until the new one was on the GPU, which flickered on every update.
+		_previousFrame?.Dispose();
+		_previousFrame = _frame;
 		_frame = image;
 		_requestedAt = Stopwatch.GetTimestamp();
 		_source.Ack();
 		UpdateVersion();
+	}
+
+	/// <summary>Frees the shown frame and the one before it.</summary>
+	private void ReleaseFrames()
+	{
+		_frame?.Dispose();
+		_frame = null;
+		_previousFrame?.Dispose();
+		_previousFrame = null;
 	}
 
 	/// <summary>Returns to the picker when the source ends the stream.</summary>
