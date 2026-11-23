@@ -248,10 +248,16 @@ public sealed partial class ConversationsModule
 		}
 		else if ( key == HomeSession )
 			OpenHome( app );
+		// A project's overview page is the Overview module's session, opened by its link so this module does not reference it.
+		else if ( key is not null && key.StartsWith( OverviewPrefix, StringComparison.Ordinal ) && app.Modules.Any( module => module.Id == "overview" ) )
+			app.OpenLink( LoknLinks.Create( "overview", "project", key[OverviewPrefix.Length..] ) );
 		else
 			return false;
 		return true;
 	}
+
+	/// <summary>Defines the prefix of the session key of a project's overview page (<c>overview:&lt;project&gt;[@host]</c>).</summary>
+	private const string OverviewPrefix = "overview:";
 
 	/// <summary>Opens a session of a host whose chats are still to come, under the name it was last opened with, and makes the host current.</summary>
 	private static void OpenPendingSession( LoknApplication app, string key, ChatHost host, Action createLayout )

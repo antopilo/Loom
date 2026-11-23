@@ -44,9 +44,10 @@ switches to Work and **Alt+2** to Personal; the sidebar swipes in from that prof
 ### Project overview
 
 Hover a project's heading in the sidebar and click its overview button (four squares), or
-choose **Overview** in its **…** menu, to open one page for the whole project. The palette's
-**Project overview** opens the page of the project you are in, or a list of projects to choose
-from. The page shows:
+choose **Overview** in its **…** menu, to open one page for the whole project. The page is
+its own session, like a chat's: it fills the window, and the layout you leave it in comes back
+next time. The palette's **Project overview** opens the page of the project you are in, or a
+list of projects to choose from. The page shows:
 
 - **Chats and tasks**: every chat and task of the project that is not archived. Chats that
   wait for you come first, then chats whose agent works, then the rest by last use. Click one

@@ -40,8 +40,9 @@ public sealed class OverviewModule : ILoknModule
 		Open( app, project, at < 0 ? LoknHost.LocalId : path[(at + 1)..] );
 	}
 
-	/// <summary>Opens a project's overview, or brings the one on screen forward; without a project, the open session's project, else a page that
-	/// lists the projects to choose from.</summary>
+	/// <summary>Opens a project's overview as its own page: the overview session of the project, which shows the overview alone, full window, the
+	/// first time, then as the user left it. Without a project it opens the open session's project, else a page that lists the projects.</summary>
+	/// <remarks>Without the Workspaces module there are no sessions, so the overview opens as a panel in the current layout.</remarks>
 	/// <param name="app">The application.</param>
 	/// <param name="projectId">The project, or null for the open session's.</param>
 	/// <param name="hostId">The host the project is on, or null for the open session's host.</param>
@@ -50,14 +51,40 @@ public sealed class OverviewModule : ILoknModule
 		if ( projectId is null && ComputeSessionProject( app ) is { } current )
 			(projectId, hostId) = current;
 		hostId ??= app.Hosts.Current.Id;
-		_panels.RemoveAll( panel => panel.IsClosed );
-		if ( _panels.FirstOrDefault( panel => panel.ProjectId == projectId && panel.ProjectHostId == hostId && app.Panels.IsShown( panel.Id ) ) is { } shown )
+		if ( projectId is { } id && FindWorkspaces( app ) is { } workspaces )
 		{
-			app.Panels.Activate( shown.Id );
+			var name = app.GetModule<ConversationsModule>().Hosts.Find( hostId )?.Projects.Find( id )?.Name ?? "Project";
+			// The host is current before the layout opens, so panels the page opens without a host of their own open on it.
+			app.Hosts.SetCurrent( hostId );
+			workspaces.OpenSession( app, SessionKey( id, hostId ), $"{name} overview", () =>
+			{
+				app.Panels.HideAll();
+				app.Panels.Open( PanelType, input: projectId, hostId: hostId );
+			} );
+		}
+
+		// The page's own overview is the one its layout shows; an overview hidden in another session, such as one opened before pages existed,
+		// stays there rather than joining this page beside it.
+		_panels.RemoveAll( panel => panel.IsClosed );
+		if ( _panels.FirstOrDefault( panel => panel.ProjectId == projectId && panel.ProjectHostId == hostId && app.Panels.IsShown( panel.Id ) ) is { } open )
+		{
+			app.Panels.Activate( open.Id );
 			return;
 		}
+		// The user closed the overview on its page, or there are no sessions: it opens in the current layout.
 		app.Panels.Open( PanelType, input: projectId, hostId: hostId );
 	}
+
+	/// <summary>Gets the session key of a project's overview: <c>overview:&lt;project&gt;</c>, with <c>@&lt;host&gt;</c> for a paired host's project.</summary>
+	internal static string SessionKey( Guid projectId, string hostId ) =>
+		hostId == LoknHost.LocalId ? $"{SessionPrefix}{projectId:N}" : $"{SessionPrefix}{projectId:N}@{hostId}";
+
+	/// <summary>Defines the prefix of an overview session's key.</summary>
+	private const string SessionPrefix = "overview:";
+
+	/// <summary>Finds the Workspaces module while it is loaded.</summary>
+	private static WorkspacesModule? FindWorkspaces( LoknApplication app ) =>
+		app.Modules.Any( module => module.Id == "workspaces" ) ? app.GetModule<WorkspacesModule>() : null;
 
 	/// <summary>Creates an overview panel and tracks it.</summary>
 	private ProjectOverviewContent Create( PanelContext context )
@@ -67,15 +94,18 @@ public sealed class OverviewModule : ILoknModule
 		return content;
 	}
 
-	/// <summary>Finds the project of the open session and its host: a project's session, or a chat's session whose chat is in a project; null otherwise.</summary>
+	/// <summary>Finds the project of the open session and its host: a project's or its overview's session, or a chat's session whose chat is in a
+	/// project; null otherwise.</summary>
 	private static (Guid ProjectId, string HostId)? ComputeSessionProject( LoknApplication app )
 	{
-		if ( !app.Modules.Any( module => module.Id == "workspaces" ) || app.GetModule<WorkspacesModule>().CurrentSession is not { } key )
+		if ( FindWorkspaces( app )?.CurrentSession is not { } key )
 			return null;
 
-		if ( key.StartsWith( ProjectsModule.SessionPrefix, StringComparison.Ordinal ) )
+		foreach ( var prefix in (string[])[ProjectsModule.SessionPrefix, SessionPrefix] )
 		{
-			var rest = key[ProjectsModule.SessionPrefix.Length..];
+			if ( !key.StartsWith( prefix, StringComparison.Ordinal ) )
+				continue;
+			var rest = key[prefix.Length..];
 			var at = rest.IndexOf( '@', StringComparison.Ordinal );
 			var host = at < 0 ? LoknHost.LocalId : rest[(at + 1)..];
 			return Guid.TryParseExact( at < 0 ? rest : rest[..at], "N", out var id ) ? (id, host) : null;

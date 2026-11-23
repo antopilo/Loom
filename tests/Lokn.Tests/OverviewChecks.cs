@@ -62,11 +62,24 @@ internal static class OverviewChecks
 			var sidebar = app.Slots.Get( ShellSlots.Sidebar ).Single( item => item.ModuleId == "conversations" ).Content;
 			CoreChecks.Check( Descendants( sidebar.Build() ).OfType<Button>().Any( button => button.AccessibilityName == "Overview of App" ),
 				"A project's heading in the sidebar has an overview button while the Overview module is loaded." );
+			var workspaces = app.GetModule<WorkspacesModule>();
+			var scratch = app.Panels.Open( "conversations.chat" );
+			// An overview opened as a panel in another layout, as 0.4.13 did, stays in that layout.
+			var older = app.Panels.Open( OverviewModule.PanelType, input: (Guid?)project.Id, hostId: LoknHost.LocalId );
 			var link = LoknLinks.Create( "overview", "project", project.Id.ToString( "N" ) );
 			app.OpenLink( link );
+			var overview = app.Panels.ActivePanelId;
+			CoreChecks.Check( workspaces.CurrentSession == "overview:" + project.Id.ToString( "N" ) && app.Panels.Panes.Count == 1 && !app.Panels.IsShown( scratch )
+				&& !app.Panels.IsShown( older ) && overview is { } shown && shown != older && app.Panels.Panels.Single( panel => panel.Id == shown ).TypeId == OverviewModule.PanelType,
+				"The overview link opens the project's overview as its own page: its own session, with the overview alone, full window." );
+			conversations.OpenHome( app );
 			app.OpenLink( link );
-			CoreChecks.Check( app.Panels.Panels.Count( panel => panel.TypeId == OverviewModule.PanelType ) == 1,
-				"The overview link opens a project's overview once, and again brings the same one forward." );
+			CoreChecks.Check( app.Panels.Panels.Count( panel => panel.TypeId == OverviewModule.PanelType ) == 2 && app.Panels.ActivePanelId == overview && app.Panels.Panes.Count == 1,
+				"Opening the overview again comes back to the same page." );
+			app.Settings.ToggleProfile();
+			app.Settings.ToggleProfile();
+			CoreChecks.Check( workspaces.CurrentSession == "overview:" + project.Id.ToString( "N" ) && app.Panels.ActivePanelId == overview,
+				"Switching profile away and back returns to the overview page." );
 			var page = app.Panels.FindContent<ProjectOverviewContent>()!.Value.Content;
 			for ( var tries = 0; tries < 50 && !Texts( page.Build() ).Contains( "landing" ); tries++ )
 			{

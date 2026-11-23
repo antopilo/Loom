@@ -348,12 +348,12 @@ internal sealed class ProjectOverviewContent : PanelContent
 		];
 	}
 
-	/// <summary>Shows another project's overview in this panel.</summary>
+	/// <summary>Opens the chosen project's overview on its own page, then closes this list, which has done its work.</summary>
 	private void UpdateProject( Guid projectId )
 	{
-		_projectId.Value = projectId;
-		_isShowingAll.Value = false;
-		ScanDesigns();
+		var host = _context.Host;
+		_context.App.OpenLink( LoknLinks.Create( "overview", "project", host.IsLocal ? projectId.ToString( "N" ) : $"{projectId:N}@{host.Id}" ), _context.Id );
+		_context.App.Panels.Close( _context.Id );
 	}
 
 	/// <summary>Lists the project's chats and tasks that are not archived: waiting ones first, then working ones, then the rest by last use.</summary>
