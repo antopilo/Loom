@@ -3,6 +3,11 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.14
+
+- **A project's overview is its own page.** The overview button opens the project's overview alone, full window, as
+  a chat opens. Come back to it later and it is as you left it. Switching profile and back returns to it.
+
 ## 0.4.13
 
 - **Design screens with your agent.** Ask an agent to design a screen and it writes the design as HTML and CSS in
