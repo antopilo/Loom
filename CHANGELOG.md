@@ -3,6 +3,13 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.13
+
+- **One page for each project.** Hover a project in the sidebar and click its new overview button, or choose
+  **Overview** in its **…** menu. The page lists the project's chats and tasks, with the ones that wait for you and
+  the ones that work at the top, its recent activity, and its designs and the reports its agents showed. Start a new
+  chat or task from the page too. **Project overview** in Search (Ctrl+K) opens it as well.
+
 ## 0.4.12
 
 - **Loom opens on AMD graphics cards.** On PCs whose graphics driver cannot draw a see-through window, such as AMD

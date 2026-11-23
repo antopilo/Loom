@@ -41,6 +41,27 @@ Work and Personal each remember their own current session and selected conversat
 switching profile returns to where that profile was, or Home the first time. **Alt+1**
 switches to Work and **Alt+2** to Personal; the sidebar swipes in from that profile's side.
 
+### Project overview
+
+Hover a project's heading in the sidebar and click its overview button (four squares), or
+choose **Overview** in its **…** menu, to open one page for the whole project. The palette's
+**Project overview** opens the page of the project you are in, or a list of projects to choose
+from. The page shows:
+
+- **Chats and tasks**: every chat and task of the project that is not archived. Chats that
+  wait for you come first, then chats whose agent works, then the rest by last use. Click one
+  to open it.
+- **Activity**: the newest 30 events, such as notifications from its chats, chats and tasks
+  started and updated, designs changed and reports shown.
+- **Designs and reports**: the designs in the project's `.lokn\design` folder, which open in
+  the Design studio when it is installed, and the html reports its agents showed with
+  `browser_show`, which open in the browser. Reports show from Loom 0.4.13 on; earlier ones
+  do not.
+
+**New chat**, **New task** and **Open project** start work in the project from the page. A
+paired host's project shows its chats, tasks, activity and designs. Its designs do not open,
+and its reports stay on that PC.
+
 ## Workspace
 
 - **Ctrl+\\** and **Ctrl+Shift+\\** split the active pane right or down into an empty

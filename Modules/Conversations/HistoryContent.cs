@@ -15,6 +15,12 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 	/// <summary>Defines how many chats outside projects show before View all; pinned chats and the open one always show.</summary>
 	private const int ScratchLimit = 5;
 
+	/// <summary>Defines the module whose link opens a project's overview, named rather than referenced so the overview stays optional.</summary>
+	private const string OverviewModuleId = "overview";
+
+	/// <summary>Defines the Segoe Fluent ViewAll glyph of a project's overview button.</summary>
+	private const string OverviewGlyph = "\uE8A9";
+
 	/// <summary>Holds the sidebar's row state, such as the hovered row, the open menu and the search, and builds its rows.</summary>
 	private readonly SidebarRows _sidebar = new( context );
 
@@ -131,6 +137,9 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			_sidebar.BuildAddButton( project.Id, $"New chat in {project.Name}", () => module.NewConversation( context.App, host, project.Id ), isRevealed ),
 			_sidebar.BuildIconButton( TidyGlyph, $"Tidy chats in {project.Name}", () => BeginTidy( project ), isRevealed ),
 		];
+		var hasOverview = context.App.Modules.Any( loaded => loaded.Id == OverviewModuleId );
+		if ( hasOverview )
+			actions.Insert( 2, _sidebar.BuildIconButton( OverviewGlyph, $"Overview of {project.Name}", () => OpenOverview( host, project ), isRevealed ) );
 		// The archive shows whenever the project has archived chats, so they can always be found.
 		if ( archived.Count > 0 )
 			actions.Add( BuildArchiveButton( project.Id, project.Name, archived.Count ) );
@@ -145,6 +154,8 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 				new MenuAction( "New chat", () => context.Run( () => module.NewConversation( context.App, host, project.Id ) ) ) { AccessKey = Key.N },
 				new MenuAction( "New task", () => context.Run( () => module.NewTask( context.App, host, project.Id ) ) ) { AccessKey = Key.T },
 			};
+			if ( hasOverview )
+				entries.Add( new MenuAction( "Overview", () => context.Run( () => OpenOverview( host, project ) ) ) { AccessKey = Key.O } );
 			AddWorktreeEntries( project, worktrees, worktreeActions, entries );
 			entries.Add( new MenuAction( "Rename", () => context.Run( () => Projects.BeginRename( project ) ) ) { AccessKey = Key.R } );
 			entries.Add( new MenuAction( "Change folder…", () => context.Run( () => Projects.BeginChangeFolder( project ) ) ) { AccessKey = Key.F } );
@@ -165,6 +176,10 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 
 		return SidebarRows.BuildGroup( project.Id, children );
 	}
+
+	/// <summary>Opens a project's overview through the Overview module's link: <c>&lt;project&gt;</c> on This PC, <c>&lt;project&gt;@&lt;host&gt;</c> on a paired host.</summary>
+	private void OpenOverview( ChatHost host, ProjectInfo project ) =>
+		context.App.OpenLink( LoknLinks.Create( OverviewModuleId, "project", host.IsLocal ? project.Id.ToString( "N" ) : $"{project.Id:N}@{host.Id}" ), context.Id );
 
 	/// <summary>Adds the Scratch heading and the chats outside projects: the latest few, pinned ones and the open one, then View all when more are
 	/// hidden; once expanded, every chat, then Show less.</summary>

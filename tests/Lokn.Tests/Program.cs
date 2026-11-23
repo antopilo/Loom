@@ -168,6 +168,7 @@ else
 		ProjectChecks.Run();
 		SearchChecks.RunFeatures();
 		MultiHostChatChecks.Run();
+		await OverviewChecks.RunAsync();
 	}
 	if ( featureChecks || ompChecks )
 	{

@@ -104,7 +104,7 @@ their running app, or their users' copies of Loom:
 What a change needs before it is live:
 
 - **Source module:** nothing. Saving its file reloads it.
-- **Built-in module** (`Modules/Omp`, `Git` (with the Git panel and the side view's Changes and History modes), `Projects`, `Conversations` (with `Chat` and Home), `Files`, `Editor`, `Notifications`, `Worktrees`, `Terminal`, `Browser`, `Workspaces`, `Setup` (Get started), `Remote` (daemon gateway, client, Remote access, Window stream)):
+- **Built-in module** (`Modules/Omp`, `Git` (with the Git panel and the side view's Changes and History modes), `Projects`, `Conversations` (with `Chat` and Home), `Files`, `Editor`, `Notifications`, `Worktrees`, `Terminal`, `Browser`, `Overview` (a project's overview page), `Workspaces`, `Setup` (Get started), `Remote` (daemon gateway, client, Remote access, Window stream)):
   `reload-module.ps1 -Name <Module>`. It prints `RELOADED`, `FAILED` or `NO CHANGE`;
   the same lines are kept in `%TEMP%\Lokn\modules.log`. Modules that depend on the
   rebuilt one reload with it. A daemon started from the same build reloads the module

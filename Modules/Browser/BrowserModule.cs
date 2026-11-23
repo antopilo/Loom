@@ -249,6 +249,7 @@ public sealed partial class BrowserModule : ILoknModule
 		if ( html is not null )
 		{
 			path = SaveReport( html, Read( "title" ) );
+			RecordReport( path, Read( "title" ), context );
 			address = new Uri( path ).AbsoluteUri;
 		}
 		else if ( path is not null )
@@ -256,6 +257,7 @@ public sealed partial class BrowserModule : ILoknModule
 			if ( !Path.IsPathFullyQualified( path ) || !File.Exists( path ) )
 				throw new ArgumentException( $"No file exists at {path}; pass an absolute path." );
 
+			RecordReport( path, Read( "title" ), context );
 			address = new Uri( path ).AbsoluteUri;
 		}
 		else if ( Uri.TryCreate( url, UriKind.Absolute, out var web ) && web.Scheme is "http" or "https" )
