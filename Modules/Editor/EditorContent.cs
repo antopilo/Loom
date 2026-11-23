@@ -145,7 +145,55 @@ internal sealed class EditorContent : PanelContent
 			],
 		};
 
-		var editor = new TextEditor
+		// An image shows as itself; another file that is not text shows why instead of its bytes as characters.
+		Blob body = file.Image is { } image ? BuildImage( image ) : file.IsBinary ? BuildNotText( name ) : BuildEditor( file, name );
+		return new Container
+		{
+			Width = Length.Percent( 100 ),
+			Height = Length.Percent( 100 ),
+			Children = _saveAsPath is { } typed ? [header, BuildSaveAs( typed ), body] : [header, body],
+		};
+	}
+
+	/// <summary>Builds an image file centered in the panel, never larger than its own pixels.</summary>
+	private static Container BuildImage( ImageSource image ) => new()
+	{
+		Key = "image",
+		FlexGrow = 1,
+		MinHeight = 0,
+		Padding = Theme.Current.Spacing,
+		AlignItems = AlignItems.Center,
+		JustifyContent = JustifyContent.Center,
+		Children =
+		[
+			new Image
+			{
+				Source = image,
+				Fit = ImageFit.Contain,
+				Width = Length.Percent( 100 ),
+				Height = Length.Percent( 100 ),
+				MaxWidth = image.Width,
+				MaxHeight = image.Height,
+				AccessibilityName = "Image",
+			},
+		],
+	};
+
+	/// <summary>Builds the note shown in place of a file that is not text and not an image Loom can show.</summary>
+	private static Text BuildNotText( string name ) => new()
+	{
+		Key = "not-text",
+		Content = $"{name} is not a text file, so the editor does not open it.",
+		Color = Theme.Current.Muted,
+		Padding = Theme.Current.Spacing * 2,
+	};
+
+	/// <summary>Builds the text editor of a text file.</summary>
+	private TextEditor BuildEditor( OpenFile file, string name )
+	{
+		var settings = _context.App.Settings;
+		var theme = Theme.Current;
+		return new TextEditor
 		{
 			Key = "editor:" + Current,
 			Controller = file.Editor,
@@ -173,13 +221,6 @@ internal sealed class EditorContent : PanelContent
 				new( Key.Left, new KeyModifiers { Alt = true }, () => _context.Run( () => Move( -1 ) ) ),
 				new( Key.Right, new KeyModifiers { Alt = true }, () => _context.Run( () => Move( 1 ) ) ),
 			],
-		};
-
-		return new Container
-		{
-			Width = Length.Percent( 100 ),
-			Height = Length.Percent( 100 ),
-			Children = _saveAsPath is { } typed ? [header, BuildSaveAs( typed ), editor] : [header, editor],
 		};
 	}
 
@@ -511,9 +552,9 @@ internal sealed class EditorContent : PanelContent
 	private void Save( string path )
 	{
 		var file = File;
-		if ( file.IsLoading )
+		if ( file.IsLoading || file.IsBinary )
 		{
-			Fail( "Could not save: the file is still loading." );
+			Fail( file.IsBinary ? "Could not save: the file is not text." : "Could not save: the file is still loading." );
 			return;
 		}
 
@@ -606,6 +647,8 @@ internal sealed class EditorContent : PanelContent
 
 		var text = "";
 		string? error = null;
+		ImageSource? image = null;
+		var isBinary = false;
 		try
 		{
 			var stat = await workspace.StatAsync( path, cancellationToken ).ConfigureAwait( false );
@@ -615,9 +658,18 @@ internal sealed class EditorContent : PanelContent
 					throw new IOException( $"The file is larger than {MaxBytes / 1024 / 1024} MB." );
 
 				var bytes = await workspace.ReadAsync( path, cancellationToken ).ConfigureAwait( false );
-				using var reader = new StreamReader( new MemoryStream( bytes ), encoding, detectEncodingFromByteOrderMarks: true );
-				text = reader.ReadToEnd();
-				encoding = reader.CurrentEncoding;
+				if ( IsBinary( bytes ) )
+				{
+					// Shown as characters, an image's bytes made a document the editor could not draw, and Loom closed.
+					isBinary = true;
+					image = TryDecodeImage( bytes );
+				}
+				else
+				{
+					using var reader = new StreamReader( new MemoryStream( bytes ), encoding, detectEncodingFromByteOrderMarks: true );
+					text = reader.ReadToEnd();
+					encoding = reader.CurrentEncoding;
+				}
 			}
 		}
 		catch ( Exception failure ) when ( failure is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException )
@@ -634,7 +686,29 @@ internal sealed class EditorContent : PanelContent
 		{
 			repository = null;
 		}
-		return new( text, encoding, repository, error );
+		return new( text, encoding, repository, error ) { Image = image, IsBinary = isBinary };
+	}
+
+	/// <summary>Determines whether a file is not text: it has a NUL byte among its first 8000, as git decides, and no UTF-16 or UTF-32 byte order mark.</summary>
+	private static bool IsBinary( byte[] bytes )
+	{
+		if ( bytes is [0xFF, 0xFE, ..] or [0xFE, 0xFF, ..] or [0, 0, 0xFE, 0xFF, ..] )
+			return false;
+
+		return bytes.AsSpan( 0, Math.Min( bytes.Length, 8000 ) ).Contains( (byte)0 );
+	}
+
+	/// <summary>Decodes a file as an image, or returns null when it is not one Loom can show.</summary>
+	private static ImageSource? TryDecodeImage( byte[] bytes )
+	{
+		try
+		{
+			return ImageSource.Decode( bytes );
+		}
+		catch ( Exception error ) when ( error is FormatException or InvalidOperationException or ArgumentException or NotSupportedException or IOException )
+		{
+			return null;
+		}
 	}
 
 	/// <summary>Builds the open file from a finished read, or an empty one while it is still loading, and asks for its line marks.</summary>
@@ -655,8 +729,10 @@ internal sealed class EditorContent : PanelContent
 		{
 			SavedVersion = editor.Document.Version,
 			Repository = loaded.Repository,
+			Image = loaded.Image,
+			IsBinary = loaded.IsBinary,
 		};
-		if ( path.Length > 0 && load is not null )
+		if ( path.Length > 0 && load is not null && !loaded.IsBinary )
 			RequestMarks( file, path );
 		return file;
 	}
@@ -728,7 +804,14 @@ internal sealed class EditorContent : PanelContent
 	/// <param name="Encoding">The encoding to write it back with.</param>
 	/// <param name="Repository">The folder of the nearest repository above it, or null.</param>
 	/// <param name="Error">Why it could not be read, or null.</param>
-	private sealed record LoadedFile( string Text, Encoding Encoding, string? Repository, string? Error );
+	private sealed record LoadedFile( string Text, Encoding Encoding, string? Repository, string? Error )
+	{
+		/// <summary>Gets the decoded image of an image file, or null.</summary>
+		public ImageSource? Image { get; init; }
+
+		/// <summary>Gets whether the file is not text, an image or not.</summary>
+		public bool IsBinary { get; init; }
+	}
 
 	/// <summary>Holds one open file: its text, how to write it back, the version last saved, and its colors and line marks.</summary>
 	private sealed class OpenFile( TextEditorController editor, Encoding encoding, string newLine, CodeHighlighter.Grammar? grammar ) : IDisposable
@@ -753,6 +836,12 @@ internal sealed class EditorContent : PanelContent
 
 		/// <summary>Gets or sets whether the file is still being read, which keeps it from being saved.</summary>
 		internal bool IsLoading { get; set; }
+
+		/// <summary>Gets the decoded image shown in place of the text, or null.</summary>
+		internal ImageSource? Image { get; init; }
+
+		/// <summary>Gets whether the file is not text, which keeps it from being shown as text or saved.</summary>
+		internal bool IsBinary { get; init; }
 
 		/// <summary>Gets or sets the nearest folder above the file that holds a git repository, which relative paths start from; null when there is none.</summary>
 		internal string? Repository { get; set; }
@@ -840,11 +929,12 @@ internal sealed class EditorContent : PanelContent
 			return _layer;
 		}
 
-		/// <summary>Releases the editor and its layer.</summary>
+		/// <summary>Releases the editor, its layer and its image.</summary>
 		public void Dispose()
 		{
 			_layer.Dispose();
 			Editor.Dispose();
+			Image?.Dispose();
 		}
 	}
 }

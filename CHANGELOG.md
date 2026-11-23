@@ -3,6 +3,11 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## Unreleased
+
+- **Opening an image no longer closes Loom.** The editor shows a PNG, JPEG or other image as a picture, and says when
+  another file is not text instead of showing its bytes. Such files cannot be saved from the editor.
+
 ## 0.4.11
 
 - **The agent's questions show again.** Omp's ask tool now sends a form, which Loom did not show, so a chat waited
