@@ -131,9 +131,10 @@ var chatChecks = args.Contains( "--chat-only" );
 var worktreeChecks = args.Contains( "--worktrees-only" );
 var terminalChecks = args.Contains( "--terminal-only" );
 var browserChecks = args.Contains( "--browser-only" );
+var designChecks = args.Contains( "--design-only" );
 var gitChecks = args.Contains( "--git-only" );
 var remoteChecks = args.Contains( "--remote-only" );
-var focused = featureChecks || layoutChecks || conversationChecks || ompChecks || chatChecks || worktreeChecks || terminalChecks || browserChecks || gitChecks || remoteChecks;
+var focused = featureChecks || layoutChecks || conversationChecks || ompChecks || chatChecks || worktreeChecks || terminalChecks || browserChecks || designChecks || gitChecks || remoteChecks;
 
 if ( !focused )
 {
@@ -189,6 +190,8 @@ else
 	// The remote suite runs the browser protocol checks too; the browser suite runs them on its own.
 	if ( browserChecks && !remoteChecks )
 		RemoteBrowserChecks.Run();
+	if ( featureChecks || designChecks )
+		await DesignChecks.RunAsync();
 	if ( featureChecks || gitChecks )
 		await GitChecks.RunAsync();
 	if ( featureChecks || remoteChecks )

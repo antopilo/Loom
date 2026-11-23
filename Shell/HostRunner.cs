@@ -44,8 +44,9 @@ internal sealed class HostRunner
 	/// <summary>Defines the environment variable with which checks make a bare daemon fail at once: an integer there is its exit code.</summary>
 	private const string TestExitVariable = "LOKN_TEST_HOST_EXIT";
 
-	/// <summary>Defines the only modules the daemon loads (docs/remote.md, Roles). Browser loads without web views: its tools run in an attached window.</summary>
-	private static readonly HashSet<string> AllowedModules = new( ["markdown", "omp", "projects", "workspaces", "git", "conversations", "browser", "remote"], StringComparer.Ordinal );
+	/// <summary>Defines the only modules the daemon loads (docs/remote.md, Roles). Browser loads without web views: its tools run in an attached window.
+	/// Design serves the designs of the daemon's chats, whose files are on this PC.</summary>
+	private static readonly HashSet<string> AllowedModules = new( ["markdown", "omp", "projects", "workspaces", "git", "conversations", "browser", "design", "remote"], StringComparer.Ordinal );
 
 	/// <summary>Stores the actions waiting to run on the loop thread; adding completes once the daemon shut down.</summary>
 	private readonly BlockingCollection<Action> _queue = new();

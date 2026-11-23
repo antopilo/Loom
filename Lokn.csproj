@@ -68,6 +68,7 @@
 		<ProjectReference Include="Modules\GitHub\Lokn.Modules.GitHub.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Git\Lokn.Modules.Git.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Browser\Lokn.Modules.Browser.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+		<ProjectReference Include="Modules\Design\Lokn.Modules.Design.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Overview\Lokn.Modules.Overview.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Notifications\Lokn.Modules.Notifications.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Setup\Lokn.Modules.Setup.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />

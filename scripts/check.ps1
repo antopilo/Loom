@@ -8,8 +8,8 @@ suite. Exits non-zero when the build or any suite fails.
 
 Headless suites (no window):
   default        core, hotload, updates, community, and settings checks
-  features       layout, conversations, omp, chat, worktrees, terminal, browser, git, and remote
-  layout, conversations, omp, chat, worktrees, terminal, browser, git, remote, hotload, updates, community, settings
+  features       layout, conversations, omp, chat, worktrees, terminal, browser, design, git, and remote
+  layout, conversations, omp, chat, worktrees, terminal, browser, design, git, remote, hotload, updates, community, settings
   all            default and features
 
 Suites that open a real window on the desktop for a few seconds:
@@ -61,6 +61,7 @@ $flags = @{
 	'worktrees' = @( '--worktrees-only' )
 	'terminal' = @( '--terminal-only' )
 	'browser' = @( '--browser-only' )
+	'design' = @( '--design-only' )
 	'git' = @( '--git-only' )
 	'remote' = @( '--remote-only' )
 	'hotload' = @( '--hotload-only' )

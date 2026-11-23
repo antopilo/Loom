@@ -146,7 +146,7 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 	public Guid ConversationId => conversationId;
 
 	/// <summary>Gets the panel showing the session, the one attached last, or null while no panel shows it; safe to read on any thread.</summary>
-	internal Guid? PanelId
+	public Guid? PanelId
 	{
 		get
 		{

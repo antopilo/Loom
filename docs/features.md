@@ -54,7 +54,7 @@ from. The page shows:
 - **Activity**: the newest 30 events, such as notifications from its chats, chats and tasks
   started and updated, designs changed and reports shown.
 - **Designs and reports**: the designs in the project's `.lokn\design` folder, which open in
-  the Design studio when it is installed, and the html reports its agents showed with
+  the Design studio, and the html reports its agents showed with
   `browser_show`, which open in the browser. Reports show from Loom 0.4.13 on; earlier ones
   do not.
 
@@ -238,6 +238,44 @@ Ctrl+W still go to Loom, Ctrl+L or F6 focuses the address bar, and Escape goes t
 page. The page is a native window placed over its panel: menus and tooltips open as
 native popups above it, the palette and dialogs hide it while open, and panels cannot
 be dropped onto it while docking.
+
+## Design
+
+Ask an agent to design a screen, and it writes the design as plain HTML and CSS in your
+project, in `.lokn/design/<name>/`. The design's **studio** opens in Loom's browser beside
+the chat as soon as the agent calls `design_open` or starts to write in that folder, and
+swaps in each save without a flash and at the same scroll position, so you watch the
+design take shape. The chip in the toolbar shows **Working…** while the agent works.
+
+- **Variants.** One design can have several variants, one folder each (`a/`, `b/`, `c/`).
+  Switch with the toolbar or `[` and `]`; **Compare** (V) shows them side by side.
+- **Screens.** **Fit**, **Desktop** (1440 × 900), **Tablet** (768 × 1024) and **Mobile**
+  (390 × 844), or keys 1 to 4. Tablet and phone show in a device frame; a screen larger
+  than the panel is scaled down, and the toolbar shows the zoom.
+- **Comments.** Press C (or **Comment**) and point at the design: the element under the
+  pointer is outlined with its name and size. Click it and write what must change.
+  **Add & send** (Ctrl+Enter) sends it to the chat at once; **Add** keeps it. The
+  **Comments** panel (`\`) lists the threads with numbered pins: hover one to find its
+  element, resolve or reopen it, send one, or **Send N comments to chat**. The chat gets a
+  message with each comment's file, selector, text, and the element's markup and main
+  styles, so the agent edits it without reading the page first: a new turn when the agent
+  is idle, else after its current turn. The agent marks each done with `design_resolve`.
+- **Export.** The **⋯** menu downloads a variant as a zip archive, opens it alone, or
+  copies the studio's address. Agents use `design_export` for the same archive.
+
+Agents look at a design in text first. `design_check` reports, with each element's
+selector, what overflows the screen, clipped text, low contrast, broken images, missing
+alt text, small tap targets on phones, and how many font sizes and text colors the page
+uses: a few hundred tokens. `design_snapshot` takes the first screen by default, one
+element with `selector`, or the whole page with `fullPage`; `browser_screenshot` also
+takes a `selector` to capture one element.
+
+Loom serves the studio on `localhost` (port 47831, or another free port) of the PC
+whose chat it is. With the daemon, the daemon serves it. For a paired host's chat, the host
+serves it, and this PC's browser reaches it through the localhost forwarding. The
+server answers only `localhost` addresses, and only the studio can change comments. A
+studio left open from an earlier session waits, and shows its design again once an agent
+opens it or writes in it.
 
 ## Terminal
 

@@ -132,11 +132,24 @@ internal sealed partial class BrowserTab
 		await CallAsync( "Input.dispatchKeyEvent", new { type = "keyUp", key = key.Key, code = key.Code, windowsVirtualKeyCode = key.VirtualKey, nativeVirtualKeyCode = key.VirtualKey } );
 	}
 
-	/// <summary>Captures the page as PNG: the viewport, or the whole page up to <see cref="MaxCaptureHeight"/> CSS pixels tall.</summary>
-	internal async Task<byte[]> CaptureAsync( bool isFullPage )
+	/// <summary>Captures the page as PNG: the viewport, the whole page up to <see cref="MaxCaptureHeight"/> CSS pixels tall, or only the first element a CSS selector matches.</summary>
+	/// <exception cref="ArgumentException">The selector matches no element, or one with no size.</exception>
+	internal async Task<byte[]> CaptureAsync( bool isFullPage, string? selector, CancellationToken cancellation )
 	{
 		object parameters = new { format = "png" };
-		if ( isFullPage )
+		if ( selector is not null )
+		{
+			var script = $$"""(() => { const e = document.querySelector({{JsonSerializer.Serialize( selector )}}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height }; })()""";
+			if ( await EvaluateAsync( script, cancellation ) is not { ValueKind: JsonValueKind.Object } box )
+				throw new ArgumentException( $"No element matches {selector}." );
+			var width = box.GetProperty( "width" ).GetDouble();
+			var height = Math.Min( box.GetProperty( "height" ).GetDouble(), MaxCaptureHeight );
+			if ( width < 1 || height < 1 )
+				throw new ArgumentException( $"The element {selector} has no size." );
+			var clip = new { x = box.GetProperty( "x" ).GetDouble(), y = box.GetProperty( "y" ).GetDouble(), width, height, scale = 1 };
+			parameters = new { format = "png", captureBeyondViewport = true, clip };
+		}
+		else if ( isFullPage )
 		{
 			var size = (await CallAsync( "Page.getLayoutMetrics", new { } )).GetProperty( "cssContentSize" );
 			var clip = new { x = 0, y = 0, width = size.GetProperty( "width" ).GetDouble(), height = Math.Min( size.GetProperty( "height" ).GetDouble(), MaxCaptureHeight ), scale = 1 };

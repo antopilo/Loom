@@ -34,7 +34,7 @@ start. Layouts saved in the `remote` role are not migrated: their sessions and p
 without a host, so they read as This PC's and show Home.
 
 `Loom.exe --host [--bare <folder>]` runs with no window. It loads only the modules
-`markdown`, `omp`, `projects`, `workspaces`, `git`, `conversations`, `browser` and `remote`, and of those
+`markdown`, `omp`, `projects`, `workspaces`, `git`, `conversations`, `browser`, `design` and `remote`, and of those
 only the ones Settings › Modules turns on: it reads the desktop's module states, `%LOCALAPPDATA%\Lokn\modules.json`
 (bare: `modules.json` in its folder, where modules are off unless turned on; a bare folder without the file, such as a
 check's, runs all of them), and follows the file live, never writing it. A module turned off there stops in the daemon with

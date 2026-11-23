@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design</title>
+<style>
+:root { --canvas: #262624; --panel: #222220; --raised: #2d2d29; --hover: #3a3a34; --text: #e8e6df; --muted: #a09f96; --border: #3b3b35; --accent: #d5a583; --font: 'Segoe UI'; /*THEME*/
+	--radius: 8px; --bar: 44px; --side: 312px; --ease: cubic-bezier(.2, .8, .2, 1); }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--canvas); color: var(--text); font: 13px/1.4 var(--font), system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.app { display: grid; grid-template-rows: var(--bar) 1fr; grid-template-columns: 1fr auto; height: 100%; }
+
+/* Toolbar */
+.bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 12px; background: var(--panel); border-bottom: 1px solid var(--border); min-width: 0; }
+.title { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 600; }
+.title .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.sep { width: 1px; height: 20px; background: var(--border); flex: none; }
+.seg { display: flex; gap: 2px; padding: 2px; border-radius: var(--radius); background: var(--raised); flex: none; }
+.seg button, .tool { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 6px; color: var(--muted); white-space: nowrap; transition: background .12s, color .12s; }
+.seg button:hover, .tool:hover { color: var(--text); background: var(--hover); }
+.seg button.on { color: var(--text); background: var(--hover); box-shadow: inset 0 0 0 1px var(--border); }
+.tool.on { color: var(--canvas); background: var(--accent); }
+.tool.icon { padding: 0 7px; }
+.grow { flex: 1; min-width: 8px; }
+.readout { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; border-radius: 13px; background: var(--raised); color: var(--muted); max-width: 240px; white-space: nowrap; }
+.chip span { overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); opacity: .6; flex: none; }
+.chip.busy { color: var(--text); }
+.chip.busy .dot { background: var(--accent); opacity: 1; box-shadow: 0 0 0 0 var(--accent); animation: ping 1.4s var(--ease) infinite; }
+@keyframes ping { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+kbd { font: 11px Consolas, monospace; color: var(--muted); padding: 1px 4px; border: 1px solid var(--border); border-radius: 4px; }
+.tool.on kbd { color: inherit; border-color: currentColor; opacity: .7; }
+
+/* Canvas */
+.canvas { position: relative; overflow: auto; min-width: 0; background-color: var(--canvas);
+	background-image: radial-gradient(color-mix(in srgb, var(--text) 9%, transparent) 1px, transparent 1px); background-size: 16px 16px; }
+.stage { min-height: 100%; display: flex; align-items: flex-start; justify-content: center; padding: 28px 24px 40px; gap: 32px; }
+.device { flex: none; display: flex; flex-direction: column; gap: 8px; transform-origin: top center; }
+.device .label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; height: 18px; }
+.device .label b { color: var(--text); font-weight: 600; }
+.device .label button { color: var(--muted); }
+.device .label button:hover { color: var(--accent); }
+.screen { position: relative; overflow: hidden; background: #fff; border-radius: 10px; box-shadow: 0 0 0 1px var(--border), 0 12px 40px -12px #000a, 0 2px 6px #0004; transition: box-shadow .4s var(--ease); }
+.screen.phone { border-radius: 28px; box-shadow: 0 0 0 8px #111, 0 0 0 9px var(--border), 0 20px 50px -16px #000c; }
+.screen.tablet { border-radius: 18px; box-shadow: 0 0 0 10px #111, 0 0 0 11px var(--border), 0 20px 50px -16px #000c; }
+.screen.flash { box-shadow: 0 0 0 2px var(--accent), 0 12px 40px -12px #000a; }
+.screen iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+.screen iframe.next { visibility: hidden; }
+.overlay { position: absolute; inset: 0; pointer-events: none; }
+.commenting .screen iframe { cursor: crosshair; }
+.hover { position: absolute; border: 1.5px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 3px; transition: all .06s linear; }
+.hover i { position: absolute; left: -1.5px; bottom: 100%; margin-bottom: 4px; font: 600 11px/18px var(--font); font-style: normal; color: var(--canvas); background: var(--accent); padding: 0 6px; border-radius: 4px; white-space: nowrap; }
+.hover.below i { bottom: auto; top: 100%; margin: 4px 0 0; }
+.target { position: absolute; border: 2px solid var(--accent); border-radius: 4px; animation: glow 1.2s var(--ease) 2; }
+@keyframes glow { 50% { background: color-mix(in srgb, var(--accent) 22%, transparent); } }
+.pin { position: absolute; transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer; min-width: 24px; height: 24px; padding: 0 6px; display: grid; place-items: center;
+	border-radius: 12px 12px 12px 2px; background: var(--accent); color: var(--canvas); font: 700 11px var(--font); box-shadow: 0 2px 8px #0007, 0 0 0 2px #fff; transition: transform .15s var(--ease); }
+.pin:hover, .pin.lit { transform: translate(-50%, -100%) scale(1.15); }
+.pin.done { background: var(--muted); }
+.badge { position: absolute; right: 10px; top: 10px; padding: 3px 8px; border-radius: 10px; background: var(--accent); color: var(--canvas); font: 600 11px var(--font); opacity: 0; transition: opacity .3s; pointer-events: none; }
+.badge.show { opacity: 1; }
+
+.empty { margin: auto; max-width: 420px; text-align: center; color: var(--muted); padding: 60px 24px; line-height: 1.6; }
+.empty .mark { width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 16px; display: grid; place-items: center; background: var(--raised); color: var(--accent); }
+.empty .mark svg { width: 26px; height: 26px; }
+.empty h2 { margin: 0 0 6px; color: var(--text); font-size: 16px; font-weight: 600; }
+.empty code { font: 12px Consolas, monospace; color: var(--text); background: var(--raised); padding: 1px 5px; border-radius: 4px; }
+.empty .working { display: inline-flex; gap: 8px; align-items: center; margin-top: 14px; color: var(--accent); }
+
+/* Composer */
+.composer { position: absolute; z-index: 20; width: 300px; background: var(--raised); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 16px 40px -8px #000c; padding: 10px; display: none; animation: pop .14s var(--ease); }
+@keyframes pop { from { opacity: 0; transform: translateY(4px) scale(.98); } }
+.composer .el { display: flex; align-items: center; gap: 6px; font: 11px Consolas, monospace; color: var(--muted); margin-bottom: 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.composer textarea { width: 100%; min-height: 72px; resize: vertical; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; padding: 8px; outline: none; }
+.composer textarea:focus { border-color: var(--accent); }
+.composer .row { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.btn { height: 28px; padding: 0 12px; border-radius: 6px; color: var(--muted); }
+.btn:hover { background: var(--hover); color: var(--text); }
+.btn.primary { background: var(--accent); color: var(--canvas); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); background: var(--accent); color: var(--canvas); }
+.btn:disabled { opacity: .4; cursor: default; filter: none; }
+
+/* Side panel */
+.side { width: var(--side); display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--border); transition: margin .2s var(--ease); }
+.side.closed { margin-right: calc(-1 * var(--side)); }
+.side header { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px 16px; }
+.side header h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--raised); color: var(--muted); font-size: 11px; display: grid; place-items: center; }
+.filter { margin-left: auto; color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.filter input { accent-color: var(--accent); margin: 0; }
+.threads { flex: 1; overflow: auto; padding: 4px 8px; }
+.thread { position: relative; display: grid; grid-template-columns: 24px 1fr; gap: 10px; padding: 10px 8px; border-radius: var(--radius); cursor: pointer; }
+.thread:hover, .thread.lit { background: var(--raised); }
+.thread .num { width: 22px; height: 22px; border-radius: 11px 11px 11px 2px; background: var(--accent); color: var(--canvas); font: 700 11px var(--font); display: grid; place-items: center; }
+.thread.done .num { background: var(--hover); color: var(--muted); }
+.thread .text { white-space: pre-wrap; word-break: break-word; }
+.thread.done .text { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--border); }
+.thread .meta { display: flex; gap: 6px; align-items: center; margin-top: 4px; color: var(--muted); font-size: 11px; min-width: 0; }
+.thread .meta code { font: 11px Consolas, monospace; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.thread .acts { position: absolute; right: 6px; top: 6px; display: none; gap: 2px; background: var(--raised); border-radius: 6px; }
+.thread:hover .acts { display: flex; }
+.thread .acts button { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; color: var(--muted); }
+.thread .acts button:hover { color: var(--text); background: var(--hover); }
+.side .none { color: var(--muted); text-align: center; padding: 40px 20px; line-height: 1.6; }
+.side footer { padding: 12px; border-top: 1px solid var(--border); display: grid; gap: 6px; }
+.side footer .btn { width: 100%; height: 34px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.side footer .hint { color: var(--muted); font-size: 11px; text-align: center; }
+
+/* Menu and toast */
+.menu { position: absolute; z-index: 30; right: 8px; top: calc(var(--bar) - 2px); min-width: 200px; padding: 4px; background: var(--raised); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 16px 40px -8px #000c; display: none; animation: pop .12s var(--ease); }
+.menu button, .menu a { display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 10px; border-radius: 6px; color: var(--text); text-decoration: none; }
+.menu button:hover, .menu a:hover { background: var(--hover); }
+.menu .k { margin-left: auto; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 8px); z-index: 40; padding: 8px 14px; border-radius: 8px; background: var(--raised); border: 1px solid var(--border); box-shadow: 0 10px 30px -8px #000c; opacity: 0; pointer-events: none; transition: all .2s var(--ease); }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Narrow panels: icons only, comments over the canvas */
+@media (max-width: 860px) {
+	.wide { display: none !important; }
+	.side { position: absolute; right: 0; top: var(--bar); bottom: 0; z-index: 25; box-shadow: -16px 0 40px -16px #000c; }
+	.app { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+	<symbol id="i-frame" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></symbol>
+	<symbol id="i-fit" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+	<symbol id="i-desktop" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+	<symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18h.01"/></symbol>
+	<symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M12 18h.01"/></symbol>
+	<symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></symbol>
+	<symbol id="i-comment" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+	<symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></symbol>
+	<symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+	<symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+	<symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></symbol>
+	<symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></symbol>
+	<symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+	<symbol id="i-open" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/></symbol>
+	<symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+	<symbol id="i-focus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></symbol>
+</svg>
+
+<div class="app" id="app">
+	<div class="bar">
+		<div class="title"><svg><use href="#i-frame"/></svg><span class="name" id="name"></span></div>
+		<div class="seg" id="variants"></div>
+		<button class="tool" id="compare" title="Compare variants side by side (V)"><svg><use href="#i-columns"/></svg><span class="wide">Compare</span></button>
+		<span class="sep"></span>
+		<div class="seg" id="devices">
+			<button data-device="fit" title="Fit the panel (1)"><svg><use href="#i-fit"/></svg></button>
+			<button data-device="desktop" title="Desktop, 1440 × 900 (2)"><svg><use href="#i-desktop"/></svg></button>
+			<button data-device="tablet" title="Tablet, 768 × 1024 (3)"><svg><use href="#i-tablet"/></svg></button>
+			<button data-device="mobile" title="Mobile, 390 × 844 (4)"><svg><use href="#i-phone"/></svg></button>
+		</div>
+		<span class="readout wide" id="readout"></span>
+		<span class="grow"></span>
+		<span class="chip" id="chat" hidden><span class="dot"></span><span id="chatText"></span></span>
+		<button class="tool" id="commentMode" title="Comment on an element (C)"><svg><use href="#i-comment"/></svg><span class="wide">Comment</span> <kbd class="wide">C</kbd></button>
+		<button class="tool icon" id="panelToggle" title="Comments panel (\)"><svg><use href="#i-panel"/></svg></button>
+		<button class="tool icon" id="moreButton" title="More"><svg><use href="#i-more"/></svg></button>
+	</div>
+	<div class="canvas" id="canvas"><div class="stage" id="stage"></div><div class="composer" id="composer">
+		<div class="el"><svg><use href="#i-focus"/></svg><span id="composerEl"></span></div>
+		<textarea id="composerText" placeholder="What should change?"></textarea>
+		<div class="row"><span class="grow"></span><button class="btn" id="composerCancel">Cancel</button><button class="btn" id="composerAdd">Add</button><button class="btn primary" id="composerSend" title="Ctrl+Enter">Add &amp; send</button></div>
+	</div></div>
+	<aside class="side" id="side">
+		<header><h3>Comments</h3><span class="count" id="count">0</span><label class="filter"><input type="checkbox" id="showDone"> Resolved</label></header>
+		<div class="threads" id="threads"></div>
+		<footer id="sideFooter"><button class="btn primary" id="sendAll"><svg><use href="#i-send"/></svg><span id="sendAllText">Send to chat</span></button><div class="hint" id="sendHint"></div></footer>
+	</aside>
+</div>
+<div class="menu" id="menu">
+	<a id="menuExport" download><svg><use href="#i-download"/></svg>Export variant as zip</a>
+	<a id="menuOpen" target="_blank"><svg><use href="#i-open"/></svg>Open variant alone</a>
+	<button id="menuCopy"><svg><use href="#i-link"/></svg>Copy studio link</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const name = "__NAME__";
+const $ = id => document.getElementById( id );
+const DEVICES = { fit: null, desktop: [ 1440, 900, "Desktop" ], tablet: [ 768, 1024, "Tablet" ], mobile: [ 390, 844, "Mobile" ] };
+const stored = JSON.parse( localStorage.getItem( "design:" + location.pathname ) || "{}" );
+const ui = { variant: stored.variant ?? null, device: stored.device ?? "fit", compare: false, commenting: false, panel: stored.panel ?? innerWidth > 860, showDone: false };
+let state = { variants: [], comments: [], chat: null };
+let frames = new Map();
+let hovered = null, pending = null, lit = null;
+
+$( "name" ).textContent = name;
+document.title = name + " · Design";
+
+function save() { localStorage.setItem( "design:" + location.pathname, JSON.stringify( { variant: ui.variant, device: ui.device, panel: ui.panel } ) ); }
+function fileUrl( v ) { return "f/" + ( v ? encodeURIComponent( v ) + "/" : "" ) + "index.html"; }
+function label( v ) { return v === "" ? "Main" : v.length <= 2 ? v.toUpperCase() : v[0].toUpperCase() + v.slice( 1 ); }
+function icon( id ) { return `<svg><use href="#i-${id}"/></svg>`; }
+function el( tag, props = {}, ...children ) { const e = Object.assign( document.createElement( tag ), props ); e.append( ...children ); return e; }
+function ago( time ) {
+	const s = ( Date.now() - new Date( time ) ) / 1000;
+	return s < 60 ? "just now" : s < 3600 ? `${Math.floor( s / 60 )} min ago` : s < 86400 ? `${Math.floor( s / 3600 )} h ago` : new Date( time ).toLocaleDateString();
+}
+function openComments() { return state.comments.filter( c => c.variant === ui.variant && !c.resolved ); }
+function shownComments() { return state.comments.filter( c => c.variant === ui.variant && ( ui.showDone || !c.resolved ) ); }
+
+async function loadState() {
+	const response = await fetch( "api/state", { cache: "no-store" } );
+	if ( !response.ok )
+		return;
+	state = await response.json();
+	if ( !state.variants.includes( ui.variant ) )
+		ui.variant = state.variants[0] ?? null;
+	render();
+}
+
+function render() {
+	renderBar();
+	renderStage();
+	renderSide();
+}
+
+function renderBar() {
+	$( "variants" ).replaceChildren( ...state.variants.map( ( v, i ) => el( "button", {
+		textContent: label( v ), className: v === ui.variant && !ui.compare ? "on" : "", title: `Variant ${label( v )} ([ and ] switch)`,
+		onclick: () => selectVariant( v ),
+	} ) ) );
+	$( "variants" ).hidden = state.variants.length < 2;
+	$( "compare" ).hidden = state.variants.length < 2;
+	$( "compare" ).classList.toggle( "on", ui.compare );
+	for ( const b of $( "devices" ).children )
+		b.classList.toggle( "on", b.dataset.device === ui.device );
+	$( "commentMode" ).classList.toggle( "on", ui.commenting );
+	$( "commentMode" ).hidden = ui.compare;
+	$( "panelToggle" ).classList.toggle( "on", ui.panel );
+	const chat = state.chat;
+	$( "chat" ).hidden = !chat;
+	if ( chat ) {
+		$( "chat" ).classList.toggle( "busy", chat.busy );
+		$( "chatText" ).textContent = chat.busy ? "Working…" : "Idle";
+		$( "chat" ).title = `${chat.title}\n${chat.busy ? "The agent is working; the design updates as it saves." : "Comments you send start a turn."}`;
+	}
+	const has = ui.variant !== null;
+	$( "menuExport" ).href = has ? "api/export?v=" + encodeURIComponent( ui.variant ) : "#";
+	$( "menuOpen" ).href = has ? fileUrl( ui.variant ) : "#";
+	document.body.classList.toggle( "commenting", ui.commenting );
+}
+
+// The stage keeps its frames between renders, so a reload never flashes; it rebuilds only when the variants shown or the mode change.
+function renderStage() {
+	const stage = $( "stage" );
+	const shown = ui.variant === null ? [] : ui.compare ? state.variants : [ ui.variant ];
+	const key = ( ui.compare ? "c:" : "s:" ) + shown.join( "," );
+	if ( stage.dataset.key !== key ) {
+		stage.dataset.key = key;
+		frames = new Map();
+		stage.replaceChildren();
+		if ( shown.length === 0 ) {
+			stage.append( el( "div", { className: "empty", innerHTML: `<div class="mark">${icon( "frame" )}</div><h2>Waiting for the first save</h2>The design appears here as soon as the agent writes <code>index.html</code> in its folder, or one folder per variant such as <code>a/index.html</code>.${state.chat?.busy ? `<div class="working"><span class="dot" style="background:var(--accent)"></span>The agent is working</div>` : ""}` } ) );
+			return;
+		}
+		for ( const v of shown )
+			stage.append( makeFrame( v ) );
+	}
+	layout();
+	drawOverlays();
+}
+
+function makeFrame( v ) {
+	const device = el( "div", { className: "device" } );
+	const labelRow = el( "div", { className: "label" } );
+	const screen = el( "div", { className: "screen" } );
+	const overlay = el( "div", { className: "overlay" } );
+	const badge = el( "div", { className: "badge", textContent: "Updated" } );
+	const iframe = el( "iframe", { title: label( v ) } );
+	screen.append( iframe, overlay, badge );
+	device.append( labelRow, screen );
+	const frame = { variant: v, device, labelRow, screen, overlay, badge, iframe };
+	frames.set( v, frame );
+	attach( frame, iframe );
+	iframe.src = fileUrl( v );
+	return device;
+}
+
+// A reload builds the new page in a hidden frame, keeps the scroll position, and swaps it in once it loaded, so a live update never jumps or flickers.
+function reloadFrames() {
+	for ( const frame of frames.values() ) {
+		const old = frame.iframe;
+		const scroll = { x: old.contentWindow?.scrollX ?? 0, y: old.contentWindow?.scrollY ?? 0 };
+		const next = el( "iframe", { title: old.title, className: "next" } );
+		next.addEventListener( "load", () => {
+			next.contentWindow.scrollTo( scroll.x, scroll.y );
+			requestAnimationFrame( () => {
+				next.classList.remove( "next" );
+				old.remove();
+				frame.iframe = next;
+				drawOverlays();
+				frame.badge.classList.add( "show" );
+				frame.screen.classList.add( "flash" );
+				setTimeout( () => { frame.badge.classList.remove( "show" ); frame.screen.classList.remove( "flash" ); }, 900 );
+			} );
+		}, { once: true } );
+		attach( frame, next );
+		next.src = fileUrl( frame.variant ) + "?t=" + Date.now();
+		frame.screen.insertBefore( next, frame.overlay );
+	}
+}
+
+function attach( frame, iframe ) {
+	iframe.addEventListener( "load", () => {
+		const doc = iframe.contentDocument;
+		if ( !doc )
+			return;
+		doc.addEventListener( "mousemove", e => {
+			if ( !ui.commenting || frame.variant !== ui.variant )
+				return;
+			hovered = e.target.nodeType === 1 ? e.target : e.target.parentElement;
+			drawOverlays();
+		}, true );
+		doc.addEventListener( "mouseleave", () => { hovered = null; drawOverlays(); } );
+		doc.addEventListener( "click", e => {
+			if ( !ui.commenting )
+				return;
+			e.preventDefault();
+			e.stopPropagation();
+			openComposer( frame, e.target.nodeType === 1 ? e.target : e.target.parentElement );
+		}, true );
+		doc.addEventListener( "keydown", onKey, true );
+		iframe.contentWindow.addEventListener( "scroll", drawOverlays, { passive: true } );
+		drawOverlays();
+	} );
+}
+
+function layout() {
+	const canvas = $( "canvas" );
+	const availableWidth = canvas.clientWidth - 48;
+	const availableHeight = canvas.clientHeight - 28 - 40 - 26;
+	const spec = DEVICES[ui.device];
+	const count = frames.size;
+	$( "readout" ).textContent = "";
+	for ( const frame of frames.values() ) {
+		const columnWidth = ( availableWidth - ( count - 1 ) * 32 ) / count;
+		let width, height, scale;
+		if ( !spec ) {
+			width = Math.max( 320, columnWidth );
+			height = Math.max( 240, availableHeight );
+			scale = 1;
+		} else {
+			[ width, height ] = spec;
+			scale = Math.min( 1, columnWidth / width, ui.device === "desktop" ? 1 : availableHeight / height );
+			if ( ui.device === "desktop" )
+				height = Math.max( 240, availableHeight / scale );
+		}
+		frame.scale = scale;
+		frame.screen.className = "screen" + ( ui.device === "mobile" ? " phone" : ui.device === "tablet" ? " tablet" : "" );
+		frame.screen.style.width = width + "px";
+		frame.screen.style.height = height + "px";
+		frame.screen.style.transform = scale < 1 ? `scale(${scale})` : "";
+		frame.screen.style.transformOrigin = "top left";
+		frame.device.style.width = width * scale + "px";
+		frame.device.style.height = height * scale + 26 + "px";
+		const dims = spec ? `${spec[0]} × ${spec[1]}` : `${Math.round( width )} × ${Math.round( height )}`;
+		const zoom = scale < 1 ? ` · ${Math.round( scale * 100 )}%` : "";
+		frame.labelRow.replaceChildren();
+		if ( ui.compare ) {
+			frame.labelRow.append( el( "b", { textContent: label( frame.variant ) } ), el( "span", { textContent: dims + zoom } ), el( "span", { className: "grow" } ),
+				el( "button", { textContent: "Focus", title: "Show only this variant", onclick: () => { ui.compare = false; selectVariant( frame.variant ); } } ) );
+		} else {
+			frame.labelRow.append( el( "b", { textContent: spec ? spec[2] : "Fit" } ), el( "span", { textContent: dims + zoom } ) );
+			$( "readout" ).textContent = dims + zoom;
+		}
+	}
+}
+
+function selectorOf( element ) {
+	const doc = element.ownerDocument;
+	const parts = [];
+	for ( let node = element; node && node.nodeType === 1 && node !== doc.documentElement; node = node.parentElement ) {
+		if ( node.id && doc.querySelectorAll( "#" + CSS.escape( node.id ) ).length === 1 ) {
+			parts.unshift( "#" + CSS.escape( node.id ) );
+			break;
+		}
+		let part = node.localName;
+		const parent = node.parentElement;
+		if ( parent ) {
+			const same = [ ...parent.children ].filter( child => child.localName === node.localName );
+			if ( same.length > 1 )
+				part += `:nth-of-type(${same.indexOf( node ) + 1})`;
+		}
+		parts.unshift( part );
+	}
+	return parts.join( " > " );
+}
+
+function shortName( element ) {
+	const cls = [ ...element.classList ].slice( 0, 2 ).map( c => "." + c ).join( "" );
+	return element.localName + ( element.id ? "#" + element.id : cls );
+}
+
+// What the agent needs to edit an element without reading the page or taking a snapshot: its start tag, its text, its size and the styles a reviewer remarks on.
+function describe( element ) {
+	const win = element.ownerDocument.defaultView;
+	const s = win.getComputedStyle( element );
+	const r = element.getBoundingClientRect();
+	const tag = element.outerHTML.slice( 0, element.outerHTML.indexOf( ">" ) + 1 ).slice( 0, 240 );
+	const text = ( element.innerText ?? "" ).replace( /\s+/g, " " ).trim().slice( 0, 100 );
+	const font = `${s.fontWeight} ${s.fontSize}/${s.lineHeight} ${s.fontFamily.split( "," )[0]}`;
+	const styles = [ `font ${font}`, `color ${s.color}`, s.backgroundColor !== "rgba(0, 0, 0, 0)" ? `background ${s.backgroundColor}` : "",
+		s.padding !== "0px" ? `padding ${s.padding}` : "", s.margin !== "0px" ? `margin ${s.margin}` : "", s.borderRadius !== "0px" ? `radius ${s.borderRadius}` : "",
+		s.display !== "block" && s.display !== "inline" ? `display ${s.display}${s.gap !== "normal" ? " gap " + s.gap : ""}` : "" ].filter( Boolean ).join( "; " );
+	return `${tag}${text ? ` "${text}"` : ""} ${Math.round( r.width )}×${Math.round( r.height )}px; ${styles}`;
+}
+
+function pinPoint( frame, comment ) {
+	const doc = frame.iframe.contentDocument;
+	let element = null;
+	try { element = comment.selector ? doc?.querySelector( comment.selector ) : null; } catch { }
+	if ( !element )
+		return { x: 20, y: 28, element: null };
+	const r = element.getBoundingClientRect();
+	return { x: Math.min( r.right, frame.iframe.clientWidth - 14 ), y: Math.max( r.top, 26 ), element };
+}
+
+function drawOverlays() {
+	for ( const frame of frames.values() ) {
+		frame.overlay.replaceChildren();
+		if ( frame.variant === ui.variant && !ui.compare && ui.commenting && hovered && hovered.ownerDocument === frame.iframe.contentDocument ) {
+			const r = hovered.getBoundingClientRect();
+			const box = el( "div", { className: "hover" + ( r.top < 26 ? " below" : "" ) }, el( "i", { textContent: `${shortName( hovered )}  ${Math.round( r.width )}×${Math.round( r.height )}` } ) );
+			Object.assign( box.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" } );
+			frame.overlay.append( box );
+		}
+		const list = state.comments.filter( c => c.variant === frame.variant && ( ui.showDone || !c.resolved ) );
+		list.forEach( ( comment, index ) => {
+			const point = pinPoint( frame, comment );
+			if ( lit === comment.id && point.element ) {
+				const r = point.element.getBoundingClientRect();
+				const target = el( "div", { className: "target" } );
+				Object.assign( target.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" } );
+				frame.overlay.append( target );
+			}
+			const pin = el( "div", { className: "pin" + ( comment.resolved ? " done" : "" ) + ( lit === comment.id ? " lit" : "" ), textContent: index + 1, title: comment.text } );
+			Object.assign( pin.style, { left: point.x + "px", top: point.y + "px" } );
+			pin.onmouseenter = () => highlight( comment.id, false );
+			pin.onmouseleave = () => highlight( null, false );
+			pin.onclick = () => { if ( !ui.panel ) togglePanel( true ); highlight( comment.id, true ); };
+			frame.overlay.append( pin );
+		} );
+	}
+}
+
+function highlight( id, reveal ) {
+	lit = id;
+	for ( const row of $( "threads" ).children )
+		row.classList.toggle( "lit", row.dataset.id === id );
+	if ( reveal && id ) {
+		$( "threads" ).querySelector( `[data-id="${id}"]` )?.scrollIntoView( { block: "nearest", behavior: "smooth" } );
+		const frame = frames.get( ui.variant );
+		const comment = state.comments.find( c => c.id === id );
+		if ( frame && comment ) {
+			const point = pinPoint( frame, comment );
+			point.element?.scrollIntoView( { block: "center", behavior: "smooth" } );
+		}
+	}
+	drawOverlays();
+}
+
+function renderSide() {
+	$( "side" ).classList.toggle( "closed", !ui.panel );
+	const list = shownComments();
+	const open = openComments();
+	$( "count" ).textContent = open.length;
+	const threads = $( "threads" );
+	if ( list.length === 0 ) {
+		threads.replaceChildren( el( "div", { className: "none", innerHTML: `${icon( "comment" )}<br>No comments ${ui.showDone ? "" : "open "}on this variant.<br>Press <kbd>C</kbd> and click any element to leave one.` } ) );
+	} else {
+		threads.replaceChildren( ...list.map( ( comment, index ) => {
+			const acts = el( "div", { className: "acts" } );
+			acts.append( el( "button", { innerHTML: icon( comment.resolved ? "undo" : "check" ), title: comment.resolved ? "Reopen" : "Resolve",
+				onclick: e => { e.stopPropagation(); resolve( [ comment.id ], !comment.resolved ); } } ) );
+			if ( state.chat && !comment.resolved )
+				acts.append( el( "button", { innerHTML: icon( "send" ), title: "Send to chat", onclick: e => { e.stopPropagation(); send( [ comment.id ] ); } } ) );
+			const meta = el( "div", { className: "meta" }, el( "code", { textContent: comment.selector ? comment.selector.split( " > " ).pop() : "page", title: comment.selector || "The whole page" } ), el( "span", { textContent: ago( comment.created ) } ) );
+			const row = el( "div", { className: "thread" + ( comment.resolved ? " done" : "" ) + ( lit === comment.id ? " lit" : "" ) },
+				el( "div", { className: "num", textContent: index + 1 } ), el( "div", {}, el( "div", { className: "text", textContent: comment.text } ), meta ), acts );
+			row.dataset.id = comment.id;
+			row.onmouseenter = () => highlight( comment.id, false );
+			row.onmouseleave = () => highlight( null, false );
+			row.onclick = () => highlight( comment.id, true );
+			return row;
+		} ) );
+	}
+	const footer = $( "sideFooter" );
+	footer.hidden = !state.chat && open.length === 0;
+	$( "sendAll" ).hidden = !state.chat;
+	$( "sendAll" ).disabled = open.length === 0;
+	$( "sendAllText" ).textContent = open.length > 1 ? `Send ${open.length} comments to chat` : "Send to chat";
+	$( "sendHint" ).textContent = !state.chat ? "No chat works on this design yet." : state.chat.busy ? "The agent is working: comments wait for its turn to end." : "Sending starts a turn in the chat.";
+}
+
+async function post( path, body ) {
+	const response = await fetch( path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify( body ) } );
+	if ( !response.ok )
+		throw new Error( await response.text() );
+	return response.json();
+}
+
+async function resolve( ids, resolved ) {
+	await post( "api/resolve", { ids, resolved } );
+	await loadState();
+}
+
+async function send( ids ) {
+	try {
+		const result = await post( "api/send", { ids } );
+		toast( result.sent === 1 ? "Sent to the chat" : `Sent ${result.sent} comments to the chat` );
+	} catch ( error ) {
+		toast( error.message );
+	}
+}
+
+function selectVariant( v ) {
+	ui.variant = v;
+	hovered = null;
+	closeComposer();
+	save();
+	render();
+}
+
+function setDevice( device ) {
+	ui.device = device;
+	save();
+	render();
+}
+
+function setCommenting( on ) {
+	ui.commenting = on && !ui.compare && ui.variant !== null;
+	hovered = null;
+	renderBar();
+	drawOverlays();
+}
+
+function togglePanel( on ) {
+	ui.panel = on ?? !ui.panel;
+	save();
+	renderBar();
+	renderSide();
+	requestAnimationFrame( () => { layout(); drawOverlays(); } );
+}
+
+function openComposer( frame, element ) {
+	pending = { variant: frame.variant, selector: selectorOf( element ), context: describe( element ) };
+	setCommenting( false );
+	const composer = $( "composer" );
+	const canvas = $( "canvas" );
+	const r = element.getBoundingClientRect();
+	const screen = frame.screen.getBoundingClientRect();
+	const origin = canvas.getBoundingClientRect();
+	const x = screen.left - origin.left + canvas.scrollLeft + r.right * frame.scale + 12;
+	const y = screen.top - origin.top + canvas.scrollTop + r.top * frame.scale;
+	$( "composerEl" ).textContent = `${shortName( element )}  ·  ${pending.selector}`;
+	$( "composerText" ).value = "";
+	composer.style.display = "block";
+	composer.style.left = Math.max( 8, Math.min( x, canvas.scrollLeft + canvas.clientWidth - 312 ) ) + "px";
+	composer.style.top = Math.max( 8, Math.min( y, canvas.scrollTop + canvas.clientHeight - 190 ) ) + "px";
+	$( "composerSend" ).hidden = !state.chat;
+	$( "composerText" ).focus();
+}
+
+function closeComposer() {
+	$( "composer" ).style.display = "none";
+	pending = null;
+}
+
+async function saveComment( andSend ) {
+	const text = $( "composerText" ).value.trim();
+	if ( !text || !pending )
+		return closeComposer();
+	const comment = await post( "api/comments", { ...pending, text } );
+	closeComposer();
+	if ( !ui.panel )
+		togglePanel( true );
+	if ( andSend )
+		await send( [ comment.id ] );
+	await loadState();
+	highlight( comment.id, false );
+	setTimeout( () => highlight( null, false ), 1500 );
+}
+
+let toastTimer = 0;
+function toast( text ) {
+	const t = $( "toast" );
+	t.textContent = text;
+	t.classList.add( "show" );
+	clearTimeout( toastTimer );
+	toastTimer = setTimeout( () => t.classList.remove( "show" ), 2600 );
+}
+
+function onKey( e ) {
+	if ( e.target.closest?.( "textarea, input, select, [contenteditable]" ) ) {
+		if ( e.key === "Escape" )
+			closeComposer();
+		return;
+	}
+	if ( e.ctrlKey || e.altKey || e.metaKey )
+		return;
+	const variantIndex = state.variants.indexOf( ui.variant );
+	const handled = {
+		Escape: () => { setCommenting( false ); closeComposer(); $( "menu" ).style.display = "none"; },
+		c: () => setCommenting( !ui.commenting ),
+		v: () => { if ( state.variants.length > 1 ) { ui.compare = !ui.compare; setCommenting( false ); render(); } },
+		"[": () => state.variants.length > 1 && selectVariant( state.variants[( variantIndex - 1 + state.variants.length ) % state.variants.length] ),
+		"]": () => state.variants.length > 1 && selectVariant( state.variants[( variantIndex + 1 ) % state.variants.length] ),
+		"1": () => setDevice( "fit" ), "2": () => setDevice( "desktop" ), "3": () => setDevice( "tablet" ), "4": () => setDevice( "mobile" ),
+		"\\": () => togglePanel(),
+	}[e.key];
+	if ( handled ) {
+		e.preventDefault();
+		handled();
+	}
+}
+
+for ( const b of $( "devices" ).children )
+	b.onclick = () => setDevice( b.dataset.device );
+$( "compare" ).onclick = () => { ui.compare = !ui.compare; setCommenting( false ); render(); };
+$( "commentMode" ).onclick = () => setCommenting( !ui.commenting );
+$( "panelToggle" ).onclick = () => togglePanel();
+$( "moreButton" ).onclick = e => { e.stopPropagation(); const m = $( "menu" ); m.style.display = m.style.display === "block" ? "none" : "block"; };
+document.addEventListener( "click", () => $( "menu" ).style.display = "none" );
+$( "menuCopy" ).onclick = async () => { await navigator.clipboard.writeText( location.href ); toast( "Link copied" ); };
+$( "composerCancel" ).onclick = closeComposer;
+$( "composerAdd" ).onclick = () => saveComment( false );
+$( "composerSend" ).onclick = () => saveComment( true );
+$( "composerText" ).addEventListener( "keydown", e => { if ( e.key === "Enter" && ( e.ctrlKey || e.metaKey ) ) { e.preventDefault(); saveComment( !!state.chat ); } } );
+$( "showDone" ).onchange = e => { ui.showDone = e.target.checked; renderSide(); drawOverlays(); };
+$( "sendAll" ).onclick = () => send( openComments().map( c => c.id ) ).then( loadState );
+document.addEventListener( "keydown", onKey );
+new ResizeObserver( () => { layout(); drawOverlays(); } ).observe( $( "canvas" ) );
+
+// An event stream the server ended or refused never reconnects by itself, so the studio reconnects and catches up.
+let reconnecting = false;
+function connect() {
+	const events = new EventSource( "api/events" );
+	events.addEventListener( "open", async () => {
+		if ( !reconnecting )
+			return;
+		reconnecting = false;
+		await loadState();
+		reloadFrames();
+	} );
+	events.addEventListener( "error", () => {
+		reconnecting = true;
+		if ( events.readyState === EventSource.CLOSED )
+			setTimeout( connect, 2000 );
+	} );
+	events.addEventListener( "change", async e => {
+		const files = JSON.parse( e.data ).files;
+		// A stage that rebuilt for new variants already loads fresh pages; one that kept its frames swaps them in place.
+		const before = $( "stage" ).dataset.key;
+		await loadState();
+		if ( files && before === $( "stage" ).dataset.key )
+			reloadFrames();
+	} );
+}
+connect();
+loadState();
+</script>
+</body>
+</html>

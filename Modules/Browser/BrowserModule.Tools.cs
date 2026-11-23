@@ -118,13 +118,14 @@ public sealed partial class BrowserModule
 			""",
 			Lend( "eval", EvaluateAsync ) )
 		.ToolAsync( "screenshot",
-			"Saves a PNG screenshot of the page in a browser tab and returns its path; read that image file to see the page. Use it to check layout and visuals.",
+			"Saves a PNG screenshot of the page in a browser tab and returns its path; read that image file to see the page. Use it to check layout and visuals. Pass a selector to capture one element only, which costs far fewer tokens than the page.",
 			$$"""
 			{
 				"type": "object",
 				"properties": {
 					{{TabArgument}},
-					"fullPage": { "type": "boolean", "description": "Captures the whole page rather than the visible part." }
+					"fullPage": { "type": "boolean", "description": "Captures the whole page rather than the visible part." },
+					"selector": { "type": "string", "description": "A CSS selector: captures only the first element it matches, wherever it is on the page." }
 				},
 				"additionalProperties": false
 			}
@@ -380,7 +381,7 @@ public sealed partial class BrowserModule
 		await RequirePageAsync( context.App, tab, context.Cancellation );
 		var isFullPage = arguments.TryGetProperty( "fullPage", out var full ) && full.ValueKind == JsonValueKind.True;
 		var source = tab.PageSource;
-		var png = await tab.CaptureAsync( isFullPage );
+		var png = await tab.CaptureAsync( isFullPage, ReadString( arguments, "selector" ), context.Cancellation );
 		Directory.CreateDirectory( ScreenshotsPath );
 		var path = Path.Combine( ScreenshotsPath, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{ComputeShortId( tab.Id )}.png" );
 		await File.WriteAllBytesAsync( path, png, context.Cancellation );

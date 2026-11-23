@@ -5,10 +5,13 @@ version being packed. Write for users: what changed for them, not how.
 
 ## 0.4.13
 
+- **Design screens with your agent.** Ask an agent to design a screen and it writes the design as HTML and CSS in
+  your project. A studio opens beside the chat and shows each save live. Switch variants and screen sizes, pin
+  comments to elements and send them to the chat, and export a variant as a zip.
 - **One page for each project.** Hover a project in the sidebar and click its new overview button, or choose
   **Overview** in its **…** menu. The page lists the project's chats and tasks, with the ones that wait for you and
-  the ones that work at the top, its recent activity, and its designs and the reports its agents showed. Start a new
-  chat or task from the page too. **Project overview** in Search (Ctrl+K) opens it as well.
+  the ones that work at the top, its recent activity, its designs, which open in the studio, and the reports its
+  agents showed. Start a new chat or task from the page too. **Project overview** in Search (Ctrl+K) opens it as well.
 
 ## 0.4.12
 

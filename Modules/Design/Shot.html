@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Snapshot</title>
+<style>
+html, body { margin: 0; background: #808080; }
+#frame { position: relative; overflow: hidden; background: #fff; }
+#frame iframe { position: absolute; left: 0; top: 0; border: 0; background: #fff; }
+#target { position: absolute; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="frame"><iframe id="page" title="Design"></iframe></div>
+<script>
+"use strict";
+// The design's page at one width: #frame holds the first screen, or the whole page with h=0, and #target covers the element s names, so a screenshot
+// of either selector costs only its own pixels. designCheck() reports layout problems as text, which costs far fewer tokens than any image.
+const query = new URLSearchParams( location.search );
+const variant = query.get( "v" ) ?? "";
+const width = Math.max( 200, Math.min( 3840, +query.get( "w" ) || 1440 ) );
+const height = Math.max( 0, Math.min( 16000, +( query.get( "h" ) ?? 900 ) ) );
+const selector = query.get( "s" );
+const box = document.getElementById( "frame" );
+const page = document.getElementById( "page" );
+document.title = "__NAME__".replace( /^"|"$/g, "" ) + " snapshot";
+box.style.width = page.style.width = width + "px";
+box.style.height = page.style.height = ( height || 900 ) + "px";
+
+page.addEventListener( "load", () => {
+	const doc = page.contentDocument;
+	const full = Math.min( Math.max( doc.documentElement.scrollHeight, doc.body?.scrollHeight ?? 0 ), 16000 );
+	// A whole-page or element snapshot stretches the frame to the page's height, measured first; sections sized in vh then grow with it, as in any full-page capture.
+	if ( height === 0 || selector ) {
+		page.style.height = full + "px";
+		box.style.height = full + "px";
+	}
+	if ( selector ) {
+		const element = doc.querySelector( selector );
+		if ( !element ) {
+			document.title = "missing";
+			return;
+		}
+		const r = element.getBoundingClientRect();
+		const pad = 8;
+		const target = document.createElement( "div" );
+		target.id = "target";
+		Object.assign( target.style, { left: Math.max( 0, r.left - pad ) + "px", top: Math.max( 0, r.top - pad ) + "px",
+			width: Math.min( width, r.width + pad * 2 ) + "px", height: Math.min( full, r.height + pad * 2 ) + "px" } );
+		box.append( target );
+	}
+} );
+page.src = "f/" + ( variant ? encodeURIComponent( variant ) + "/" : "" ) + "index.html";
+
+function selectorOf( element ) {
+	const doc = element.ownerDocument;
+	const parts = [];
+	for ( let node = element; node && node.nodeType === 1 && node !== doc.documentElement; node = node.parentElement ) {
+		if ( node.id && doc.querySelectorAll( "#" + CSS.escape( node.id ) ).length === 1 ) {
+			parts.unshift( "#" + CSS.escape( node.id ) );
+			break;
+		}
+		let part = node.localName;
+		const parent = node.parentElement;
+		if ( parent ) {
+			const same = [ ...parent.children ].filter( child => child.localName === node.localName );
+			if ( same.length > 1 )
+				part += `:nth-of-type(${same.indexOf( node ) + 1})`;
+		}
+		parts.unshift( part );
+	}
+	return parts.join( " > " );
+}
+
+function parseColor( text ) {
+	const m = text.match( /rgba?\(([^)]+)\)/ );
+	if ( !m )
+		return null;
+	const [ r, g, b, a = 1 ] = m[1].split( /[\s,/]+/ ).filter( Boolean ).map( Number );
+	return { r, g, b, a };
+}
+
+function luminance( c ) {
+	const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ( ( v + 0.055 ) / 1.055 ) ** 2.4; };
+	return 0.2126 * f( c.r ) + 0.7152 * f( c.g ) + 0.0722 * f( c.b );
+}
+
+function backgroundOf( element, win ) {
+	for ( let node = element; node && node.nodeType === 1; node = node.parentElement ) {
+		const style = win.getComputedStyle( node );
+		if ( style.backgroundImage !== "none" )
+			return null;
+		const c = parseColor( style.backgroundColor );
+		if ( c && c.a > 0.9 )
+			return c;
+	}
+	return { r: 255, g: 255, b: 255, a: 1 };
+}
+
+// Reports what usually goes wrong in a design, with each element's selector: overflow past the width, clipped text, low contrast,
+// broken images, missing alt text, small tap targets on narrow widths, and how many font sizes and colors the page uses.
+function designCheck() {
+	const doc = page.contentDocument;
+	const win = page.contentWindow;
+	const lines = [];
+	const add = ( kind, element, detail ) => lines.push( `${kind}: ${selectorOf( element )}${detail ? " (" + detail + ")" : ""}` );
+	const all = [ ...doc.body.querySelectorAll( "*" ) ];
+	const visible = all.filter( e => { const r = e.getBoundingClientRect(); const s = win.getComputedStyle( e ); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; } );
+
+	if ( doc.documentElement.scrollWidth > width + 1 ) {
+		const wide = visible.filter( e => e.getBoundingClientRect().right > width + 1 );
+		const outermost = wide.filter( e => !wide.includes( e.parentElement ) ).slice( 0, 5 );
+		lines.push( `Page is ${doc.documentElement.scrollWidth}px wide at a ${width}px viewport.` );
+		outermost.forEach( e => add( "Overflows", e, `right edge ${Math.round( e.getBoundingClientRect().right )}px` ) );
+	}
+
+	let clipped = 0;
+	for ( const e of visible ) {
+		const s = win.getComputedStyle( e );
+		const hidesX = s.overflowX !== "visible" && e.scrollWidth > e.clientWidth + 1;
+		const hidesY = s.overflowY === "hidden" && e.scrollHeight > e.clientHeight + 1;
+		if ( ( hidesX || hidesY ) && e.innerText?.trim() && clipped++ < 5 )
+			add( "Clipped text", e, hidesX ? `${e.scrollWidth}px in ${e.clientWidth}px` : `${e.scrollHeight}px in ${e.clientHeight}px` );
+	}
+
+	let contrast = 0;
+	const sizes = new Set(), colors = new Set();
+	for ( const e of visible ) {
+		const own = [ ...e.childNodes ].some( n => n.nodeType === 3 && n.textContent.trim() );
+		if ( !own )
+			continue;
+		const s = win.getComputedStyle( e );
+		sizes.add( s.fontSize );
+		colors.add( s.color );
+		const fg = parseColor( s.color ), bg = backgroundOf( e, win );
+		if ( !fg || !bg )
+			continue;
+		const l1 = luminance( fg ), l2 = luminance( bg );
+		const ratio = ( Math.max( l1, l2 ) + 0.05 ) / ( Math.min( l1, l2 ) + 0.05 );
+		const px = parseFloat( s.fontSize ), large = px >= 24 || ( px >= 18.66 && +s.fontWeight >= 700 );
+		if ( ratio < ( large ? 3 : 4.5 ) && contrast++ < 6 )
+			add( "Low contrast", e, `${ratio.toFixed( 2 )}:1, ${s.color} on rgb(${bg.r}, ${bg.g}, ${bg.b})` );
+	}
+
+	doc.querySelectorAll( "img" ).forEach( img => {
+		if ( img.complete && img.naturalWidth === 0 )
+			add( "Broken image", img, img.getAttribute( "src" ) ?? "" );
+		else if ( !img.hasAttribute( "alt" ) )
+			add( "No alt text", img );
+	} );
+
+	if ( width <= 480 ) {
+		let small = 0;
+		for ( const e of visible.filter( e => e.matches( "a, button, input, select, textarea, [role=button]" ) ) ) {
+			const r = e.getBoundingClientRect();
+			if ( ( r.width < 24 || r.height < 24 ) && small++ < 5 )
+				add( "Small tap target", e, `${Math.round( r.width )}×${Math.round( r.height )}px` );
+		}
+	}
+
+	const summary = `${width}px wide, page ${doc.documentElement.scrollHeight}px tall; ${sizes.size} font sizes (${[ ...sizes ].sort( ( a, b ) => parseFloat( a ) - parseFloat( b ) ).join( ", " )}), ${colors.size} text colors.`;
+	return lines.length === 0 ? `No problems found. ${summary}` : `${lines.join( "\n" )}\n${summary}`;
+}
+</script>
+</body>
+</html>
