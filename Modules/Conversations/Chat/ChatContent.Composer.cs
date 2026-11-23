@@ -20,6 +20,9 @@ public sealed partial class ChatContent
 	/// <summary>Stores the visible prompt line count of the last build, so typing rebuilds only when the editor must grow or shrink.</summary>
 	private int _promptLines = 1;
 
+	/// <summary>Stores the prompt's last measured row count, wrapped rows included.</summary>
+	private int _promptRows = 1;
+
 	/// <summary>Stores whether the prompt held text at the last build, so typing rebuilds only when the send button lights up or dims.</summary>
 	private bool _promptHasText;
 
@@ -462,11 +465,11 @@ public sealed partial class ChatContent
 		Choices = [new( PromptCaret.Off, "Off" ), new( PromptCaret.Blink, "Blink only" ), new( PromptCaret.Glide, "Smooth glide" ), new( PromptCaret.GlideBlink, "Glide and blink" )],
 	};
 
-	/// <summary>Builds the prompt editor, one line tall and growing with explicit line breaks up to <see cref="PromptMaxLines"/>, with the drawn caret over it.</summary>
+	/// <summary>Builds the prompt editor, one line tall and growing upward with line breaks and wrapped rows up to <see cref="PromptMaxLines"/>, with the drawn caret over it.</summary>
 	/// <remarks>Goo's own caret is made transparent: it left stale pixels behind while typing, and it cannot glide or blink.</remarks>
 	private Container BuildPrompt()
 	{
-		_promptLines = Math.Clamp( _composer.Document.LineCount, 1, PromptMaxLines );
+		_promptLines = ReadPromptLines();
 		var lineHeight = Theme.Current.FontSize * PromptLineHeight;
 		// Vertical padding centers a single line against the buttons beside it.
 		var inset = Math.Max( 0, (Theme.Current.ControlHeight - lineHeight) / 2 );
@@ -502,7 +505,7 @@ public sealed partial class ChatContent
 			Key = "conversation-prompt-frame",
 			MinWidth = 0,
 			FlexGrow = 1,
-			Children = [editor, Cell.Mount<PromptCaretInput, PromptCaret>( "prompt-caret", new( _promptHandle, _composer, _isPromptFocused, mode ) )],
+			Children = [editor, Cell.Mount<PromptCaretInput, PromptCaret>( "prompt-caret", new( _promptHandle, _composer, _isPromptFocused, mode, lineHeight, UpdatePromptRows ) )],
 		};
 	}
 
@@ -586,7 +589,17 @@ public sealed partial class ChatContent
 	/// <summary>Rebuilds only when the prompt's visible line count changes, or it fills or empties, which lights or dims the send button.</summary>
 	private void UpdatePromptLines()
 	{
-		if ( Math.Clamp( _composer.Document.LineCount, 1, PromptMaxLines ) != _promptLines || _composer.Document.Length > 0 != _promptHasText )
+		if ( ReadPromptLines() != _promptLines || _composer.Document.Length > 0 != _promptHasText )
 			MarkChanged();
 	}
+
+	/// <summary>Takes the prompt's row count, wrapped rows included, as its caret measures it.</summary>
+	private void UpdatePromptRows( int rows )
+	{
+		_promptRows = rows;
+		UpdatePromptLines();
+	}
+
+	/// <summary>Gets the prompt's visible line count: its explicit lines or wrapped rows, whichever is more, up to <see cref="PromptMaxLines"/>.</summary>
+	private int ReadPromptLines() => Math.Clamp( Math.Max( _composer.Document.LineCount, _promptRows ), 1, PromptMaxLines );
 }

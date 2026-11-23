@@ -3,8 +3,13 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
-## Unreleased
+## 0.4.12
 
+- **Loom opens on AMD graphics cards.** On PCs whose graphics driver cannot draw a see-through window, such as AMD
+  Radeon cards, Loom closed at once without a window. It now starts again with a solid window. Mica and Acrylic
+  backdrops do not show on these PCs.
+- **The message box grows with long lines.** When a message wraps onto more lines, the box grows up to show them,
+  as it does for Shift+Enter, up to eight lines.
 - **Opening an image no longer closes Loom.** The editor shows a PNG, JPEG or other image as a picture, and says when
   another file is not text instead of showing its bytes. Such files cannot be saved from the editor.
 

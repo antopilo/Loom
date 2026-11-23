@@ -17,6 +17,9 @@ internal static class Program
 	/// <summary>Defines the app ID Windows groups Lokn's windows and notifications under.</summary>
 	private const string ApplicationId = "dev.lokn.desktop";
 
+	/// <summary>Names the marker file in the data folder that makes Loom open an opaque window, written when no GPU could present a transparent one.</summary>
+	private const string OpaqueWindowMarker = "opaque-window";
+
 	/// <summary>Opens the main window and runs the UI event loop.</summary>
 	// Windows delivers Explorer file drops through OLE, which only initializes on a single-threaded apartment;
 	// without this Goo reports that native file drops are unsupported and the window fails to open.
@@ -103,13 +106,16 @@ internal static class Program
 			app.Notifications.Post( new( "Backup", $"Loom restored the backup {Path.GetFileName( restored )}." ) { Source = "shell" } );
 		// A view whose build fails draws a warning mark instead of closing Loom; the failure shows in the shell's error notice once.
 		CellFaults.Faulted += ( view, error ) => app.ReportError( view.Name, error );
+		// A PC whose GPU drivers cannot present a transparent window, such as AMD's Vulkan driver, keeps a marker and opens opaque without the backdrop materials.
+		var opaqueMarker = LoknPaths.Combine( OpaqueWindowMarker );
+		ShellBackdrop.IsSupported = !File.Exists( opaqueMarker );
 		var window = new Window
 		{
 			Title = bare is null ? "Loom" : "Loom (bare)",
 			IconPng = ReadIcon(),
 			Decorated = false,
 			// Transparency is fixed at native-window creation; the shell setting can then switch its material live.
-			Transparent = true,
+			Transparent = ShellBackdrop.IsSupported,
 			Background = Theme.Current.Canvas,
 			Foreground = Theme.Current.Text,
 			Size = new LayoutSize( InitialWidth, InitialHeight ),
@@ -142,8 +148,18 @@ internal static class Program
 		PerfTrace.Attach( window );
 		// The native window and its Vulkan device take most of a second, mostly in the graphics driver and the OS (docs/performance.md#startup), and only
 		// the UI thread may create them: they come first, and the modules start on the open window before its first frame, which already shows them.
-		using ( PerfTrace.Step( "window.open" ) )
-			window.Open();
+		try
+		{
+			using ( PerfTrace.Step( "window.open" ) )
+				window.Open();
+		}
+		catch ( GraphicsUnavailableException error ) when ( window.Transparent )
+		{
+			// No GPU presents a transparent window here: keep the marker and start again opaque, in a fresh process with a fresh window.
+			File.WriteAllText( opaqueMarker, error.Message );
+			LogFile.Append( Path.Combine( LoknPaths.TempRoot, "graphics.log" ), $"OPAQUE {error.Message}" );
+			return true;
+		}
 		PerfTrace.Mark( "open" );
 		// The theme is part of the shell; it loads first so every module's views draw with it.
 		app.Load( new ThemeModule() );

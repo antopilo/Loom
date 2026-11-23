@@ -8,7 +8,9 @@ namespace Lokn.Modules.Chat;
 /// <param name="Controller">The prompt's editing controller, which holds the selection.</param>
 /// <param name="IsFocused">Whether the prompt has the keyboard; the caret shows only then.</param>
 /// <param name="Mode">The caret animation setting value.</param>
-internal sealed record PromptCaretInput( ElementHandle Editor, TextEditorController Controller, bool IsFocused, string Mode );
+/// <param name="LineHeight">The prompt's line height in logical pixels, used to count its wrapped rows.</param>
+/// <param name="OnRows">Receives the prompt's row count, wrapped rows included, each time it changes.</param>
+internal sealed record PromptCaretInput( ElementHandle Editor, TextEditorController Controller, bool IsFocused, string Mode, double LineHeight, Action<int> OnRows );
 
 /// <summary>Draws the prompt's caret in place of Goo's, so it can glide and blink, and so it leaves no trail of stale pixels as text is typed.</summary>
 /// <remarks>
@@ -56,6 +58,9 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 
 	/// <summary>Counts changes of the rectangle or blink phase; reading it rebuilds the caret on each, and only then.</summary>
 	private readonly State<int> _version = new( 0 );
+
+	/// <summary>Stores the last row count sent to <see cref="PromptCaretInput.OnRows"/>.</summary>
+	private int _rows = 1;
 
 	/// <summary>Starts and stops reading the rectangle as the caret comes into and out of view.</summary>
 	private readonly MotionSwitch _motion;
@@ -112,13 +117,14 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 		}
 	}
 
-	/// <summary>Reads the caret rectangle and blink phase, rebuilding only when either changed.</summary>
+	/// <summary>Reads the caret rectangle and blink phase, rebuilding only when either changed, and reports a changed row count.</summary>
 	private void UpdateCaret()
 	{
 		var input = Input;
 		if ( !input.IsFocused )
 			return;
 
+		UpdateRows( input );
 		ElementRect? rect = input.Editor.TryGetTextCaretRect( input.Controller.Selection.Active, TextCoordinateSpace.Element, out var found ) ? found : null;
 		var changed = rect != _rect;
 		if ( changed )
@@ -136,5 +142,21 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 
 		if ( changed )
 			_version.Value++;
+	}
+
+	/// <summary>Counts the prompt's rows, soft wraps included, from the distance between the first and last caret places.</summary>
+	private void UpdateRows( PromptCaretInput input )
+	{
+		if ( input.LineHeight <= 0
+			|| !input.Editor.TryGetTextCaretRect( new TextPosition( 0, TextAffinity.Downstream ), TextCoordinateSpace.Element, out var first )
+			|| !input.Editor.TryGetTextCaretRect( new TextPosition( input.Controller.Document.Length, TextAffinity.Upstream ), TextCoordinateSpace.Element, out var last ) )
+			return;
+
+		var rows = Math.Max( 1, (int)Math.Round( (last.Y - first.Y) / input.LineHeight ) + 1 );
+		if ( rows == _rows )
+			return;
+
+		_rows = rows;
+		input.OnRows( rows );
 	}
 }

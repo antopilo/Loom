@@ -6,8 +6,11 @@ namespace Lokn;
 /// <summary>Maps the shell backdrop setting to Goo's native material and translucent shell surfaces.</summary>
 internal static class ShellBackdrop
 {
-	/// <summary>Reports whether a setting value enables a native material.</summary>
-	internal static bool IsEnabled( string value ) => value is ShellSettings.MicaBackdrop or ShellSettings.AcrylicBackdrop;
+	/// <summary>Gets or sets whether the window surface is transparent, so a native material can show; false on a PC whose GPU cannot present a transparent window.</summary>
+	internal static bool IsSupported { get; set; } = true;
+
+	/// <summary>Reports whether a setting value enables a native material on this window.</summary>
+	internal static bool IsEnabled( string value ) => IsSupported && value is ShellSettings.MicaBackdrop or ShellSettings.AcrylicBackdrop;
 
 	/// <summary>Returns the surface alpha from zero to one: opaque without a backdrop, else the percent setting.</summary>
 	internal static double Alpha( string backdrop, int percent ) => IsEnabled( backdrop ) ? Math.Clamp( percent, 0, 100 ) / 100.0 : 1;
