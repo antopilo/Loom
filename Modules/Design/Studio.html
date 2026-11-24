@@ -290,20 +290,25 @@ function makeFrame( v ) {
 // A reload builds the new page in a hidden frame, keeps the scroll position, and swaps it in once it loaded, so a live update never jumps or flickers.
 function reloadFrames() {
 	for ( const frame of frames.values() ) {
+		// A newer save replaces a page still loading, so only the latest one is swapped in.
+		frame.pending?.remove();
 		const old = frame.iframe;
 		const scroll = { x: old.contentWindow?.scrollX ?? 0, y: old.contentWindow?.scrollY ?? 0 };
 		const next = el( "iframe", { title: old.title, className: "next" } );
+		frame.pending = next;
+		// Swapped at once on load, not on the next animation frame: a studio in a background tab gets none, and kept the old page.
 		next.addEventListener( "load", () => {
+			if ( frame.pending !== next )
+				return;
+			frame.pending = null;
 			next.contentWindow.scrollTo( scroll.x, scroll.y );
-			requestAnimationFrame( () => {
-				next.classList.remove( "next" );
-				old.remove();
-				frame.iframe = next;
-				drawOverlays();
-				frame.badge.classList.add( "show" );
-				frame.screen.classList.add( "flash" );
-				setTimeout( () => { frame.badge.classList.remove( "show" ); frame.screen.classList.remove( "flash" ); }, 900 );
-			} );
+			next.classList.remove( "next" );
+			frame.iframe.remove();
+			frame.iframe = next;
+			drawOverlays();
+			frame.badge.classList.add( "show" );
+			frame.screen.classList.add( "flash" );
+			setTimeout( () => { frame.badge.classList.remove( "show" ); frame.screen.classList.remove( "flash" ); }, 900 );
 		}, { once: true } );
 		attach( frame, next );
 		next.src = fileUrl( frame.variant ) + "?t=" + Date.now();
