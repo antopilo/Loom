@@ -3,6 +3,16 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.18
+
+- **Act on a notification from the list.** Buttons such as **Restart now** show on the notification's row, under the
+  bell and on the Notifications page, so you no longer open it first.
+- **The Notifications page fits small panes.** When the page is narrow, its filters move to tabs above the list; when
+  it is very narrow, a notification opens in the list's place, with a button back.
+- **Project icons.** Projects without an icon image can use an emoji, and paired hosts' projects show their icons.
+- **Design studio** opens in a new tab when no panel shows it, and **agent browser pages** open in the window that
+  shows the chat.
+
 ## 0.4.17
 
 - **A calmer sidebar.** New chat and Search sit at the top, with New project and Notifications as small icons beside your
