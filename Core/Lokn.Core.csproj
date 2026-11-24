@@ -16,5 +16,6 @@
 		<InternalsVisibleTo Include="Lokn.Modules.Git" />
 		<InternalsVisibleTo Include="Lokn.Modules.Notifications" />
 		<InternalsVisibleTo Include="Lokn.Modules.Worktrees" />
+		<EmbeddedResource Include="..\assets\fonts\LoomFluentIcons.ttf" LogicalName="LoomFluentIcons.ttf" />
 	</ItemGroup>
 </Project>

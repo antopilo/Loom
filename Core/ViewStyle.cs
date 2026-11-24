@@ -57,7 +57,7 @@ public static class ViewStyle
 	/// <summary>Retains the installed emoji face used by UTF-8 text.</summary>
 	private static readonly FontSource EmojiFont = BuildFont( "Lokn Chat Emoji", "seguiemj.ttf", RegularWeight, italic: false );
 
-	/// <summary>Retains the installed icon face used by icon buttons.</summary>
+	/// <summary>Retains the icon face used by icon buttons: installed Segoe Fluent Icons, or off Windows the bundled icons when it is missing.</summary>
 	private static readonly FontSource IconFont = BuildFont( "Lokn Icons", "SegoeIcons.ttf", RegularWeight, italic: false );
 
 	/// <summary>Gets the app's UI face with registered symbol and emoji fallback families.</summary>
@@ -69,7 +69,7 @@ public static class ViewStyle
 	/// <summary>Gets the registered symbol face's family, for markers that must not fall back to an unregistered font.</summary>
 	public static string SymbolFontFamily => SymbolFont.Family;
 
-	/// <summary>Gets the installed Segoe Fluent Icons family, for the glyphs of icon buttons.</summary>
+	/// <summary>Gets the icon family for the glyphs of icon buttons: installed Segoe Fluent Icons, or off Windows the bundled icons when it is missing.</summary>
 	internal static string IconFontFamily => IconFont.Family;
 
 	/// <summary>Registers an installed font file, named as in the Windows Fonts folder, under a family name.</summary>

@@ -3,13 +3,19 @@ using Goo;
 
 namespace Lokn.Core;
 
-/// <summary>Registers installed fonts under Loom's family names on every platform.</summary>
-/// <remarks>Windows loads the named file from its Fonts folder. Other platforms load the file fontconfig matches for the same Windows family,
-/// with a generic fallback, so the original font is used when it is installed and the user's configured font otherwise.</remarks>
+/// <summary>Registers fonts under Loom's family names on every platform.</summary>
+/// <remarks>Windows loads fonts from its Fonts folder. Other platforms use fontconfig for installed fonts
+/// and use the bundled icon font when Segoe Fluent Icons is not installed.</remarks>
 public static partial class SystemFonts
 {
+	/// <summary>Defines the icon family that requires an exact fontconfig match.</summary>
+	private const string SegoeIconsFamily = "Segoe Fluent Icons";
+
 	/// <summary>Names the fontconfig library that matches installed fonts off Windows.</summary>
 	private const string Fontconfig = "libfontconfig.so.1";
+
+	/// <summary>Shares the bundled icon font bytes across all family registrations.</summary>
+	private static readonly Lazy<byte[]> FallbackIconBytes = new( LoadFallbackIconBytes );
 
 	/// <summary>Maps each Windows font file to the fontconfig families matched in its place.</summary>
 	private static readonly Dictionary<string, string> Families = new( StringComparer.OrdinalIgnoreCase )
@@ -22,14 +28,14 @@ public static partial class SystemFonts
 		["segoeuiz.ttf"] = "Segoe UI,sans-serif",
 		["seguisym.ttf"] = "Segoe UI Symbol,sans-serif",
 		["seguiemj.ttf"] = "Segoe UI Emoji,emoji",
-		["SegoeIcons.ttf"] = "Segoe Fluent Icons",
+		["SegoeIcons.ttf"] = SegoeIconsFamily,
 		["consola.ttf"] = "Consolas,monospace",
 		["consolab.ttf"] = "Consolas,monospace",
 		["consolai.ttf"] = "Consolas,monospace",
 		["consolaz.ttf"] = "Consolas,monospace",
 	};
 
-	/// <summary>Registers an installed font face under a family name.</summary>
+	/// <summary>Registers a font face under a family name.</summary>
 	/// <param name="family">The family name views use.</param>
 	/// <param name="weight">The weight on the OpenType scale.</param>
 	/// <param name="italic">Whether the face is italic.</param>
@@ -53,10 +59,15 @@ public static partial class SystemFonts
 		FcDefaultSubstitute( pattern );
 		var match = FcFontMatch( 0, pattern, out _ );
 		FcPatternDestroy( pattern );
-		if ( match == 0 )
-			throw new FileNotFoundException( $"fontconfig matched no font for {families}." );
 		try
 		{
+			if ( families == SegoeIconsFamily && (match == 0
+				|| FcPatternGetString( match, "family", 0, out var matchedFamily ) != 0
+				|| !string.Equals( Marshal.PtrToStringUTF8( matchedFamily ), SegoeIconsFamily, StringComparison.OrdinalIgnoreCase )) )
+				return new FontSource( family, weight, italic, FallbackIconBytes.Value, 0, [] );
+			if ( match == 0 )
+				throw new FileNotFoundException( $"fontconfig matched no font for {families}." );
+
 			FcPatternGetString( match, "file", 0, out var file );
 			FcPatternGetInteger( match, "index", 0, out var index );
 			// The upper 16 bits of a fontconfig index select a named instance of a variable font, drawn here at its weight; the face index is the lower 16.
@@ -64,8 +75,19 @@ public static partial class SystemFonts
 		}
 		finally
 		{
-			FcPatternDestroy( match );
+			if ( match != 0 )
+				FcPatternDestroy( match );
 		}
+	}
+
+	/// <summary>Reads the bundled icon font.</summary>
+	private static byte[] LoadFallbackIconBytes()
+	{
+		using var stream = typeof( SystemFonts ).Assembly.GetManifestResourceStream( "LoomFluentIcons.ttf" )
+			?? throw new InvalidOperationException( "The Loom icon font is not embedded." );
+		var bytes = new byte[stream.Length];
+		stream.ReadExactly( bytes );
+		return bytes;
 	}
 
 	/// <summary>Parses a fontconfig pattern string.</summary>
