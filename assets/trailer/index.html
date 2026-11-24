@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Loom — trailer</title>
+	<style>
+		@font-face { font-family: "Newsreader"; src: url(fonts/Newsreader.woff2) format("woff2"); font-weight: 200 800; }
+		html, body { margin: 0; height: 100%; background: #000; color: #a09f96; font: 13px "Segoe UI", sans-serif; overflow: hidden; }
+		#stage { position: absolute; inset: 0 0 44px 0; display: flex; align-items: center; justify-content: center; }
+		canvas { max-width: 100%; max-height: 100%; aspect-ratio: 16 / 9; background: #000; }
+		#bar { position: absolute; left: 0; right: 0; bottom: 0; height: 44px; display: flex; gap: 12px; align-items: center; padding: 0 14px; background: #161614; }
+		#bar button { background: #2d2d29; color: #e8e6df; border: 1px solid #3b3b35; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+		#seek { flex: 1; accent-color: #d5a583; }
+		#time { font-family: "Cascadia Mono", monospace; min-width: 110px; text-align: right; }
+		body.render #bar { display: none; }
+		body.render #stage { inset: 0; }
+	</style>
+</head>
+<body>
+	<div id="stage"><canvas id="c" width="1920" height="1080"></canvas></div>
+	<div id="bar">
+		<button id="play">Play</button>
+		<input id="seek" type="range" min="0" max="60" step="0.001" value="0">
+		<span id="time">0.00 / 60.00</span>
+	</div>
+	<audio id="music" src="/artifacts/loom-trailer.wav" preload="auto"></audio>
+	<script src="timeline.js"></script>
+	<script src="kit.js"></script>
+	<script src="stage.js"></script>
+	<script src="loomui.js"></script>
+	<script src="parts.js"></script>
+	<script src="film.js"></script>
+	<script>
+		'use strict';
+		const canvas = document.getElementById( 'c' );
+		const ctx = canvas.getContext( '2d' );
+		const params = new URLSearchParams( location.search );
+		const D = LoomTrailer.DURATION;
+
+		/** Render hook for render.mjs: draws frame t and returns it as a PNG data URL. */
+		window.renderFrame = t =>
+		{
+			LoomTrailer.frame( ctx, t );
+			return canvas.toDataURL( 'image/png' );
+		};
+		window.trailerReady = document.fonts.ready.then( () => Promise.all( [
+			document.fonts.load( '500 96px "Newsreader"' ),
+			document.fonts.load( '400 16px "Segoe UI"' ),
+			document.fonts.load( '400 16px "Cascadia Code"' ),
+		] ) ).then( () => true );
+
+		if ( params.has( 'render' ) )
+			document.body.classList.add( 'render' );
+		else
+		{
+			const audio = document.getElementById( 'music' );
+			const seek = document.getElementById( 'seek' );
+			const time = document.getElementById( 'time' );
+			const play = document.getElementById( 'play' );
+			seek.max = D;
+			let playing = false, t = Number( params.get( 't' ) || 0 ), clockStart = 0, clockT = 0, hasAudio = false;
+			audio.addEventListener( 'canplaythrough', () => { hasAudio = true; } );
+			audio.addEventListener( 'error', () => { hasAudio = false; } );
+			const draw = () =>
+			{
+				LoomTrailer.frame( ctx, t );
+				seek.value = t;
+				time.textContent = `${ t.toFixed( 2 ) } / ${ D.toFixed( 2 ) }`;
+			};
+			const toggle = () =>
+			{
+				playing = !playing;
+				play.textContent = playing ? 'Pause' : 'Play';
+				if ( t >= D )
+					t = 0;
+				clockStart = performance.now();
+				clockT = t;
+				if ( hasAudio )
+				{
+					audio.currentTime = t;
+					playing ? audio.play() : audio.pause();
+				}
+			};
+			const tick = () =>
+			{
+				if ( playing )
+				{
+					t = hasAudio && !audio.paused ? audio.currentTime : clockT + ( performance.now() - clockStart ) / 1000;
+					if ( t >= D )
+					{
+						t = D;
+						toggle();
+					}
+				}
+				draw();
+				requestAnimationFrame( tick );
+			};
+			play.onclick = toggle;
+			seek.oninput = () =>
+			{
+				t = Number( seek.value );
+				clockStart = performance.now();
+				clockT = t;
+				if ( hasAudio )
+					audio.currentTime = t;
+			};
+			addEventListener( 'keydown', e =>
+			{
+				if ( e.code === 'Space' )
+				{
+					e.preventDefault();
+					toggle();
+				}
+				else if ( e.code === 'ArrowRight' || e.code === 'ArrowLeft' )
+				{
+					t = Math.min( D, Math.max( 0, t + ( e.code === 'ArrowRight' ? 1 : -1 ) * ( e.shiftKey ? 0.1 : 1 ) ) );
+					clockStart = performance.now();
+					clockT = t;
+					if ( hasAudio )
+						audio.currentTime = t;
+				}
+			} );
+			window.trailerReady.then( () => requestAnimationFrame( tick ) );
+		}
+	</script>
+</body>
+</html>

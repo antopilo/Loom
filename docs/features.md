@@ -47,21 +47,21 @@ Hover a project's heading in the sidebar and click its overview button (four squ
 choose **Overview** in its **…** menu, to open one page for the whole project. The page is
 its own session, like a chat's: it fills the window, and the layout you leave it in comes back
 next time. The palette's **Project overview** opens the page of the project you are in, or a
-list of projects to choose from. The page shows:
+list of projects to choose from. Under the project's name, folder and branch:
 
-- **Chats and tasks**: every chat and task of the project that is not archived. Chats that
-  wait for you come first, then chats whose agent works, then the rest by last use. Click one
-  to open it.
-- **Activity**: the newest 30 events, such as notifications from its chats, chats and tasks
-  started and updated, designs changed and reports shown.
-- **Designs and reports**: the designs in the project's `.lokn\design` folder, which open in
-  the Design studio, and the html reports its agents showed with
-  `browser_show`, which open in the browser. Reports show from Loom 0.4.13 on; earlier ones
-  do not.
+- **Prompt bar**: type and press Enter to start a chat in the project with what you typed, or
+  Ctrl+Enter to make a task named after it.
+- **Needs you**: the chats that wait for you, then those whose agent works.
+- **Recent**: the three chats or tasks used last; **All N chats and tasks** shows the rest.
+- **Designs and reports**, on the right: the designs in the project's `.lokn\design` folder,
+  which open in the Design studio, and the html reports its agents showed with `browser_show`,
+  which open in the browser. Reports show from Loom 0.4.13 on; earlier ones do not.
+- **GitHub**, under them, when the project's `origin` remote is on GitHub: the newest comments,
+  reviews, checks and merges of that repository from the notification feed, unread ones in
+  blue, and **Open pull requests**. GitHub posts only what changes while Loom runs.
 
-**New chat**, **New task** and **Open project** start work in the project from the page. A
-paired host's project shows its chats, tasks, activity and designs. Its designs do not open,
-and its reports stay on that PC.
+A paired host's project shows its chats, tasks and designs. Its designs do not open, and its
+reports stay on that PC.
 
 ## Workspace
 

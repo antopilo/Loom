@@ -59,10 +59,29 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	/// <summary>Tracks whether the community list was asked for once, so a failed read is not repeated on every build.</summary>
 	private bool _isCommunityRequested;
 
+	/// <summary>Tracks the text typed into the settings search; empty shows the selected module.</summary>
+	private readonly State<string> _query = new( "" );
+
+	/// <summary>Targets the scrolling page beside the sidebar, which returns to the top when another module is shown.</summary>
+	private readonly ElementHandle _main = new();
+
+	/// <summary>Defines the sidebar's width in logical pixels.</summary>
+	private const int SidebarWidth = 220;
+
+	/// <summary>Defines the height of a module's link in the sidebar, in logical pixels.</summary>
+	private const int NavItemHeight = 32;
+
+	/// <summary>Defines the space between the sidebar's links, in logical pixels.</summary>
+	private const int NavItemGap = 2;
+
+	/// <summary>Defines the sidebar heading size in logical pixels.</summary>
+	private const int SidebarHeadingSize = 18;
+
 	/// <summary>Shows the tab holding a setting, highlights it, and scrolls it into view.</summary>
 	internal void ShowSetting( SettingDefinition definition )
 	{
 		_tab.Value = ComputeTab( context.App.Settings.FindModule( definition ) ?? "" );
+		_query.Value = "";
 		_focus.Value = definition.Id;
 		_isScrollPending = true;
 	}
@@ -80,12 +99,13 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	/// module's, else the module's own.</summary>
 	private static string ComputeTab( string moduleId ) => moduleId == "community" ? ModulesTab : ShellModules.Contains( moduleId ) ? ShellTab : moduleId;
 
-	/// <summary>Builds the scope selector, the module tabs, and the shown module's settings in one card per category.</summary>
+	/// <summary>Builds the sidebar with search and the module list, and beside it the shown module's settings, or the search results, in one card per category.</summary>
 	public override Blob Build()
 	{
 		var theme = Theme.Current;
 		var settings = context.App.Settings;
 		var scope = _scope.Value;
+		var query = _query.Value.Trim();
 		// The modules built into the shell share one Shell tab, first; each feature module gets its own tab, in title order.
 		var owned = settings.Definitions.Where( item => !item.IsHidden )
 			.GroupBy( item => ComputeTab( settings.FindModule( item ) ?? "" ) )
@@ -100,15 +120,21 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			.ThenBy( module => module.Title, StringComparer.CurrentCulture )
 			.ToArray();
 		var shown = tabs.FirstOrDefault( module => module.Id == _tab.Value ) ?? tabs.FirstOrDefault();
+		var categories = (shown is null || !owned.TryGetValue( shown.Id, out var definitions ) ? [] : definitions)
+			.GroupBy( item => item.Category )
+			.OrderBy( group => group.Key, StringComparer.CurrentCulture )
+			.ToArray();
+
 		var children = new List<Blob>
 		{
 			new Row
 			{
 				AlignItems = AlignItems.Center,
+				FlexWrap = FlexWrap.Wrap,
 				Gap = theme.Spacing,
 				Children =
 				[
-					new Text { Content = "Settings", FontSize = HeadingSize, FlexGrow = 1 },
+					new Text { Content = query.Length > 0 ? $"Results for “{query}”" : shown?.Title ?? "Settings", FontSize = HeadingSize, FontWeight = TitleWeight, FlexGrow = 1 },
 					BuildSegments( "Scope", [.. Enum.GetValues<SettingsScope>().Select( item => new SettingChoice( item, item == SettingsScope.Global ? "Defaults" : item.ToString() ) )],
 						scope, value => _scope.Value = (SettingsScope)value ),
 				],
@@ -120,64 +146,103 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 					: $"Editing {scope}: a changed setting overrides the default for this profile only.",
 				Color = theme.Muted,
 			},
-			BuildTabs( tabs, shown?.Id ),
 		};
 
-		if ( shown?.Id == ModulesTab )
+		if ( query.Length > 0 )
 		{
-			children.AddRange( BuildModules() );
-			children.AddRange( BuildCommunity() );
+			var found = tabs.Where( module => owned.ContainsKey( module.Id ) )
+				.SelectMany( module => owned[module.Id]
+					.Where( item => Matches( item, query ) )
+					.GroupBy( item => item.Category )
+					.OrderBy( group => group.Key, StringComparer.CurrentCulture )
+					.Select( group => (Title: module.Id == ShellTab ? group.Key : $"{module.Title} › {group.Key}", Items: group.ToArray()) ) )
+				.ToArray();
+			if ( found.Length == 0 )
+				children.Add( new Text { Content = "No setting matches the search.", Color = theme.Muted, Margin = new Edges( theme.Spacing * 2, 0, 0, 0 ) } );
+			foreach ( var (title, items) in found )
+				children.AddRange( BuildCategory( title, items, scope ) );
 		}
-
-		var categories = (shown is null || !owned.TryGetValue( shown.Id, out var definitions ) ? [] : definitions)
-			.GroupBy( item => item.Category )
-			.OrderBy( group => group.Key, StringComparer.CurrentCulture );
-		foreach ( var category in categories )
+		else
 		{
-			children.Add( new Text
+			if ( shown?.Id == ModulesTab )
 			{
-				Content = category.Key,
-				Color = theme.Muted,
-				Margin = new Edges( theme.Spacing * 2, 0, 0, theme.Spacing ),
-			} );
-			var rows = new List<Blob>();
-			foreach ( var definition in category )
-				rows.Add( BuildSetting( definition, scope, isFirst: rows.Count == 0 ) );
-			children.Add( new Container
-			{
-				Key = "category:" + category.Key,
-				AccessibilityRole = AccessibilityRole.Group,
-				AccessibilityName = category.Key,
-				BackgroundColor = theme.Raised,
-				BorderColor = theme.Border,
-				BorderWidth = theme.BorderWidth,
-				BorderRadius = theme.Radius * 2,
-				Overflow = Overflow.Hidden,
-				Children = rows,
-			} );
+				children.AddRange( BuildModules() );
+				children.AddRange( BuildCommunity() );
+			}
+
+			foreach ( var category in categories )
+				children.AddRange( BuildCategory( category.Key, [.. category], scope ) );
 		}
 
 		// The highlighted row mounts its handle with this build, so it scrolls into view after it.
 		if ( _isScrollPending )
 			context.Post( () => _isScrollPending = !_focused.ScrollIntoView() );
 
-		return new Container
+		return new Row
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Settings editor",
-			Padding = ContentPadding,
-			OverflowY = Overflow.Scroll,
-			AlignItems = AlignItems.Center,
+			FlexGrow = 1,
+			MinHeight = 0,
 			Children =
 			[
+				BuildSidebar( tabs, query.Length > 0 ? null : shown?.Id ),
 				new Container
 				{
-					Width = Length.Percent( 100 ),
-					MaxWidth = ColumnWidth,
-					Gap = theme.Spacing,
-					Children = children,
+					Key = "page",
+					Handle = _main,
+					FlexGrow = 1,
+					MinWidth = 0,
+					Padding = ContentPadding,
+					OverflowY = Overflow.Scroll,
+					AlignItems = AlignItems.Center,
+					Children =
+					[
+						new Container
+						{
+							Width = Length.Percent( 100 ),
+							MaxWidth = ColumnWidth,
+							Gap = theme.Spacing,
+							Children = children,
+						},
+					],
 				},
 			],
+		};
+	}
+
+	/// <summary>Reports whether a setting's title, description or category contains the search text.</summary>
+	private static bool Matches( SettingDefinition definition, string query ) =>
+		definition.Title.Contains( query, StringComparison.CurrentCultureIgnoreCase )
+		|| definition.Description.Contains( query, StringComparison.CurrentCultureIgnoreCase )
+		|| definition.Category.Contains( query, StringComparison.CurrentCultureIgnoreCase );
+
+	/// <summary>Builds a category's heading and its card of rows.</summary>
+	private IEnumerable<Blob> BuildCategory( string title, IReadOnlyList<SettingDefinition> items, SettingsScope scope )
+	{
+		var theme = Theme.Current;
+		yield return new Text
+		{
+			Key = "heading:" + title,
+			Content = title.ToUpper( CultureInfo.CurrentCulture ),
+			Color = theme.Muted,
+			FontSize = theme.FontSize - 1,
+			Margin = new Edges( theme.Spacing * 2.5, 0, 0, theme.Spacing ),
+		};
+		var rows = new List<Blob>();
+		foreach ( var definition in items )
+			rows.Add( BuildSetting( definition, scope, isFirst: rows.Count == 0 ) );
+		yield return new Container
+		{
+			Key = "category:" + title,
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = title,
+			BackgroundColor = theme.Raised,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = theme.Radius * 2,
+			Overflow = Overflow.Hidden,
+			Children = rows,
 		};
 	}
 
@@ -203,8 +268,13 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			],
 		};
 		var editor = BuildEditor( definition, scope, value );
-		var isBelow = definition.Editor is not null || definition.Choices is { Count: > 0 };
+		// A module's own editor, such as the theme picker, takes its own line; segments sit beside the text, as other widgets do.
+		var isBelow = definition.Editor is not null;
 		var isFocused = definition.Id == _focus.Value;
+		// A value changed in the scope shown is marked with an accent bar at the row's left edge.
+		Blob[] mark = settings.HasValue( definition, scope )
+			? [new Container { Position = PositionType.Absolute, Left = 0, Top = 0, Bottom = 0, Width = 2, BackgroundColor = theme.Accent }]
+			: [];
 		return new Container
 		{
 			Key = $"{scope}:{definition.Id}",
@@ -216,11 +286,11 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			BackgroundColor = isFocused ? theme.Hover : Color.Transparent,
 			BorderColor = theme.Border,
 			BorderWidth = new Edges( isFirst ? 0 : theme.BorderWidth, 0, 0, 0 ),
-			// A module's own editor, such as the theme picker, takes the full width; segments sit at the right edge.
 			Children = isBelow
-				? [text, definition.Editor is not null ? editor : new Row { JustifyContent = JustifyContent.FlexEnd, Children = [editor] }]
+				? [.. mark, text, editor]
 				:
 				[
+					.. mark,
 					new Row
 					{
 						AlignItems = AlignItems.Center,
@@ -271,54 +341,113 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		};
 	}
 
-	/// <summary>Builds the module tabs: a full-width bar of module titles, the shown one bright and underlined in the accent color.</summary>
-	private Row BuildTabs( IReadOnlyList<ModuleInfo> tabs, string? shown )
+	/// <summary>Builds the sidebar: the heading, the search field, and the module list, whose selection slides to the shown module.</summary>
+	private Container BuildSidebar( IReadOnlyList<ModuleInfo> tabs, string? shown )
 	{
 		var theme = Theme.Current;
-		var children = new List<Blob>();
+		var children = new List<Blob>
+		{
+			new Text { Content = "Settings", FontSize = SidebarHeadingSize, FontWeight = TitleWeight, Margin = new Edges( 0, theme.Spacing * 0.75, theme.Spacing, theme.Spacing * 0.75 ) },
+			new TextEntry
+			{
+				Key = "search",
+				Value = _query.Value,
+				Controlled = true,
+				Placeholder = "Search settings…",
+				AccessibilityName = "Search settings",
+				Height = EditorHeight,
+				Margin = new Edges( 0, 0, theme.Spacing, 0 ),
+				Padding = new Edges( 0, theme.Spacing ),
+				BackgroundColor = theme.Canvas,
+				BorderColor = theme.Border,
+				BorderWidth = theme.BorderWidth,
+				BorderRadius = theme.Radius,
+				FocusStyle = new Style { BorderColor = theme.Accent },
+				OnChange = text => context.Run( () => _query.Value = text ),
+			},
+		};
+
+		var items = new List<Blob>();
+		var index = -1;
 		foreach ( var module in tabs )
 		{
 			var isShown = module.Id == shown;
-			void Show() => context.Run( () =>
+			if ( isShown )
+				index = items.Count;
+			items.Add( BuildNavItem( module, isShown ) );
+		}
+
+		// One selection rectangle behind the items moves between them, rather than each item lighting up on its own.
+		if ( index >= 0 )
+		{
+			var duration = context.App.Settings.Get( ShellSettings.MoveDuration );
+			items.Insert( 0, new Container
 			{
-				_tab.Value = module.Id;
-				_focus.Value = "";
-			} );
-			children.Add( new Button
-			{
-				Key = "tab:" + module.Id,
-				Padding = new Edges( theme.Spacing, theme.Spacing * 1.5 ),
-				Margin = new Edges( 0, 0, -theme.BorderWidth, 0 ),
-				BackgroundColor = Color.Transparent,
-				BorderColor = isShown ? theme.Accent : Color.Transparent,
-				BorderWidth = new Edges( 0, 0, 2, 0 ),
-				Color = isShown ? theme.Text : theme.Muted,
-				Focusable = true,
-				Cursor = Cursor.Pointer,
-				AccessibilityName = isShown ? $"{module.Title} settings, shown" : $"{module.Title} settings",
-				OnClick = Show,
-				KeyBindings =
-				[
-					new( Key.Enter, KeyModifiers.None, Show ),
-					new( Key.Space, KeyModifiers.None, Show ),
-				],
-				HoverStyle = new Style { Color = theme.Text },
-				FocusStyle = new Style { Color = theme.Text },
-				Children = [new Text { Content = module.Title, FontWeight = isShown ? TitleWeight : 400 }],
+				Key = "selection",
+				Position = PositionType.Absolute,
+				Left = 0,
+				Right = 0,
+				Top = index * (NavItemHeight + NavItemGap),
+				Height = NavItemHeight,
+				BorderRadius = theme.Radius,
+				BackgroundColor = theme.Hover,
+				LayoutTransition = duration > 0 ? new( duration, Easing.EaseOut ) : null,
 			} );
 		}
 
-		return new Row
+		children.Add( new Container { Key = "modules", Gap = NavItemGap, Children = items } );
+
+		return new Container
 		{
-			Key = "tabs",
-			AccessibilityRole = AccessibilityRole.Toolbar,
-			AccessibilityName = "Module settings",
-			FlexWrap = FlexWrap.Wrap,
-			Gap = theme.Spacing,
-			Margin = new Edges( theme.Spacing, 0, 0, 0 ),
-			BorderColor = theme.Border,
-			BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
+			Key = "sidebar",
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = "Settings sections",
+			Width = SidebarWidth,
+			FlexShrink = 0,
+			Padding = new Edges( ContentPadding * 0.75, theme.Spacing * 1.25 ),
+			Gap = 0,
+			OverflowY = Overflow.Scroll,
+			BorderColor = theme.Divider,
+			BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
 			Children = children,
+		};
+	}
+
+	/// <summary>Builds one module's link in the sidebar, bright and bold when shown; the selection rectangle behind it marks it.</summary>
+	private Button BuildNavItem( ModuleInfo module, bool isShown )
+	{
+		var theme = Theme.Current;
+		void Show() => context.Run( () =>
+		{
+			_tab.Value = module.Id;
+			_ = _main.ScrollTo( null, 0 );
+			_query.Value = "";
+			_focus.Value = "";
+		} );
+		return new Button
+		{
+			Key = "tab:" + module.Id,
+			Height = NavItemHeight,
+			Padding = new Edges( 0, theme.Spacing * 1.25 ),
+			JustifyContent = JustifyContent.Center,
+			AlignItems = AlignItems.FlexStart,
+			BorderRadius = theme.Radius,
+			BackgroundColor = Color.Transparent,
+			Color = isShown ? theme.Text : theme.Muted,
+			Focusable = true,
+			Cursor = Cursor.Pointer,
+			AccessibilityName = isShown ? $"{module.Title} settings, shown" : $"{module.Title} settings",
+			OnClick = Show,
+			KeyBindings =
+			[
+				new( Key.Enter, KeyModifiers.None, Show ),
+				new( Key.Space, KeyModifiers.None, Show ),
+			],
+			HoverStyle = isShown ? new Style { Color = theme.Text } : new Style { Color = theme.Text, BackgroundColor = theme.Raised },
+			FocusStyle = new Style { Color = theme.Text, BorderColor = theme.Accent },
+			BorderWidth = theme.BorderWidth,
+			BorderColor = Color.Transparent,
+			Children = [new Text { Content = module.Title, FontWeight = isShown ? TitleWeight : 400, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis }],
 		};
 	}
 

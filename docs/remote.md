@@ -604,6 +604,7 @@ data folder.
 | Frame | Answer |
 |---|---|
 | `cap.list {}` | `{ windows: [{ hwnd, title, process, w, h }] }` |
+| `cap.preview { hwnd, icon? }` | `{ jpeg?, minimized, icon? }` (base64): one capture at most 400 pixels wide, none while `minimized`; with `icon: true`, the window's icon as 32×32 premultiplied RGBA |
 | `cap.start { hwnd, fps, quality, maxWidth?, maxHeight?, codecs?, resolution?: { w, h } }` | `{ cap, codec, resolution?: { w?, h?, message? } }`; host pushes `cap.frame { cap, w, h, codec, jpeg \| data }` (base64) at most `fps` per second, with at most 3 frames waiting for the client's `cap.ack { cap }`; each ack frees one |
 | ● `cap.input { cap, kind: "move"|"down"|"up"|"wheel"|"key", x, y, button?, delta?, vk?, down? }` | `{}` (x, y in frame pixels) |
 | `cap.stop { cap }` | `{}` |
@@ -613,7 +614,7 @@ data folder.
 the host pushes `cap.end` when a capture fails (for example the window closed) and the stream is gone.
 `cap.input` units: `button` as in the DOM (0 left, 1 middle, 2 right, 3 back, 4 forward), `delta` in
 Windows wheel units (120 per notch, positive scrolls up), `vk` a Windows virtual-key code, `down`
-true on press for `key`. `cap.list`, `cap.start` and `cap.input` answer `err scope` to a view-only
+true on press for `key`. `cap.list`, `cap.preview`, `cap.start` and `cap.input` answer `err scope` to a view-only
 device. Input requests are handled in arrival order. Keys and clicks are sent only while the
 streamed window, or a window it owns, is in the foreground; otherwise they are dropped.
 
@@ -622,6 +623,10 @@ Screens: since Remote 2.9.0 `cap.list` lists the host's screens before its windo
 screen's size in physical pixels (`ScreenCatalog`). A screen streams through Windows.Graphics.Capture with the
 pointer drawn in; its `cap.input` maps frame pixels to the screen's bounds and goes to whatever has the
 focus, with no foreground check. An older host lists no screens; an older client shows them as windows.
+
+Previews: since Remote 2.13.0 the stream panel shows each listed window as a tile with a `cap.preview`
+capture, three requests at a time, and asks for the icon once per process. An older host answers an
+error, and the panel shows the tile without a picture and with the process's first letter.
 
 Frame size: since Remote 2.11.0 frames keep the source's full size, scaled down only to fit `maxWidth`
 and `maxHeight` (physical pixels; missing or 0 means no cap, and frames are never scaled up). The stream

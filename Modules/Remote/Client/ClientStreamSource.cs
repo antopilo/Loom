@@ -52,6 +52,11 @@ public sealed class ClientStreamSource : IStreamSource
 	public Task<IReadOnlyList<CaptureWindow>> ListAsync( CancellationToken cancellation ) =>
 		(_current ?? throw new IOException( "Not connected to the host." )).ListAsync( cancellation );
 
+	/// <summary>Reads a preview of one of the host's windows.</summary>
+	/// <exception cref="IOException">The client is not connected.</exception>
+	public Task<WindowPreview> PreviewAsync( long window, bool withIcon, CancellationToken cancellation ) =>
+		(_current ?? throw new IOException( "Not connected to the host." )).PreviewAsync( window, withIcon, cancellation );
+
 	/// <summary>Starts streaming a window of the host.</summary>
 	/// <exception cref="IOException">The client is not connected.</exception>
 	public Task<string?> StartAsync( long window, CaptureOptions options, CancellationToken cancellation ) =>

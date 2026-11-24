@@ -20,11 +20,12 @@ internal static class RemoteStreamChecks
 	internal static async Task RunAsync()
 	{
 		await CheckStreamAsync();
+		await CheckPreviewAsync();
 		await CheckViewOnlyAsync();
 		await CheckCaptureLimitAsync();
 		await CheckCaptureFailureAsync();
 		await CheckCloseAsync();
-		Console.WriteLine( "PASS remote stream: cap.list, cap.start with at most CaptureSession.MaxInFlight frames waiting for cap.ack, cap.* with the control scope only, the capture limit, cap.stop, cap.end on capture failure, and cleanup on close." );
+		Console.WriteLine( "PASS remote stream: cap.list, cap.preview, cap.start with at most CaptureSession.MaxInFlight frames waiting for cap.ack, cap.* with the control scope only, the capture limit, cap.stop, cap.end on capture failure, and cleanup on close." );
 	}
 
 	/// <summary>Checks listing, starting, acknowledgement gating, input and stopping for a controlling device.</summary>
@@ -65,6 +66,16 @@ internal static class RemoteStreamChecks
 		CoreChecks.Check( !await ArrivesAsync( frames ), "No frame follows cap.stop." );
 	}
 
+	/// <summary>Checks that cap.preview answers one encoded capture of the window and releases its capturer.</summary>
+	private static async Task CheckPreviewAsync()
+	{
+		var capturer = new FakeCapturer();
+		await using var pair = Connect( BuildService( _ => capturer, null ), canControl: true );
+		var preview = await pair.Source.PreviewAsync( Window, withIcon: true, CancellationToken.None ).WaitAsync( Patience );
+		CoreChecks.Check( preview.Jpeg is { Length: > 0 } && !preview.IsMinimized, "cap.preview answers the window's capture." );
+		CoreChecks.Check( capturer.IsDisposed, "cap.preview releases its capturer." );
+	}
+
 	/// <summary>Checks that a connection streams at most <see cref="StreamService.MaxCaptures"/> windows at once.</summary>
 	private static async Task CheckCaptureLimitAsync()
 	{
@@ -87,6 +98,7 @@ internal static class RemoteStreamChecks
 		await using var pair = Connect( service, canControl: false );
 		CoreChecks.Check( !pair.Source.CanControl, "A view-only source reports it cannot control." );
 		CoreChecks.Check( await RequestCodeAsync( pair, Frame.Create( "cap.list" ) ) == RemoteErrors.Scope, "cap.list from a view-only device is refused with scope." );
+		CoreChecks.Check( await RequestCodeAsync( pair, BuildPreview() ) == RemoteErrors.Scope, "cap.preview from a view-only device is refused with scope." );
 		CoreChecks.Check( await RequestCodeAsync( pair, BuildStart() ) == RemoteErrors.Scope && Volatile.Read( ref started ) == 0, "cap.start from a view-only device is refused with scope and captures nothing." );
 
 		var request = Frame.Create( "cap.input" );
@@ -103,6 +115,14 @@ internal static class RemoteStreamChecks
 		var start = Frame.Create( "cap.start" );
 		start["hwnd"] = Window;
 		return start;
+	}
+
+	/// <summary>Builds a <c>cap.preview</c> request for the fake window.</summary>
+	private static JsonObject BuildPreview()
+	{
+		var preview = Frame.Create( "cap.preview" );
+		preview["hwnd"] = Window;
+		return preview;
 	}
 
 	/// <summary>Sends a request and returns the error code it was refused with, or null when it succeeded.</summary>

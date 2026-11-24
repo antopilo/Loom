@@ -36,6 +36,13 @@ public sealed class LocalStreamSource : IStreamSource, IDisposable
 	/// moves the pointer the panel reads.</summary>
 	public Task<IReadOnlyList<CaptureWindow>> ListAsync( CancellationToken cancellation ) => Task.Run( WindowCatalog.List, cancellation );
 
+	/// <summary>Reads a preview of a window of this PC with the capturer a stream of it would use.</summary>
+	/// <exception cref="InvalidOperationException">A screen was asked for.</exception>
+	public Task<WindowPreview> PreviewAsync( long window, bool withIcon, CancellationToken cancellation ) =>
+		ScreenCatalog.IsScreen( window )
+			? throw new InvalidOperationException( "Loom cannot stream the screen of the PC it runs on." )
+			: WindowPreviews.ReadAsync( window, withIcon, _open ?? (hwnd => WindowCapturers.Open( (nint)hwnd )), null, cancellation );
+
 	/// <summary>Starts capturing a window of this PC, and follows what agents do in it (<see cref="AgentWindowActivity"/>).</summary>
 	/// <returns>Null: a window has no resolution to switch.</returns>
 	/// <exception cref="InvalidOperationException">The window does not exist, or a screen was asked for.</exception>

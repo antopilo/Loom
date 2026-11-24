@@ -22,6 +22,13 @@ public interface IStreamSource
 	/// <summary>Lists the windows the host can stream (<c>cap.list</c>).</summary>
 	Task<IReadOnlyList<CaptureWindow>> ListAsync( CancellationToken cancellation );
 
+	/// <summary>Reads a preview of a window or screen for the picker (<c>cap.preview</c>): one small capture and, when asked, its icon.</summary>
+	/// <param name="window">The window's <see cref="CaptureWindow.Hwnd"/>.</param>
+	/// <param name="withIcon">Whether to read the window's icon too.</param>
+	/// <param name="cancellation">Cancels the request.</param>
+	/// <exception cref="RemoteException">The host has no previews, such as one before Remote 2.13.0, or the window is gone.</exception>
+	Task<WindowPreview> PreviewAsync( long window, bool withIcon, CancellationToken cancellation );
+
 	/// <summary>Starts streaming a window (<c>cap.start</c>), stopping any stream already running.</summary>
 	/// <param name="window">The window's <see cref="CaptureWindow.Hwnd"/>.</param>
 	/// <param name="options">The frame rate, quality, size cap, codec and, for a screen, the resolution to switch it to.</param>

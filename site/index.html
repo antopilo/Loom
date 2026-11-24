@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Loom · A native workspace for coding agents</title>
+	<meta name="description" content="Loom is a native Windows workspace for AI coding agents. Chats, terminals, Git, a browser and your own tools, docked side by side.">
+	<meta name="theme-color" content="#0b0a09">
+	<meta property="og:title" content="Loom · A native workspace for coding agents">
+	<meta property="og:description" content="Chats, terminals, Git, a browser and your own tools, docked side by side. Native C# on .NET 10.">
+	<link rel="icon" href="loom.svg" type="image/svg+xml">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+	<link rel="stylesheet" href="site.css">
+</head>
+<body>
+	<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+		<defs>
+			<mask id="loom-gap" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+				<rect width="64" height="64" fill="#fff"/>
+				<path d="M8 36C16 22 24 46 32 32S48 18 56 28" stroke="#000" stroke-width="14" fill="none" stroke-linecap="round"/>
+			</mask>
+			<symbol id="loom" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-linecap="round">
+				<circle cx="32" cy="32" r="20" stroke-width="6" mask="url(#loom-gap)"/>
+				<path d="M8 36C16 22 24 46 32 32S48 18 56 28" stroke-width="6"/>
+			</symbol>
+			<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+			<symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></symbol>
+			<symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M9 5.5v13"/></symbol>
+			<symbol id="i-term" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="m7.5 10 2.5 2-2.5 2M12 15h4"/></symbol>
+			<symbol id="i-git" viewBox="0 0 24 24"><circle cx="6.5" cy="5.5" r="2"/><circle cx="6.5" cy="18.5" r="2"/><circle cx="17.5" cy="8.5" r="2"/><path d="M6.5 7.5v9M17.5 10.5c0 4-11 2-11 6"/></symbol>
+			<symbol id="i-pr" viewBox="0 0 24 24"><circle cx="6.5" cy="5.5" r="2"/><circle cx="6.5" cy="18.5" r="2"/><circle cx="17.5" cy="18.5" r="2"/><path d="M6.5 7.5v9M17.5 16.5V9a2.5 2.5 0 0 0-2.5-2.5h-4M12.5 4.5l-2 2 2 2"/></symbol>
+			<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c3 3.2 3 13.8 0 17M12 3.5c-3 3.2-3 13.8 0 17"/></symbol>
+			<symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7l-4 3v-3H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5zM8 10h8M8 13h5"/></symbol>
+			<symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+			<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+			<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+			<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+			<symbol id="i-file" viewBox="0 0 24 24"><path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4"/></symbol>
+			<symbol id="i-tree" viewBox="0 0 24 24"><path d="M3.5 6.5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></symbol>
+			<symbol id="i-newproj" viewBox="0 0 24 24"><path d="M3.5 6.5a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v3M11 18.5H4.5a1 1 0 0 1-1-1v-11"/><circle cx="17" cy="16.5" r="3.5"/><path d="M17 15v3M15.5 16.5h3"/></symbol>
+			<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6.5 16V11a5.5 5.5 0 0 1 11 0v5l1.5 1.5H5zM10 20h4"/></symbol>
+			<symbol id="i-pin" viewBox="0 0 24 24"><path d="M14.5 4.5l5 5-3 1-3.5 3.5.5 3.5-1.5 1.5-3-3-4 4M8 12.5l3.5-3.5 1-3z"/></symbol>
+			<symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+			<symbol id="i-branch" viewBox="0 0 24 24"><circle cx="7" cy="6" r="2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="7" r="2"/><path d="M7 8v8M17 9c0 5-10 3-10 7"/></symbol>
+			<symbol id="i-report" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M8 16v-4M12 16V8M16 16v-6"/></symbol>
+			<symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></symbol>
+			<symbol id="i-note" viewBox="0 0 24 24"><path d="M5 4.5h14v15H5zM8.5 9h7M8.5 12.5h7M8.5 16h4"/></symbol>
+			<symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+			<symbol id="i-fwd" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+			<symbol id="i-reload" viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.1-5M19 4.5V8h-3.5"/></symbol>
+			<symbol id="i-list" viewBox="0 0 24 24"><path d="M9 7h11M9 12h11M9 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01"/></symbol>
+			<symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4.5h5.5V10M19.5 4.5 11 13M17 13.5v5a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h5"/></symbol>
+			<symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v12M7 12l5 5 5-5M5 20h14"/></symbol>
+			<symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V7M7 12l5-5 5 5M5 4h14"/></symbol>
+			<symbol id="cap-min" viewBox="0 0 10 10"><path d="M0 5h10"/></symbol>
+			<symbol id="cap-max" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9"/></symbol>
+			<symbol id="cap-close" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10"/></symbol>
+		</defs>
+	</svg>
+
+	<canvas id="weave" aria-hidden="true"></canvas>
+	<div class="grain" aria-hidden="true"></div>
+	<div class="vignette" aria-hidden="true"></div>
+	<div class="progress" aria-hidden="true"></div>
+
+	<header class="top">
+		<a class="brand" href="#top"><svg><use href="#loom"/></svg>Loom</a>
+		<nav class="nav">
+			<a href="https://github.com/antopilo/Loom/blob/main/docs/features.md">Docs</a>
+			<a href="https://github.com/antopilo/loom-modules">Modules ↗</a>
+			<a href="https://github.com/antopilo/Loom">GitHub ↗</a>
+			<a class="btn" href="#get">Download</a>
+		</nav>
+	</header>
+
+	<nav class="rail" aria-label="Sections">
+		<a href="#film"><span class="label">Film</span>01</a>
+		<a href="#chat"><span class="label">Chat</span>02</a>
+		<a href="#workspace"><span class="label">Workspace</span>03</a>
+		<a href="#background"><span class="label">Background</span>04</a>
+		<a href="#tools"><span class="label">Tools</span>05</a>
+		<a href="#agents"><span class="label">Agents</span>06</a>
+		<a href="#modules"><span class="label">Modules</span>07</a>
+		<a href="#everywhere"><span class="label">Everywhere</span>08</a>
+		<a href="#themes"><span class="label">Themes</span>09</a>
+		<span class="hint">PRESS 1–9</span>
+	</nav>
+
+	<main>
+		<!-- ================= HERO ================= -->
+		<section class="hero" id="top">
+			<div class="badge reveal"><i></i>v0.4.11 · Windows 11</div>
+			<h1 class="reveal" style="--d:.08s">
+				<span class="woven">Every agent,</span>
+				<span class="mid">woven into</span>
+				<span>one workspace.</span>
+			</h1>
+			<p class="lede reveal" style="--d:.18s">Chats, terminals, Git, a browser and your own tools, docked side by side. A native app for coding agents, not a web page in a frame.</p>
+			<div class="ctas reveal" style="--d:.26s">
+				<a class="btn primary big" href="https://github.com/antopilo/Loom/releases/latest">Download for Windows <span class="arrow">→</span></a>
+				<a class="btn big" href="#film">Watch the film</a>
+			</div>
+
+			<div class="hero-shot reveal" style="--d:.3s">
+				<div class="win" style="height:660px">
+					<div class="titlebar" data-title="Fix the ask form" data-bell="3"></div>
+					<div class="body">
+						<aside class="side">
+							<div class="row host"><span class="dot"></span>This PC<svg class="ico chev" style="width:11px;height:11px;color:var(--c-text)"><use href="#i-chev"/></svg></div>
+							<div class="row"><svg class="ico"><use href="#i-plus"/></svg>New chat</div>
+							<div class="row"><svg class="ico"><use href="#i-search"/></svg>Search</div>
+							<div class="row"><svg class="ico"><use href="#i-newproj"/></svg>New project</div>
+							<div class="row"><svg class="ico"><use href="#i-tree"/></svg>Files</div>
+							<div class="row"><svg class="ico"><use href="#i-bell"/></svg>Notifications</div>
+							<div class="row proj"><svg class="ico" style="color:var(--c-text)"><use href="#loom"/></svg>Loom<svg class="ico chev"><use href="#i-chev"/></svg></div>
+							<div class="row on"><svg class="ico"><use href="#i-chat"/></svg>Fix the ask form<span class="r spin"></span></div>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg>Add /plan and /goal</div>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg><svg class="ico"><use href="#i-globe"/></svg>Remote stream flicker<span class="r dot attn"></span></div>
+							<div class="row"><svg class="ico"><use href="#i-git"/></svg>Git<svg class="ico pin"><use href="#i-pin"/></svg></div>
+							<div class="row"><svg class="ico"><use href="#i-term"/></svg>Terminal<svg class="ico pin"><use href="#i-pin"/></svg></div>
+							<div class="row proj"><span class="picon" style="background:#8fb4d9">S</span>sbox-racer<svg class="ico chev"><use href="#i-chev"/></svg></div>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg>Drift handling<span class="r spin"></span></div>
+							<div class="row"><svg class="ico"><use href="#i-pr"/></svg>Pull Requests<svg class="ico pin"><use href="#i-pin"/></svg></div>
+							<h6>Scratch</h6>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg>Regex for semver tags</div>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg>Vulkan 1.3 on laptops</div>
+							<span class="grow"></span>
+							<div class="profiles"><span class="on">💻</span><span>🌿</span></div>
+						</aside>
+						<div class="panes">
+							<div class="pane focus" style="flex:1.3">
+								<div class="chat" id="hero-chat">
+									<div class="msg-user">The ask form never shows, so the chat waits forever. Find out why and fix it.</div>
+									<div class="tools"><svg class="ico"><use href="#i-check"/></svg>Read 6 files, searched 3 times, ran 1 command<svg class="ico chev"><use href="#i-chev"/></svg></div>
+									<div class="msg">Omp now sends the ask tool as a <b>form</b>. <code>AskView</code> only drew plain questions, so it skipped the form and the turn waited for an answer you could not give.</div>
+									<div class="card">
+										<div class="chead"><span class="sq">±</span><span><b>Edited 2 files</b><span class="add">+48</span> <span class="del">−6</span></span><span class="btn2">View changes</span></div>
+										<div class="file"><span><em>Modules\Conversations\Chat\</em>AskView.cs</span><span class="n"><span class="add">+44</span><span class="del">−6</span></span></div>
+										<div class="file"><span><em>Modules\Conversations\Chat\</em>AskForm.cs</span><span class="n"><span class="add">+4</span><span class="del">−0</span></span></div>
+									</div>
+									<div class="tools run"><span class="spin"></span>Running check.ps1 -Suite chat… <span class="t">41s</span></div>
+								</div>
+								<div class="composer">
+									<div class="ctx" style="--r:38%"><span>38%<em>1M</em></span></div>
+									<div class="prompt"><span class="plus">+</span><span class="in" id="hero-type"><span class="ph">Queue a message… (Ctrl+Enter steers)</span></span><span class="q">Queue</span><span class="send stop"></span></div>
+									<div class="below"><svg class="ico"><use href="#i-branch"/></svg>main <span class="add">+48</span><span class="del">−6</span><span class="r"><span>Usage</span><span class="ring" style="--r:62%"></span><b>Claude Opus 5.5</b></span></div>
+								</div>
+							</div>
+							<div class="col hide-sm" style="flex:1">
+								<div class="pane" style="flex:1.05">
+									<div class="term" id="hero-term"></div>
+								</div>
+								<div class="pane" style="flex:1">
+									<div class="ptitle"><svg class="ico"><use href="#i-branch"/></svg><b>main</b>↑2<span class="r"><svg class="ico"><use href="#i-reload"/></svg><svg class="ico"><use href="#i-down"/></svg><svg class="ico"><use href="#i-up"/></svg></span></div>
+									<div class="graph">
+										<div class="g on"><span class="lane"></span><span class="h">2f04826</span><s><span class="tag">main</span>feat(chat): run /plan and /goal</s><span class="w">2h</span></div>
+										<div class="g"><span class="lane"></span><span class="h">7313aa7</span><s>feat(chat): show the ask tool's form</s><span class="w">5h</span></div>
+										<div class="g"><span class="lane b"></span><span class="h">f93c59a</span><s><span class="tag b">remote</span>fix(remote): keep frames visible</s><span class="w">1d</span></div>
+										<div class="g"><span class="lane"></span><span class="h">04b0c84</span><s>docs(release): finalize Loom 0.4.10</s><span class="w">2d</span></div>
+										<div class="g"><span class="lane"></span><span class="h">5d0f1b8</span><s>chore(release): prepare Loom 0.4.10</s><span class="w">2d</span></div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<div class="facts reveal">
+				<span>Native C# on .NET 10</span>
+				<span>Drawn with Vulkan</span>
+				<span>Built for Omp</span>
+				<span>Modules reload live</span>
+			</div>
+		</section>
+
+		<!-- ================= 01 FILM ================= -->
+		<section id="film" data-label="Film">
+			<div class="head">
+				<div class="eyebrow reveal"><b>01</b>Film</div>
+				<h2 class="reveal">See it work. <span class="woven">One minute, start to ship.</span></h2>
+			</div>
+			<div class="film reveal" id="film-frame">
+				<video id="film-video" src="media/loom-trailer.mp4" poster="media/loom-trailer.jpg" preload="metadata" playsinline></video>
+				<button class="cover" id="film-play" aria-label="Play the film">
+					<span class="play"><svg viewBox="0 0 24 24"><path d="M6 4.5v15l13-7.5z"/></svg></span>
+					<span class="cap">Play the film · 1:00</span>
+					<span class="soon"><svg><use href="#loom" style="color:var(--copper)"/></svg>The film is on the loom</span>
+				</button>
+				<span class="frame-mark tl">Loom · 0.4.11</span>
+				<span class="frame-mark tr">16:9 · 1080p</span>
+				<span class="frame-mark bl">REC ●</span>
+				<span class="frame-mark br">00:00:00:00</span>
+			</div>
+		</section>
+
+		<!-- ================= 02 CHAT ================= -->
+		<section id="chat" data-label="Chat">
+			<div class="head">
+				<div class="eyebrow reveal"><b>02</b>Chat</div>
+				<h2 class="reveal">Agents talk in cards, <span class="woven">not in walls of text.</span></h2>
+				<p class="lede reveal">Tool calls fold into one line. Edits arrive as cards you open. Questions arrive as forms you answer with one click. <code>/plan</code> writes the plan first, and <code>/goal</code> keeps the agent going until the job is done.</p>
+			</div>
+			<div class="stage glow reveal">
+				<div class="win chat-demo" id="chat-demo">
+					<div class="titlebar" data-title="Drift handling"></div>
+					<div class="panes">
+						<div class="pane focus" style="flex:1">
+							<div class="chat">
+								<div class="msg-user step"><code>/plan</code> Add drift to the car controller. Keep the old grip model as a setting.</div>
+								<div class="tools step"><svg class="ico"><use href="#i-check"/></svg>Read 9 files, searched 4 times<svg class="ico chev"><use href="#i-chev"/></svg></div>
+								<div class="ask step">
+									<div class="q">How should drift start?</div>
+									<div class="why">The controller has no handbrake input yet.</div>
+									<div class="choices"><span class="choice rec" id="ask-rec">Handbrake key</span><span class="choice">Speed and steering angle</span><span class="choice">Both</span></div>
+								</div>
+								<div class="plan step">
+									<div class="phead"><b>Plan</b><span>4 steps · nothing changed yet</span></div>
+									<ol>
+										<li>Add a <code>Handbrake</code> input action and bind it to Space.</li>
+										<li>Split tire friction into grip and slide curves in <code>CarWheel.cs</code>.</li>
+										<li>Add <code>DriftModel</code> with a <code>Grip</code> fallback setting.</li>
+										<li>Tune with the test track, then run the physics tests.</li>
+									</ol>
+									<div class="acts"><span class="mini-btn go">Implement</span><span class="mini-btn">Revise</span></div>
+								</div>
+							</div>
+							<div class="composer">
+								<div class="goal step"><svg class="ico"><use href="#i-check"/></svg><b>Goal</b>All physics tests pass with drift on<span class="r"><span>Pause</span><span>Drop</span></span></div>
+								<div class="ctx" style="--r:22%"><span>22%<em>1M</em></span></div>
+								<div class="prompt"><span class="plus">+</span><span class="in"><span class="ph">Message Loom</span></span><span class="send"><svg class="ico" style="width:14px;height:14px;stroke-width:2.2"><use href="#i-send"/></svg></span></div>
+								<div class="below"><svg class="ico"><use href="#i-branch"/></svg>main<span class="r"><span>Usage</span><span class="ring" style="--r:40%"></span><b>Claude Opus 5.5</b></span></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="points reveal">
+				<div><b>Queue and steer</b>Type while the agent works. Queue the next message, or press Ctrl+Enter to steer the current turn.</div>
+				<div><b>Model routing</b>Pick a model per chat and see your usage limits before you hit them.</div>
+				<div><b>Native dialogs</b>Questions, choices and confirmations are real controls, not prompts in a text box.</div>
+			</div>
+		</section>
+
+		<!-- ================= 03 WORKSPACE ================= -->
+		<section id="workspace" data-label="Workspace">
+			<div class="head">
+				<div class="eyebrow reveal"><b>03</b>Workspace</div>
+				<h2 class="reveal">Split it. Dock it. <span class="woven">Switch it in one key.</span></h2>
+				<p class="lede reveal">Drag any panel to any edge. Save a layout as a workspace and switch with <code>Ctrl Alt →</code>. Panels slide to their new place, and nothing you leave out closes.</p>
+			</div>
+			<div class="stage glow reveal">
+				<div class="win dock-demo">
+					<div class="titlebar" data-title="Fix the ask form" id="ws-title"></div>
+					<div class="dock" id="dock">
+						<div class="pane focus" data-p="chat"><div class="fake chatlike"><i style="width:46%;margin-left:auto" class="u"></i><i style="width:52%"></i><i style="width:90%"></i><i style="width:64%"></i><i style="width:80%" class="cardlike"></i><i style="width:86%"></i><i style="width:58%"></i></div><div class="fake-prompt"></div></div>
+						<div class="pane" data-p="term"><div class="term">PS F:\Lokn&gt; pwsh scripts/check.ps1
+<span class="mu">Building Lokn (Debug)…</span>
+<span class="gr">PASSED</span> default</div></div>
+						<div class="pane" data-p="git"><div class="ptitle"><svg class="ico"><use href="#i-branch"/></svg><b>main</b>↑2</div><div class="fake"><i style="width:80%"></i><i style="width:60%" class="a"></i><i style="width:74%"></i><i style="width:52%"></i></div></div>
+						<div class="pane" data-p="files"><div class="ptitle"><svg class="ico"><use href="#i-tree"/></svg><b>Lokn</b></div><div class="fake"><i style="width:40%"></i><i style="width:56%"></i><i style="width:48%" class="a"></i><i style="width:62%"></i><i style="width:36%"></i></div></div>
+						<div class="pane" data-p="web"><div class="tabs"><span class="on">localhost:5173<svg class="ico x"><use href="#i-x"/></svg></span><svg class="ico" style="width:13px;height:13px"><use href="#i-plus"/></svg></div><div class="fake"><i style="width:30%" class="a"></i><i style="width:88%"></i><i style="width:76%"></i><i style="width:84%"></i></div></div>
+					</div>
+				</div>
+			</div>
+			<div class="tiles reveal" id="tiles"></div>
+		</section>
+
+		<!-- ================= 04 BACKGROUND ================= -->
+		<section id="background" data-label="Background">
+			<div class="head">
+				<div class="eyebrow reveal"><b>04</b>Background</div>
+				<h2 class="reveal">Leave the chat. <span class="woven">The agent keeps working.</span></h2>
+				<p class="lede reveal">Each project and task keeps its own panels and layout. Switch away and its agents keep going. When one finishes or asks a question, Loom tells you, and you can answer from the banner.</p>
+			</div>
+			<div class="stage bg-demo reveal">
+				<div class="win sidebar-only">
+					<div class="titlebar" data-title="" data-compact="1"></div>
+					<div class="body">
+						<aside class="side">
+							<div class="row host"><span class="dot"></span>This PC<svg class="ico chev" style="width:11px;height:11px;color:var(--c-text)"><use href="#i-chev"/></svg></div>
+							<div class="row"><svg class="ico"><use href="#i-plus"/></svg>New chat</div>
+							<div class="row proj"><svg class="ico" style="color:var(--c-text)"><use href="#loom"/></svg>Loom<svg class="ico chev"><use href="#i-chev"/></svg></div>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg>Daemon reconnect test<span class="r spin"></span></div>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg>Theme picker search<span class="r spin"></span></div>
+							<div class="row" id="bg-done"><svg class="ico"><use href="#i-chat"/></svg>Ask form fix<span class="r spin"></span></div>
+							<div class="row proj"><span class="picon" style="background:#8fb4d9">S</span>sbox-racer<svg class="ico chev"><use href="#i-chev"/></svg></div>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg>Drift handling<span class="r spin"></span></div>
+							<div class="row proj"><span class="picon" style="background:#c59bd0">W</span>website<svg class="ico chev"><use href="#i-chev"/></svg></div>
+							<div class="row"><svg class="ico"><use href="#i-chat"/></svg>Hero copy pass<span class="r dot dim"></span></div>
+							<span class="grow"></span>
+							<div class="profiles"><span class="on">💻</span><span>🌿</span></div>
+						</aside>
+					</div>
+				</div>
+				<div class="desk">
+					<div class="elsewhere">Meanwhile, in some other app…
+
+<span style="color:#c7a77f">const</span> launch = <span style="color:#8fbf8a">"Friday"</span>;
+<span style="color:#7d8590">// you are not watching Loom right now</span>
+<span style="color:#7d8590">// and you do not need to</span></div>
+					<div class="toast" id="toast">
+						<div class="from"><svg><use href="#loom"/></svg>Loom<em>now</em></div>
+						<b>Ask form fix needs you</b>
+						<p>Keep the old plain-text fallback for clients that do not send forms?</p>
+						<div class="reply"><span id="toast-reply"></span><i>Reply</i></div>
+					</div>
+					<div class="taskbar"><span></span><span></span><span class="loom"><svg><use href="#loom"/></svg></span><span></span><span></span></div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ================= 05 TOOLS ================= -->
+		<section id="tools" data-label="Tools">
+			<div class="head">
+				<div class="eyebrow reveal"><b>05</b>Tools</div>
+				<h2 class="reveal">Terminal, Git, browser. <span class="woven">Already docked.</span></h2>
+				<p class="lede reveal">A ConPTY terminal. A Git graph with hunk staging and review. Worktrees, a file tree and an editor. A WebView2 browser. GitHub pull requests and their checks. One pane away from the chat that uses them.</p>
+			</div>
+			<div class="stage glow reveal">
+				<div class="win tools-demo">
+					<div class="titlebar" data-title="Hero copy pass"></div>
+					<div class="panes">
+						<div class="pane focus" style="flex:1.1">
+							<div class="ptitle"><svg class="ico"><use href="#i-branch"/></svg><b>main</b>2 changed files<span class="r"><span class="chip">Review</span></span></div>
+							<div class="hunk">
+								<div class="hh">index.astro · −12 +12,3<span class="r"><span>Discard</span><span class="go">Stage</span></span></div>
+								<div class="diff"><div class="c">  &lt;section class="hero"&gt;</div><div class="m">-   &lt;h1&gt;Welcome&lt;/h1&gt;</div><div class="p">+   &lt;h1 class="woven"&gt;</div><div class="p">+     Every agent, woven in.</div><div class="p">+   &lt;/h1&gt;</div><div class="c">    &lt;Hero /&gt;</div></div>
+							</div>
+							<div class="hunk">
+								<div class="hh">site.css · −4 +4,2<span class="r"><span>Discard</span><span>Stage</span></span></div>
+								<div class="diff"><div class="m">-   --accent: #3b82f6;</div><div class="p">+   --accent: #d5a583;</div><div class="p">+   --weave: linear-gradient(…);</div></div>
+							</div>
+						</div>
+						<div class="col" style="flex:1">
+							<div class="pane" style="flex:1.3">
+								<div class="tabs"><span class="on">Weekly agents<svg class="ico x"><use href="#i-x"/></svg></span><svg class="ico" style="width:13px;height:13px"><use href="#i-plus"/></svg></div>
+								<div class="addr"><svg class="ico"><use href="#i-back"/></svg><svg class="ico"><use href="#i-reload"/></svg><span>localhost:4321</span></div>
+								<div class="browser">
+									<div class="page"><h4>Weekly agents</h4><p>Turns finished per day</p><div class="bars"><i style="--h:40%;--d:.1s"></i><i style="--h:62%;--d:.2s"></i><i style="--h:48%;--d:.3s"></i><i style="--h:80%;--d:.4s"></i><i style="--h:70%;--d:.5s"></i><i style="--h:95%;--d:.6s"></i><i style="--h:58%;--d:.7s"></i></div></div>
+								</div>
+							</div>
+							<div class="pane" style="flex:1">
+								<div class="ptitle"><svg class="ico"><use href="#i-pr"/></svg><b>#48</b>Hero copy pass</div>
+								<div class="checks">
+									<div><svg class="ico ok-ico"><use href="#i-check"/></svg>build<em>1m 12s</em></div>
+									<div><svg class="ico ok-ico"><use href="#i-check"/></svg>lint<em>18s</em></div>
+									<div><svg class="ico ok-ico"><use href="#i-check"/></svg>e2e · chromium<em>2m 40s</em></div>
+									<div><span class="spin" style="margin:0 2px"></span>deploy preview<em>running</em></div>
+								</div>
+							</div>
+						</div>
+						<div class="pane hide-sm" style="flex:.9">
+							<div class="term">PS F:\website&gt; npm run dev
+
+  <span class="gr">astro</span>  v5.2  <span class="mu">ready in 412 ms</span>
+
+  ┃ Local    <span class="bl">http://localhost:4321/</span>
+  ┃ Network  <span class="mu">use --host</span>
+
+<span class="mu">14:02:11</span> <span class="gr">[200]</span> /
+<span class="mu">14:02:11</span> <span class="gr">[200]</span> /styles/site.css
+<span class="mu">14:02:19</span> <span class="ye">[hmr]</span> index.astro
+<span class="mu">14:02:19</span> <span class="gr">[200]</span> /</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="points reveal">
+				<div><b>Worktrees</b>Give each task its own branch and folder. See size, build and status at a glance.</div>
+				<div><b>Review</b>Stage, discard and comment by hunk. Send review notes straight back to the agent.</div>
+				<div><b>Terminal</b>Full ConPTY with colors, the alternate screen and the mouse. It runs what your shell runs.</div>
+			</div>
+		</section>
+
+		<!-- ================= 06 AGENTS ================= -->
+		<section id="agents" data-label="Agents">
+			<div class="head">
+				<div class="eyebrow reveal"><b>06</b>Agents</div>
+				<h2 class="reveal">Your agent uses the app, <span class="woven">not only the shell.</span></h2>
+				<p class="lede reveal">Through Loom's tools, an agent opens panels, enters worktrees, drives the browser and shows HTML reports. You watch each step happen in your own layout.</p>
+			</div>
+			<div class="stage glow reveal">
+				<div class="win agent-demo">
+					<div class="titlebar" data-title="Pricing page speed"></div>
+					<div class="dock" id="ag-dock">
+						<div class="pane focus" data-p="chat">
+							<div class="chat">
+								<div class="msg-user">Make the pricing page faster, then show me before and after.</div>
+								<div class="tools step" data-s="1"><span class="st spin"></span>worktrees_enter <em>perf/pricing</em></div>
+								<div class="tools step" data-s="2"><span class="st spin"></span>shell_open_panel <em>terminal</em></div>
+								<div class="tools step" data-s="3"><span class="st spin"></span>browser_show <em>localhost:4321/pricing</em></div>
+								<div class="tools step" data-s="4"><span class="st spin"></span>browser_show <em>before-after.html</em></div>
+								<div class="msg step" data-s="5">Pricing now loads in <b>0.9 s</b> instead of <b>2.7 s</b>. The report is open on the right.</div>
+							</div>
+							<div class="composer">
+								<div class="prompt"><span class="plus">+</span><span class="in"><span class="ph">Message Loom</span></span><span class="send"><svg class="ico" style="width:14px;height:14px;stroke-width:2.2"><use href="#i-send"/></svg></span></div>
+								<div class="below"><svg class="ico"><use href="#i-branch"/></svg><span id="ag-branch">main</span><span class="r"><b>Claude Opus 5.5</b></span></div>
+							</div>
+						</div>
+						<div class="pane gone" data-p="term">
+							<div class="term">PS F:\website&gt; npm run build
+<span class="gr">✓</span> 42 pages <span class="mu">in 3.1s</span>
+PS F:\website&gt; npx lighthouse :4321/pricing
+<span class="ye">LCP</span> 2.7s → <span class="gr">0.9s</span></div>
+						</div>
+						<div class="pane gone" data-p="web">
+							<div class="tabs"><span class="on">Pricing<svg class="ico x"><use href="#i-x"/></svg></span></div>
+							<div class="addr"><svg class="ico"><use href="#i-back"/></svg><svg class="ico"><use href="#i-reload"/></svg><span>localhost:4321/pricing</span></div>
+							<div class="browser"><div class="page"><h4>Pricing</h4><p>Simple plans for teams of any size.</p><div class="bars"><i style="--h:50%;--d:0s"></i><i style="--h:75%;--d:.1s"></i><i style="--h:100%;--d:.2s"></i></div></div></div>
+						</div>
+						<div class="pane gone" data-p="report">
+							<div class="tabs"><span>Pricing</span><span class="on">before-after.html<svg class="ico x"><use href="#i-x"/></svg></span></div>
+							<div class="report">
+								<h5>Pricing page</h5>
+								<table>
+									<tr><td>Largest paint</td><td>2.7s → 0.9s</td></tr>
+									<tr><td>JavaScript</td><td>412 KB → 96 KB</td></tr>
+									<tr><td>Requests</td><td>58 → 21</td></tr>
+									<tr><td>Score</td><td>61 → 98</td></tr>
+								</table>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ================= 07 MODULES ================= -->
+		<section id="modules" data-label="Modules">
+			<div class="head">
+				<div class="eyebrow reveal"><b>07</b>Modules</div>
+				<h2 class="reveal">Change the app <span class="woven">from inside the app.</span></h2>
+				<p class="lede reveal">Every feature in Loom is a module. Yours is a folder of <code>.cs</code> files: save it, and Loom compiles it and swaps it in while it runs. Install modules other people wrote from the community hub, or send yours.</p>
+			</div>
+			<div class="stage glow reveal">
+				<div class="win mod-demo">
+					<div class="titlebar" data-title="Notes module"></div>
+					<div class="panes">
+						<div class="pane focus" style="flex:1.5">
+							<div class="tabs"><span class="on">NotesModule.cs<span id="mod-dirty"></span><svg class="ico x"><use href="#i-x"/></svg></span></div>
+<pre class="code" id="mod-code"><div><span class="k">public sealed class</span> <span class="ty">NotesModule</span> : <span class="ty">ILoknModule</span></div><div>{</div><div>	<span class="k">public string</span> Id =&gt; <span class="s">"notes"</span>;</div><div>	<span class="k">public string</span> Title =&gt; <span class="s">"Notes"</span>;</div><div></div><div>	<span class="k">public void</span> <span class="fn">Register</span>( <span class="ty">ModuleBuilder</span> builder )</div><div>	{</div><div>		builder.<span class="fn">Panel</span>( <span class="s">"note"</span>, <span class="s">"Note"</span>, context =&gt; <span class="k">new</span> <span class="ty">NoteContent</span>( context ) );</div><div>	}</div><div>}</div><div></div><div><span class="k">internal sealed class</span> <span class="ty">NoteContent</span>( <span class="ty">PanelContext</span> context ) : <span class="ty">PanelContent</span></div><div>{</div><div>	<span class="k">private readonly</span> <span class="ty">State</span>&lt;<span class="k">string</span>&gt; _text = <span class="k">new</span>( <span class="s">""</span> );</div><div></div><div>	<span class="k">public override</span> <span class="ty">Blob</span> <span class="fn">Build</span>() =&gt; <span class="k">new</span> <span class="ty">Column</span></div><div>	{</div><div>		Children =</div><div>		[</div><div>			<span class="k">new</span> <span class="ty">TextEntry</span> { Value = _text.Value, Placeholder = <span class="s">"Write a note…"</span> },</div><div id="mod-line" class="hl">			<span class="cm">// …</span></div><div>		],</div><div>	};</div><div>}</div></pre>
+						</div>
+						<div class="col" style="flex:1">
+							<div class="pane" style="flex:1.2" id="mod-panel-wrap">
+								<div class="note-panel" id="mod-panel">
+									<div class="entry">Write a note…</div>
+									<div class="count">0 words</div>
+								</div>
+							</div>
+							<div class="pane" style="flex:1">
+								<div class="log" id="mod-log"></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="hub reveal">
+				<span><svg class="ico"><use href="#i-cube"/></svg>Community hub<em>Settings › Modules</em></span>
+				<span>Install<em>one click</em></span>
+				<span>Reviewed<em>before it joins</em></span>
+				<span>Updates<em>automatic</em></span>
+			</div>
+		</section>
+
+		<!-- ================= 08 EVERYWHERE ================= -->
+		<section id="everywhere" data-label="Everywhere">
+			<div class="head">
+				<div class="eyebrow reveal"><b>08</b>Everywhere<span class="preview-tag">Preview</span></div>
+				<h2 class="reveal">Your PC runs the agents. <span class="woven">Watch them from anywhere.</span></h2>
+				<p class="lede reveal">Run Loom as a background daemon. Loom on another PC, or the browser on your phone, shows the same chats live, with window and screen streams when you need to see more.</p>
+			</div>
+			<div class="stage net reveal" id="net">
+				<svg class="wires" id="wires" aria-hidden="true">
+					<defs>
+						<linearGradient id="wg1" x1="0" x2="1"><stop offset="0" stop-color="#f0d69e"/><stop offset="1" stop-color="#d5a583"/></linearGradient>
+						<linearGradient id="wg2" x1="0" x2="1"><stop offset="0" stop-color="#e0857c"/><stop offset="1" stop-color="#c59bd0"/></linearGradient>
+					</defs>
+					<path id="w-left" stroke="url(#wg1)"/>
+					<path id="w-mid" stroke="#d5a583"/>
+					<path id="w-right" stroke="url(#wg2)"/>
+				</svg>
+				<div class="node" id="n-left" style="left:0;top:0;width:330px">
+					<div class="win mini-win">
+						<div class="titlebar" data-title="Ship the release" data-compact="1"></div>
+						<div class="panes"><div class="pane focus" style="flex:1"><div class="chat"><div class="msg-user">Ship it when the checks pass.</div><div class="tools run"><span class="spin"></span>Running checks · 3 / 5</div></div></div></div>
+					</div>
+					<div class="dev-label"><i style="background:#f0d69e">L</i>Laptop<em>Loom client</em></div>
+				</div>
+				<div class="node" id="n-mid" style="left:50%;top:0;width:360px;transform:translateX(-50%)">
+					<div class="win mini-win">
+						<div class="titlebar" data-title="Ship the release" data-compact="1"></div>
+						<div class="panes"><div class="pane focus" style="flex:1"><div class="chat"><div class="msg-user">Ship it when the checks pass.</div><div class="tools run"><span class="spin"></span>Running checks · 3 / 5</div><div class="msg" style="font-size:12px;color:var(--c-muted)">Same chat, same turn, live.</div></div></div></div>
+					</div>
+					<div class="dev-label" style="justify-content:center"><i style="background:#d5a583">D</i>Desk PC<em>runs the agents</em></div>
+				</div>
+				<div class="node" id="n-right" style="right:0;top:-10px">
+					<div class="phone">
+						<div class="screen">
+							<div class="notch"><span>9:41</span><span>●●●</span></div>
+							<div class="chat"><div class="msg-user">Ship it when the checks pass.</div><div class="tools run"><span class="spin"></span>3 / 5 checks</div></div>
+							<div class="composer"><div class="prompt"><span class="in"><span id="phone-type"></span><span class="caret"></span></span></div></div>
+						</div>
+					</div>
+					<div class="dev-label"><i style="background:#c59bd0">P</i>Phone<em class="typing">web client</em></div>
+				</div>
+				<div class="hostnode" id="n-host"><svg><use href="#loom"/></svg>Loom.exe --host<em>· 3 clients</em></div>
+				<span class="netlabel" id="l-left">LAN</span>
+				<span class="netlabel" id="l-right">Tailscale</span>
+			</div>
+		</section>
+
+		<!-- ================= 09 THEMES ================= -->
+		<section id="themes" data-label="Themes">
+			<div class="head">
+				<div class="eyebrow reveal"><b>09</b>Themes</div>
+				<h2 class="reveal">Loom's own colors, <span class="woven">or a hundred more.</span></h2>
+				<p class="lede reveal">Loom ships its own warm theme and the whole Tern theme catalog, with a live preview. Pick one here: every window on this page follows.</p>
+			</div>
+			<div class="themes reveal" id="themes-list"></div>
+			<div class="stage glow reveal">
+				<div class="win theme-demo">
+					<div class="titlebar" data-title="CI build fails"></div>
+					<div class="panes">
+						<div class="pane focus" style="flex:1.2">
+							<div class="chat">
+								<div class="msg-user">Why does the build fail on CI only?</div>
+								<div class="tools"><svg class="ico"><use href="#i-check"/></svg>Read 3 files, ran 2 commands<svg class="ico chev"><use href="#i-chev"/></svg></div>
+								<div class="msg">CI runs <code>dotnet</code> 10.0.300, and <code>global.json</code> asks for 10.0.401. Roll forward to the latest patch:</div>
+								<div class="card">
+									<div class="chead"><span class="sq">±</span><span><b>Edited 1 file</b><span class="add">+1</span> <span class="del">−1</span></span><span class="btn2">View changes</span></div>
+									<div class="file"><span>global.json</span><span class="n"><span class="add">+1</span><span class="del">−1</span></span></div>
+								</div>
+							</div>
+							<div class="composer">
+								<div class="prompt"><span class="plus">+</span><span class="in"><span class="ph">Message Loom</span></span><span class="send"><svg class="ico" style="width:14px;height:14px;stroke-width:2.2"><use href="#i-send"/></svg></span></div>
+								<div class="below"><svg class="ico"><use href="#i-branch"/></svg>main<span class="r"><b>Claude Opus 5.5</b></span></div>
+							</div>
+						</div>
+						<div class="pane hide-sm" style="flex:1">
+							<div class="term">PS F:\Lokn&gt; pwsh scripts/check.ps1
+<span class="mu">build</span>      <span class="gr">ok</span>
+<span class="mu">layout</span>     <span class="gr">ok</span>
+<span class="mu">chat</span>       <span class="gr">ok</span>
+<span class="mu">hotload</span>    <span class="gr">ok</span>
+<span class="mu">worktrees</span>  <span class="ye">skipped</span>
+<span class="gr">PASSED</span> default
+PS F:\Lokn&gt; <span class="caret"></span></div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<!-- ================= GET ================= -->
+		<section class="final" id="get">
+			<div class="wrap">
+				<svg class="logo" viewBox="0 0 64 64" fill="none" stroke-linecap="round">
+					<defs>
+						<linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f0d69e"/><stop offset=".45" stop-color="#d5a583"/><stop offset=".75" stop-color="#e0857c"/><stop offset="1" stop-color="#c59bd0"/></linearGradient>
+					</defs>
+					<circle cx="32" cy="32" r="20" stroke="url(#lg)" stroke-width="5" mask="url(#loom-gap)" pathLength="1"/>
+					<path d="M8 36C16 22 24 46 32 32S48 18 56 28" stroke="url(#lg)" stroke-width="5" pathLength="1"/>
+				</svg>
+				<h2>Your work, <span class="woven">woven together.</span></h2>
+				<p class="lede">Free download. Installs for your user only, no administrator rights, no .NET to install. Loom updates itself and its modules, and asks before it applies an update.</p>
+				<div class="ctas">
+					<a class="btn primary big" href="https://github.com/antopilo/Loom/releases/latest">Download Loom-win-Setup.exe <span class="arrow">→</span></a>
+					<a class="btn big" href="https://github.com/antopilo/Loom">Source on GitHub ↗</a>
+				</div>
+				<div class="specs">
+					<div><b>System</b>Windows 11 x64</div>
+					<div><b>Graphics</b>A GPU with Vulkan 1.3 and current drivers</div>
+					<div><b>Agents</b>Omp. The Get started panel sets it up.</div>
+					<div><b>Optional</b>Git, for the Git, worktree and change features</div>
+				</div>
+			</div>
+		</section>
+	</main>
+
+	<footer class="foot">
+		<span>© 2026 Loom · Built with Goo on .NET 10</span>
+		<span class="links">
+			<a href="https://github.com/antopilo/Loom/blob/main/CHANGELOG.md">Changelog</a>
+			<a href="https://github.com/antopilo/Loom/blob/main/docs/features.md">Docs</a>
+			<a href="https://github.com/can1357/oh-my-pi">Omp ↗</a>
+		</span>
+	</footer>
+
+	<script src="site.js"></script>
+</body>
+</html>

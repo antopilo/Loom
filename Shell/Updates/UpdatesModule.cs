@@ -70,12 +70,13 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	/// <summary>Gets the running Loom version, such as 0.2.0.</summary>
 	private static string CurrentVersion => typeof( UpdatesModule ).Assembly.GetName().Version?.ToString( 3 ) ?? "?";
 
-	/// <summary>Registers the settings, the check command, and the routes the notifications' buttons follow.</summary>
+	/// <summary>Registers the settings, the check command, routes for notification buttons, and the What's new panel type.</summary>
 	public void Register( ModuleBuilder builder )
 	{
 		builder
 			.Setting( Automatic )
 			.Setting( Source )
+			.PanelOnly( "whats-new", "What's new", WhatsNewPanel.Create )
 			.Command( "check", "Updates: check for updates", _ => StartCheck( isManual: true ) )
 			.Route( "restart", request => RequestRestart( request.App, isForced: false ) )
 			.Route( "restart-when-idle", request => WaitForAgents( request.App ) )
@@ -83,7 +84,7 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 			.Route( "apply-modules", request => ApplyModules( request.App ) );
 	}
 
-	/// <summary>Starts the background checks in an installed Loom, and reports module updates that do not fit.</summary>
+	/// <summary>Starts the background checks in an installed Loom, reports module updates that do not fit, and shows the What's new panel if this is an upgrade.</summary>
 	public void Start( ModuleContext context )
 	{
 		_context = context;
@@ -91,6 +92,8 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 		host.Refused += ReportRefused;
 		if ( Installation.IsInstalled )
 			_timer = new( _ => context.Post( () => StartCheck( isManual: false ) ), null, _firstCheck, _interval );
+		// Show the What's new panel on startup if this is an upgrade.
+		context.Post( () => WhatsNewPanel.TryOpenOnStartup( context.App ) );
 	}
 
 	/// <summary>Stops the background checks; a running check ends with the module's lifetime.</summary>

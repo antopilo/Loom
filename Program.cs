@@ -128,6 +128,7 @@ internal static class Program
 		// Notification clicks relaunch Lokn, so a second launch hands its request to the running window and exits.
 		// The notifier subscribes to activations first so none is missed; a failed election runs standalone.
 		using var attention = new AttentionNotifier( app, window );
+		MemoryManager.Attach( window );
 		var instance = Application.AcquireSingleInstance( args );
 		if ( instance.Status == SingleInstanceStatus.Forwarded )
 			return false;

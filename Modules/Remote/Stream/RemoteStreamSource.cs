@@ -63,6 +63,16 @@ public sealed class RemoteStreamSource : IStreamSource
 		return answer["windows"]?.Deserialize<List<CaptureWindow>>( StreamService.Wire ) ?? [];
 	}
 
+	/// <summary>Asks the host for a preview of one of its windows.</summary>
+	public async Task<WindowPreview> PreviewAsync( long window, bool withIcon, CancellationToken cancellation )
+	{
+		var request = Frame.Create( "cap.preview" );
+		request["hwnd"] = window;
+		request["icon"] = withIcon;
+		var answer = await _peer.RequestAsync( request, cancellation ).ConfigureAwait( false );
+		return answer.Deserialize<WindowPreview>( StreamService.Wire ) ?? new( null, false, null );
+	}
+
 	/// <summary>Stops any running stream and starts one of a host window.</summary>
 	/// <returns>The host's note about a screen's resolution, such as that it has no mode of the size asked for, or null.</returns>
 	public async Task<string?> StartAsync( long window, CaptureOptions options, CancellationToken cancellation )

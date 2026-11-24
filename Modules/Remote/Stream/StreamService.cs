@@ -70,6 +70,17 @@ public sealed class StreamService : IHostService, IDisposable
 			} );
 		} );
 
+		peer.On( "cap.preview", async frame =>
+		{
+			connection.RequireControl();
+			var window = Frame.ReadLong( frame, "hwnd" ) ?? throw new RemoteException( RemoteErrors.BadRequest, "cap.preview needs hwnd." );
+			if ( ScreenCatalog.IsScreen( window ) && connection.DeviceId == HostGateway.LocalDevice )
+				throw new RemoteException( RemoteErrors.BadRequest, "Loom cannot stream the screen of the PC it runs on." );
+			var withIcon = frame["icon"] is JsonValue icon && icon.TryGetValue<bool>( out var asked ) && asked;
+			var preview = await WindowPreviews.ReadAsync( window, withIcon, BuildCapturer, Encode, CancellationToken.None ).ConfigureAwait( false );
+			return JsonSerializer.SerializeToNode( preview, Wire )!.AsObject();
+		} );
+
 		peer.On( "cap.start", frame =>
 		{
 			connection.RequireControl();

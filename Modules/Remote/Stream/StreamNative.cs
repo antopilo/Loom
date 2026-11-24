@@ -39,6 +39,27 @@ internal static class StreamNative
 	/// <summary>Defines CreateDIBSection's color table usage of RGB values.</summary>
 	internal const uint RgbColors = 0;
 
+	/// <summary>Defines the message that asks a window for its icon.</summary>
+	internal const uint GetIconMessage = 0x007F;
+
+	/// <summary>Defines WM_GETICON's large icon.</summary>
+	internal const nint IconBig = 1;
+
+	/// <summary>Defines WM_GETICON's small icon, else the one Windows derives from the large icon.</summary>
+	internal const nint IconSmall2 = 2;
+
+	/// <summary>Defines SendMessageTimeout's flag that returns at once when the window does not answer.</summary>
+	internal const uint AbortIfHung = 0x0002;
+
+	/// <summary>Defines the GetClassLongPtr index of the class's large icon.</summary>
+	internal const int ClassIcon = -14;
+
+	/// <summary>Defines the GetClassLongPtr index of the class's small icon.</summary>
+	internal const int ClassSmallIcon = -34;
+
+	/// <summary>Defines DrawIconEx's flag that draws the icon with its mask.</summary>
+	internal const uint DrawIconNormal = 0x0003;
+
 	/// <summary>Defines ShowWindow's restore without activation.</summary>
 	internal const int ShowNoActivate = 4;
 
@@ -358,6 +379,19 @@ internal static class StreamNative
 	/// <summary>Releases a device context from <see cref="GetDC"/>.</summary>
 	[DllImport( "user32.dll" )]
 	internal static extern int ReleaseDC( nint window, nint dc );
+
+	/// <summary>Sends a message and waits at most a timeout for the answer; 0 when it timed out or failed.</summary>
+	[DllImport( "user32.dll" )]
+	internal static extern nint SendMessageTimeout( nint window, uint message, nint wParam, nint lParam, uint flags, uint timeout, out nint result );
+
+	/// <summary>Reads a value of a window's class, such as its icon.</summary>
+	[DllImport( "user32.dll", EntryPoint = "GetClassLongPtrW" )]
+	internal static extern nint GetClassLongPtr( nint window, int index );
+
+	/// <summary>Draws an icon at a size into a device context.</summary>
+	[DllImport( "user32.dll" )]
+	[return: MarshalAs( UnmanagedType.Bool )]
+	internal static extern bool DrawIconEx( nint dc, int x, int y, nint icon, int width, int height, uint step, nint brush, uint flags );
 
 	/// <summary>Draws a window into a device context.</summary>
 	[DllImport( "user32.dll" )]

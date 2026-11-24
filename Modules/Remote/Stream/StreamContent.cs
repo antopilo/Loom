@@ -101,6 +101,7 @@ public sealed partial class StreamContent : PanelContent
 
 		_frameSource.Dispose();
 		_frame = null;
+		ClearPreviews();
 		lock ( _decoder )
 		{
 			_decoder.Value.Decoder?.Dispose();
@@ -120,77 +121,6 @@ public sealed partial class StreamContent : PanelContent
 			FlexGrow = 1,
 			MinHeight = 0,
 			Children = [_streaming is { } window ? BuildViewer( window, theme ) : BuildPicker( theme )],
-		};
-	}
-
-	/// <summary>Builds the heading, the refresh button, the status line and one row per window.</summary>
-	private Container BuildPicker( Theme theme )
-	{
-		var children = new List<Blob>
-		{
-			new Row
-			{
-				AlignItems = AlignItems.Center,
-				Gap = theme.Spacing * 2,
-				Children =
-				[
-					new Text { Content = "Stream a window", FontSize = HeadingSize, },
-					theme.BuildButton( _isListing ? "Refreshing…" : "Refresh", () => _context.Run( UpdateList ), isEnabled: !_isListing ),
-				],
-			},
-		};
-
-		if ( _status.Length > 0 )
-			children.Add( new Text { Content = _status, Color = theme.Error, Selectable = true, } );
-
-		if ( _windows is { Count: 0 } )
-			children.Add( new Text { Content = "The host shows no windows.", Color = theme.Muted, } );
-
-		foreach ( var window in _windows ?? [] )
-			children.Add( BuildWindowRow( window, theme ) );
-
-		return new Container
-		{
-			FlexGrow = 1,
-			MinHeight = 0,
-			Padding = ContentPadding,
-			Gap = theme.Spacing,
-			OverflowY = Overflow.Scroll,
-			Children = children,
-		};
-	}
-
-	/// <summary>Builds one window as a button with its title, process and size.</summary>
-	private Button BuildWindowRow( CaptureWindow window, Theme theme )
-	{
-		void Start() => _context.Run( () => UpdateStart( window, isChosen: true ) );
-		return new Button
-		{
-			Key = "window:" + window.Hwnd,
-			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
-			BorderRadius = theme.Radius,
-			Focusable = true,
-			Cursor = Cursor.Pointer,
-			AccessibilityName = $"Stream {window.Title}",
-			OnClick = Start,
-			KeyBindings =
-			[
-				new( Key.Enter, KeyModifiers.None, Start ),
-				new( Key.Space, KeyModifiers.None, Start ),
-			],
-			HoverStyle = new Style { BackgroundColor = theme.Hover, },
-			FocusStyle = new Style { BackgroundColor = theme.Hover, },
-			Children =
-			[
-				new Text { Content = window.Title, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, },
-				new Text
-				{
-					Content = ScreenCatalog.IsScreen( window.Hwnd ) ? $"Whole screen · {window.Width}×{window.Height}"
-						: window.Process.Length > 0 ? $"{window.Process} · {window.Width}×{window.Height}" : $"{window.Width}×{window.Height}",
-					Color = theme.Muted,
-					FontSize = ViewStyle.SmallSize,
-				},
-			],
 		};
 	}
 
@@ -341,6 +271,8 @@ public sealed partial class StreamContent : PanelContent
 		_context.Post( () =>
 		{
 			_windows = windows ?? _windows;
+			if ( windows is not null )
+				UpdatePreviews( windows );
 			_status = status;
 			_isListing = false;
 			UpdateVersion();
@@ -352,6 +284,7 @@ public sealed partial class StreamContent : PanelContent
 	/// <param name="isChosen">Whether the user chose it in the list, which focuses the stream; false for one opened for an agent or restored.</param>
 	private void UpdateStart( CaptureWindow window, bool isChosen )
 	{
+		StopPreviews();
 		_isChosen = isChosen;
 		_streaming = window;
 		_status = "";
