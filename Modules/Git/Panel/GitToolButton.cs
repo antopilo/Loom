@@ -58,28 +58,7 @@ internal sealed class GitToolButton : GuardedCell<GitToolInput>
 				Children = [new Text { Content = input.Badge.ToString( "N0" ), FontSize = 9, Color = theme.Panel, LineHeight = 1 }],
 			} );
 		if ( _isHovered.Value )
-		{
-			// A native popup draws over native child surfaces, such as browser pages, which a portal cannot.
-			var tooltip = new Container
-			{
-				Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
-				BackgroundColor = theme.Raised,
-				Color = theme.Text,
-				FontFamily = theme.FontFamily,
-				FontSize = ViewStyle.SmallSize,
-				BorderColor = theme.Border,
-				BorderWidth = theme.BorderWidth,
-				BorderRadius = theme.Radius,
-				Children = [new Text { Content = input.Name, TextWrap = TextWrap.NoWrap }],
-			};
-			children.Add( Cell.Mount<NativePopupInput, NativePopup>( "tooltip", new( handle, tooltip, null )
-			{
-				Placement = PortalPlacement.BottomStart,
-				Kind = PopupKind.Tooltip,
-				Role = AccessibilityRole.Tooltip,
-				Name = input.Name,
-			} ) );
-		}
+			children.Add( NativePopup.BuildTooltip( handle, input.Name ) );
 
 		void Run()
 		{

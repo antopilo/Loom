@@ -49,7 +49,7 @@ internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
 	/// <summary>Defines the legend's text size in logical pixels.</summary>
 	private const int LabelSize = 10;
 
-	/// <summary>Defines the details popup's width in logical pixels; a whole number keeps its wrapped lines the same when the popup is measured and drawn.</summary>
+	/// <summary>Defines the widest the details popup grows, in logical pixels; longer lines wrap.</summary>
 	private const int DetailsWidth = 320;
 
 	/// <summary>Anchors the details shown while pointing at the meter.</summary>
@@ -141,29 +141,8 @@ internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
 			foreach ( var line in Describe( input ) )
 				lines.Add( new Text { Content = line, MinWidth = 0 } );
 
-			// A native popup draws over native child surfaces, such as browser pages, which a portal cannot; it takes no input, so the meter keeps the keyboard.
-			var details = new Container
-			{
-				Width = DetailsWidth,
-				Padding = theme.Spacing,
-				Gap = 2,
-				BackgroundColor = theme.Raised,
-				Color = theme.Text,
-				FontFamily = theme.FontFamily,
-				FontSize = ViewStyle.SmallSize,
-				BorderColor = theme.Border,
-				BorderWidth = theme.BorderWidth,
-				BorderRadius = theme.Radius,
-				Children = lines,
-			};
-			children.Add( Cell.Mount<NativePopupInput, NativePopup>( "details", new( _handle, details, null )
-			{
-				Placement = PortalPlacement.TopEnd,
-				Kind = PopupKind.Tooltip,
-				Maximum = new LayoutSize( DetailsWidth, Host.Size.Height ),
-				Role = _isOpen.Value ? AccessibilityRole.Dialog : AccessibilityRole.Tooltip,
-				Name = "Token and cost details",
-			} ) );
+			children.Add( NativePopup.BuildTooltip( _handle, "Token and cost details", lines, PortalPlacement.TopEnd, new LayoutSize( DetailsWidth, Host.Size.Height ),
+				_isOpen.Value ? AccessibilityRole.Dialog : AccessibilityRole.Tooltip ) );
 		}
 
 		return new Container
