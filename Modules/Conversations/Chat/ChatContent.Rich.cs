@@ -164,7 +164,7 @@ public sealed partial class ChatContent
 			yield return BuildTool( key, block );
 		else if ( type == "image" )
 		{
-			var image = BuildImage( key, block );
+			var image = BuildImage( key, key.Length >= 32 && Guid.TryParseExact( key.AsSpan( 0, 32 ), "N", out var messageId ) ? messageId : Guid.Empty, block );
 			yield return image ?? BuildText( "Image attachment · " + ReadText( block, "mimeType", "unsupported image" ), muted: true );
 		}
 		else if ( type is "checklist" or "todo" )

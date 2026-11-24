@@ -49,7 +49,7 @@ internal sealed class GitToolButton : GuardedCell<GitToolInput>
 				Right = 1,
 				Top = 1,
 				MinWidth = 13,
-				Height = 13,
+				MinHeight = 13,
 				Padding = new Edges( 0, 3 ),
 				AlignItems = AlignItems.Center,
 				JustifyContent = JustifyContent.Center,

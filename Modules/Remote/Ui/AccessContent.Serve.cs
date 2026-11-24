@@ -101,12 +101,16 @@ internal sealed partial class AccessContent
 		{
 			yield return BuildParagraph( DescribeProgress(), theme.Attention );
 			if ( _module.Switching is not { IsWaiting: false } )
-				yield return theme.BuildButton( "Cancel", () => _context.Run( () =>
+			{
+				var cancel = theme.BuildButton( "Cancel", () => _context.Run( () =>
 				{
 					_pendingNetwork = null;
 					_module.CancelSwitch();
 					_version.Value++;
 				} ) );
+				cancel.AlignSelf = AlignSelf.FlexStart;
+				yield return cancel;
+			}
 			yield break;
 		}
 
@@ -336,6 +340,7 @@ internal sealed partial class AccessContent
 			{
 				FlexGrow = 1,
 				FlexShrink = 1,
+				MinWidth = 0,
 				Gap = 2,
 				Children =
 				[
@@ -395,12 +400,14 @@ internal sealed partial class AccessContent
 		if ( pairing.Control )
 			yield return BuildParagraph( "The device gets control of this PC, so show the code to that device only.", theme.Attention );
 		yield return BuildParagraph( pairing.Link, theme.Muted, selectable: true );
-		yield return theme.BuildButton( "Done", () => _context.Run( () =>
+		var done = theme.BuildButton( "Done", () => _context.Run( () =>
 		{
 			_pairing = null;
 			_version.Value++;
 			_ = WithdrawPairingAsync( client );
 		} ) );
+		done.AlignSelf = AlignSelf.FlexStart;
+		yield return done;
 	}
 
 	/// <summary>Builds Devices: each paired device with whether it is connected and may control or watch, and Revoke; then the pairings waiting for an answer.</summary>
@@ -426,6 +433,7 @@ internal sealed partial class AccessContent
 				{
 					FlexGrow = 1,
 					FlexShrink = 1,
+					MinWidth = 0,
 					Children =
 					[
 						new Text { Content = name, TextWrap = TextWrap.Wrap },

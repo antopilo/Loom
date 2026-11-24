@@ -30,6 +30,11 @@ internal sealed class PanelSurface( PanelSession session ) : Cell
 	{
 		return new Container
 		{
+			FlexGrow = 1,
+			MinWidth = 0,
+			MinHeight = 0,
+			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
 			Padding = ErrorPadding,
 			Gap = Theme.Current.Spacing,
 			Children =

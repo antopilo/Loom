@@ -3,7 +3,40 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Git;
 
-/// <summary>Builds the History mode's refs: the repository, a filter, and the Branches, Remotes, Tags and Stashes sections.</summary>
+/// <summary>Names the kinds of rows in the History mode's refs.</summary>
+internal enum GitSidebarKind
+{
+	/// <summary>A section heading: Branches, Remotes, Tags or Stashes.</summary>
+	Section,
+
+	/// <summary>A remote's heading under Remotes.</summary>
+	Remote,
+
+	/// <summary>A local branch.</summary>
+	LocalBranch,
+
+	/// <summary>A remote branch under its remote.</summary>
+	RemoteBranch,
+
+	/// <summary>A tag.</summary>
+	Tag,
+
+	/// <summary>A stash.</summary>
+	Stash,
+}
+
+/// <summary>One row of the History mode's refs.</summary>
+/// <param name="Key">The stable row key, which also names the item's handle.</param>
+/// <param name="Kind">What the row shows.</param>
+/// <param name="Label">A heading's title, or a remote branch's remote.</param>
+/// <param name="Count">How many items a section holds.</param>
+/// <param name="IsOpen">Whether a heading shows its items.</param>
+/// <param name="Ref">The branch or tag of an item row.</param>
+/// <param name="Stash">The stash of a stash row.</param>
+/// <param name="IsSelected">Whether the item's commit or stash is selected.</param>
+internal sealed record GitSidebarRow( string Key, GitSidebarKind Kind, string Label = "", int Count = 0, bool IsOpen = true, GitRef? Ref = null, GitStash? Stash = null, bool IsSelected = false ) : IMeasuredRow;
+
+/// <summary>Builds the History mode's refs: the repository, a filter, and the Branches, Remotes, Tags and Stashes sections in one virtual list.</summary>
 internal sealed partial class GitContent
 {
 	/// <summary>Defines a sidebar item's height in logical pixels.</summary>
@@ -15,10 +48,13 @@ internal sealed partial class GitContent
 	/// <summary>Stores the keys of collapsed sections and remote groups.</summary>
 	private readonly HashSet<string> _collapsed = [];
 
+	/// <summary>Builds one refs row; kept as one delegate so the list reuses unchanged rows.</summary>
+	private readonly Func<GitSidebarRow, Blob> _buildSidebarRow;
+
 	/// <summary>Stores the sidebar filter text.</summary>
 	private string _filter = "";
 
-	/// <summary>Builds the refs, stacked above the History mode's log.</summary>
+	/// <summary>Builds the refs, stacked above the History mode's log: the repository, its HEAD and the filter, then the sections, which scroll.</summary>
 	private Container BuildSidebar()
 	{
 		var theme = Theme.Current;
@@ -53,7 +89,7 @@ internal sealed partial class GitContent
 			Controlled = true,
 			Placeholder = "Filter branches",
 			AccessibilityName = "Filter branches, tags and stashes",
-			Height = theme.ControlHeight,
+			MinHeight = theme.ControlHeight,
 			Margin = new Edges( theme.Spacing / 2, 0 ),
 			Padding = new Edges( 0, theme.Spacing ),
 			BackgroundColor = theme.Raised,
@@ -65,43 +101,18 @@ internal sealed partial class GitContent
 			} ),
 		} );
 
-		var filter = _filter.Trim();
-		var locals = _refs.Where( item => item.Kind == GitRefKind.LocalBranch && IsMatch( item.ShortName, filter ) ).ToArray();
-		AddSection( children, "branches", "Branches", locals.Length, filter, items =>
+		var rows = ComputeSidebarRows();
+		children.Add( new Virtual
 		{
-			foreach ( var branch in locals )
-				items.Add( BuildLocalBranch( branch ) );
-		} );
-
-		var remotes = _refs.Where( item => item.Kind == GitRefKind.RemoteBranch && IsMatch( item.ShortName, filter ) )
-			.GroupBy( item => item.Remote ?? ComputeRemote( item.ShortName ) ).ToArray();
-		AddSection( children, "remotes", "Remotes", remotes.Sum( group => group.Count() ), filter, items =>
-		{
-			foreach ( var group in remotes )
-			{
-				var key = "remote:" + group.Key;
-				var isOpen = filter.Length > 0 || !_collapsed.Contains( key );
-				items.Add( BuildHeading( key, group.Key, null, isOpen, 1 ) );
-				if ( !isOpen )
-					continue;
-
-				foreach ( var branch in group )
-					items.Add( BuildRemoteBranch( branch, group.Key ) );
-			}
-		} );
-
-		var tags = _refs.Where( item => item.Kind == GitRefKind.Tag && IsMatch( item.ShortName, filter ) ).ToArray();
-		AddSection( children, "tags", "Tags", tags.Length, filter, items =>
-		{
-			foreach ( var tag in tags )
-				items.Add( BuildTag( tag ) );
-		} );
-
-		var stashes = _stashes.Where( item => IsMatch( item.Name + " " + item.Message, filter ) ).ToArray();
-		AddSection( children, "stashes", "Stashes", stashes.Length, filter, items =>
-		{
-			foreach ( var stash in stashes )
-				items.Add( BuildStash( stash ) );
+			Key = "git-refs",
+			Source = new MeasuredRowsSource<GitSidebarRow>( rows, _buildSidebarRow, ComputeSidebarEstimate, FollowEnd: false ),
+			AccessibilityName = "Branches, tags and stashes",
+			Height = rows.Sum( ComputeSidebarEstimate ),
+			FlexShrink = 1,
+			MinWidth = 0,
+			MinHeight = 0,
+			OverflowX = Overflow.Hidden,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
 		} );
 
 		return new Container
@@ -111,10 +122,7 @@ internal sealed partial class GitContent
 			MaxHeight = Length.Percent( HistoryRefsPercent ),
 			FlexShrink = 1,
 			MinHeight = 0,
-			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing / 2 ),
-			Gap = 1,
 			BackgroundColor = theme.Canvas,
 			BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
 			BorderColor = theme.Border,
@@ -124,20 +132,75 @@ internal sealed partial class GitContent
 		};
 	}
 
-	/// <summary>Adds a collapsible section heading and, while it is open, its items; a filter opens every section and hides empty ones.</summary>
-	private void AddSection( List<Blob> children, string key, string title, int count, string filter, Action<List<Blob>> addItems )
+	/// <summary>Lists the Branches, Remotes, Tags and Stashes sections with the items of the open ones; a filter opens every section and hides empty ones.</summary>
+	private List<GitSidebarRow> ComputeSidebarRows()
 	{
-		if ( filter.Length > 0 && count == 0 )
-			return;
+		var filter = _filter.Trim();
+		var rows = new List<GitSidebarRow>();
+		var locals = _refs.Where( item => item.Kind == GitRefKind.LocalBranch && IsMatch( item.ShortName, filter ) ).ToArray();
+		if ( AddSection( rows, "branches", "Branches", locals.Length, filter ) )
+			foreach ( var branch in locals )
+				rows.Add( new( "branch:" + branch.Name, GitSidebarKind.LocalBranch, Ref: branch, IsSelected: IsSelected( branch ) ) );
 
-		var isOpen = filter.Length > 0 || !_collapsed.Contains( key );
-		children.Add( BuildHeading( key, title, $"{count:N0}", isOpen, 0 ) );
-		if ( isOpen )
-			addItems( children );
+		var remotes = _refs.Where( item => item.Kind == GitRefKind.RemoteBranch && IsMatch( item.ShortName, filter ) )
+			.GroupBy( item => item.Remote ?? ComputeRemote( item.ShortName ) ).ToArray();
+		if ( AddSection( rows, "remotes", "Remotes", remotes.Sum( group => group.Count() ), filter ) )
+		{
+			foreach ( var group in remotes )
+			{
+				var key = "remote:" + group.Key;
+				var isOpen = filter.Length > 0 || !_collapsed.Contains( key );
+				rows.Add( new( "heading:" + key, GitSidebarKind.Remote, group.Key, IsOpen: isOpen ) );
+				if ( !isOpen )
+					continue;
+
+				foreach ( var branch in group )
+					rows.Add( new( "remote-branch:" + branch.Name, GitSidebarKind.RemoteBranch, group.Key, Ref: branch, IsSelected: IsSelected( branch ) ) );
+			}
+		}
+
+		var tags = _refs.Where( item => item.Kind == GitRefKind.Tag && IsMatch( item.ShortName, filter ) ).ToArray();
+		if ( AddSection( rows, "tags", "Tags", tags.Length, filter ) )
+			foreach ( var tag in tags )
+				rows.Add( new( "tag:" + tag.Name, GitSidebarKind.Tag, Ref: tag, IsSelected: IsSelected( tag ) ) );
+
+		var stashes = _stashes.Where( item => IsMatch( item.Name + " " + item.Message, filter ) ).ToArray();
+		if ( AddSection( rows, "stashes", "Stashes", stashes.Length, filter ) )
+			foreach ( var stash in stashes )
+				rows.Add( new( "stash:" + stash.Commit, GitSidebarKind.Stash, Stash: stash, IsSelected: _selectedStash?.Commit == stash.Commit ) );
+		return rows;
 	}
 
-	/// <summary>Builds a section or remote heading with its chevron and count; clicking it folds or unfolds it.</summary>
-	private Button BuildHeading( string key, string title, string? count, bool isOpen, int depth )
+	/// <summary>Adds a section heading unless a filter leaves the section empty, and reports whether its items show.</summary>
+	private bool AddSection( List<GitSidebarRow> rows, string key, string title, int count, string filter )
+	{
+		if ( filter.Length > 0 && count == 0 )
+			return false;
+
+		var isOpen = filter.Length > 0 || !_collapsed.Contains( key );
+		rows.Add( new( "heading:" + key, GitSidebarKind.Section, title, count, isOpen ) );
+		return isOpen;
+	}
+
+	/// <summary>Reports whether a branch's or tag's commit is the selected one.</summary>
+	private bool IsSelected( GitRef reference ) => _selectedId == reference.Target && _selectedStash is null;
+
+	/// <summary>Estimates a refs row's height until layout measures it: a section heading keeps room above it.</summary>
+	private static double ComputeSidebarEstimate( GitSidebarRow row ) => row.Kind == GitSidebarKind.Section ? ItemHeight + Theme.Current.Spacing : ItemHeight;
+
+	/// <summary>Builds one refs row by its kind.</summary>
+	private Blob BuildSidebarRow( GitSidebarRow row ) => row.Kind switch
+	{
+		GitSidebarKind.Section => BuildHeading( row.Key["heading:".Length..], row.Label, $"{row.Count:N0}", row.IsOpen, 0 ),
+		GitSidebarKind.Remote => BuildHeading( row.Key["heading:".Length..], row.Label, null, row.IsOpen, 1 ),
+		GitSidebarKind.LocalBranch => BuildLocalBranch( row.Ref!, row.IsSelected ),
+		GitSidebarKind.RemoteBranch => BuildRemoteBranch( row.Ref!, row.Label, row.IsSelected ),
+		GitSidebarKind.Tag => BuildTag( row.Ref!, row.IsSelected ),
+		_ => BuildStash( row.Stash!, row.IsSelected ),
+	};
+
+	/// <summary>Builds a section or remote heading with its chevron and count; clicking it folds or unfolds it. A section keeps room above it.</summary>
+	private Blob BuildHeading( string key, string title, string? count, bool isOpen, int depth )
 	{
 		var theme = Theme.Current;
 		var children = new List<Blob>
@@ -165,15 +228,14 @@ internal sealed partial class GitContent
 				_collapsed.Add( key );
 		}, depth );
 		heading.Key = "heading:" + key;
-		heading.Margin = new Edges( depth == 0 ? theme.Spacing : 0, 0, 0, 0 );
 		heading.AccessibilityName = $"{(isOpen ? "Fold" : "Unfold")} {title}";
 		heading.Children = children;
-		return heading;
+		return depth == 0 ? new Container { Padding = new Edges( theme.Spacing, 0, 0, 0 ), Children = [heading] } : heading;
 	}
 
 	/// <summary>Builds a local branch: a check on the current one, its name, how far it is from its upstream, and a gone upstream marked.</summary>
 	/// <remarks>Click selects its commit, double-click checks it out, right-click opens its menu.</remarks>
-	private Button BuildLocalBranch( GitRef branch )
+	private Button BuildLocalBranch( GitRef branch, bool isSelected )
 	{
 		var theme = Theme.Current;
 		var children = new List<Blob>
@@ -194,40 +256,40 @@ internal sealed partial class GitContent
 			children.Add( new Text { Content = sync, FontSize = ViewStyle.SmallSize, Color = theme.Muted, FlexShrink = 0, } );
 
 		var key = "branch:" + branch.Name;
-		var item = BuildRefItem( key, branch, 0, $"{branch.ShortName} options", () => BuildLocalBranchMenu( branch ) );
+		var item = BuildRefItem( key, branch, 0, isSelected, $"{branch.ShortName} options", () => BuildLocalBranchMenu( branch ) );
 		item.AccessibilityName = $"{branch.ShortName}{(branch.IsCurrent ? ", current" : "")}{(branch.IsUpstreamGone ? ", upstream gone" : "")}, {branch.Ahead} ahead, {branch.Behind} behind";
 		item.Children = children;
 		return item;
 	}
 
 	/// <summary>Builds a remote branch under its remote, without the remote's prefix.</summary>
-	private Button BuildRemoteBranch( GitRef branch, string remote )
+	private Button BuildRemoteBranch( GitRef branch, string remote, bool isSelected )
 	{
 		var name = branch.ShortName.StartsWith( remote + "/", StringComparison.Ordinal ) ? branch.ShortName[(remote.Length + 1)..] : branch.ShortName;
-		var item = BuildRefItem( "remote-branch:" + branch.Name, branch, 1, $"{branch.ShortName} options", () => BuildRemoteBranchMenu( branch ) );
+		var item = BuildRefItem( "remote-branch:" + branch.Name, branch, 1, isSelected, $"{branch.ShortName} options", () => BuildRemoteBranchMenu( branch ) );
 		item.AccessibilityName = branch.ShortName;
 		item.Children = [new Container { Width = ItemIndent, FlexShrink = 0, }, BuildItemName( name, false )];
 		return item;
 	}
 
 	/// <summary>Builds a tag.</summary>
-	private Button BuildTag( GitRef tag )
+	private Button BuildTag( GitRef tag, bool isSelected )
 	{
-		var item = BuildRefItem( "tag:" + tag.Name, tag, 0, $"Tag {tag.ShortName} options", () => BuildTagMenu( tag ) );
+		var item = BuildRefItem( "tag:" + tag.Name, tag, 0, isSelected, $"Tag {tag.ShortName} options", () => BuildTagMenu( tag ) );
 		item.AccessibilityName = $"Tag {tag.ShortName}";
 		item.Children = [new Container { Width = ItemIndent, FlexShrink = 0, }, BuildItemName( tag.ShortName, false )];
 		return item;
 	}
 
 	/// <summary>Builds a stash: its message, with its name muted; click shows its changes, right-click opens its menu.</summary>
-	private Button BuildStash( GitStash stash )
+	private Button BuildStash( GitStash stash, bool isSelected )
 	{
 		var theme = Theme.Current;
 		var key = "stash:" + stash.Commit;
 		var item = BuildItemButton( stash.Message, () => SelectStash( stash ), 0 );
 		item.Handle = EnsureHandle( key );
 		item.AccessibilityName = $"{stash.Name}: {stash.Message}";
-		item.BackgroundColor = _selectedStash?.Commit == stash.Commit ? theme.Accent.WithAlpha( SelectionOpacity ) : Color.Transparent;
+		item.BackgroundColor = isSelected ? theme.Accent.WithAlpha( SelectionOpacity ) : Color.Transparent;
 		item.OnPointerDown = pointer => _context.Run( () =>
 		{
 			if ( pointer.Button == PointerButton.Secondary )
@@ -244,12 +306,12 @@ internal sealed partial class GitContent
 	}
 
 	/// <summary>Builds a branch or tag item: click selects its commit, double-click checks it out, right-click opens its menu.</summary>
-	private Button BuildRefItem( string key, GitRef reference, int depth, string menuName, Func<IReadOnlyList<MenuEntry>> menu )
+	private Button BuildRefItem( string key, GitRef reference, int depth, bool isSelected, string menuName, Func<IReadOnlyList<MenuEntry>> menu )
 	{
 		var theme = Theme.Current;
 		var item = BuildItemButton( reference.ShortName, () => SelectCommit( reference.Target, reveal: true ), depth );
 		item.Handle = EnsureHandle( key );
-		item.BackgroundColor = _selectedId == reference.Target && _selectedStash is null ? theme.Accent.WithAlpha( SelectionOpacity / 2 ) : Color.Transparent;
+		item.BackgroundColor = isSelected ? theme.Accent.WithAlpha( SelectionOpacity / 2 ) : Color.Transparent;
 		item.OnPointerDown = pointer => _context.Run( () =>
 		{
 			if ( pointer.Button == PointerButton.Secondary )
@@ -263,7 +325,7 @@ internal sealed partial class GitContent
 		return item;
 	}
 
-	/// <summary>Builds a sidebar button that runs <paramref name="action"/> and rebuilds.</summary>
+	/// <summary>Builds a sidebar button that runs <paramref name="action"/> and rebuilds; it is at least one item tall and grows with its text.</summary>
 	private Button BuildItemButton( string label, Action action, int depth )
 	{
 		var theme = Theme.Current;
@@ -272,7 +334,8 @@ internal sealed partial class GitContent
 			action();
 			MarkChanged();
 		} ) );
-		item.Height = ItemHeight;
+		item.Height = Length.Auto;
+		item.MinHeight = ItemHeight;
 		item.FlexShrink = 0;
 		item.FlexDirection = FlexDirection.Row;
 		item.JustifyContent = JustifyContent.FlexStart;

@@ -67,7 +67,7 @@ public static class ViewStyle
 	}
 
 	/// <summary>Builds a visible vertical scrollbar in the current theme; call it per build because Goo owns a mounted descriptor.</summary>
-	internal static Scrollbar BuildScrollbar()
+	public static Scrollbar BuildScrollbar()
 	{
 		var theme = Theme.Current;
 		return new Scrollbar

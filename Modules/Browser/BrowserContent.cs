@@ -548,7 +548,7 @@ internal sealed partial class BrowserContent : PanelContent
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing, 0 ),
-			Overflow = Overflow.Hidden,
+			OverflowX = Overflow.Scroll,
 			AccessibilityRole = AccessibilityRole.Toolbar,
 			AccessibilityName = "Tabs",
 			Children = children,

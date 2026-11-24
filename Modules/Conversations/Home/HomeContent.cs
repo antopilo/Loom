@@ -13,13 +13,13 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 	/// <summary>Defines a card's width in logical pixels; four cards and their gaps fit the column.</summary>
 	private const int CardWidth = 158;
 
-	/// <summary>Defines a card's height in logical pixels.</summary>
+	/// <summary>Defines a card's least height in logical pixels; larger text makes it taller.</summary>
 	private const int CardHeight = 92;
 
 	/// <summary>Defines the widest the cards and the prompt bar grow, in logical pixels.</summary>
 	private const int ColumnWidth = 680;
 
-	/// <summary>Defines the prompt bar's height in logical pixels.</summary>
+	/// <summary>Defines the prompt bar's least height in logical pixels.</summary>
 	private const int PromptHeight = 46;
 
 	/// <summary>Defines the space between the wordmark and the cards, in logical pixels.</summary>
@@ -47,7 +47,7 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 	public override Blob Build()
 	{
 		var host = module.Hosts.Current;
-		var children = new List<Blob>
+		var content = new List<Blob>
 		{
 			new Spacer(),
 			Cell.Mount( "home-logo", () => new HomeLogo() ),
@@ -55,15 +55,12 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 		};
 		// Project-trusted modules load on This PC alone.
 		if ( host.IsLocal && module.Projects.BuildModulePrompt( context ) is { } modules )
-			children.Add( modules );
+			content.Add( modules );
 		if ( host.IsLocal && module.IsWhatsNewShown )
-			children.Add( BuildWhatsNew() );
+			content.Add( BuildWhatsNew() );
 		if ( _status.Value.Length > 0 )
-			children.Add( BuildDetail( _status.Value, "home-status" ) );
-
-		children.Add( new Spacer() );
-		children.Add( BuildPrompt() );
-		children.Add( BuildDetail( "Enter starts a chat  ·  Ctrl+Shift+H comes back here", "home-hint" ) );
+			content.Add( BuildDetail( _status.Value, "home-status" ) );
+		content.Add( new Spacer() );
 
 		return new Column
 		{
@@ -75,8 +72,24 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 			Padding = Inset,
 			Gap = Theme.Current.Spacing * 2,
 			Color = Theme.Current.Text,
-			OverflowY = Overflow.Hidden,
-			Children = children,
+			Children =
+			[
+				new Column
+				{
+					Key = "home-content",
+					FlexGrow = 1,
+					MinWidth = 0,
+					MinHeight = 0,
+					AlignSelf = AlignSelf.Stretch,
+					AlignItems = AlignItems.Center,
+					Gap = Theme.Current.Spacing * 2,
+					OverflowY = Overflow.Scroll,
+					ScrollbarY = ViewStyle.BuildScrollbar(),
+					Children = content,
+				},
+				BuildPrompt(),
+				BuildDetail( "Enter starts a chat  ·  Ctrl+Shift+H comes back here", "home-hint" ),
+			],
 		};
 	}
 
@@ -193,7 +206,7 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 		{
 			Key = key,
 			Width = CardWidth,
-			Height = CardHeight,
+			MinHeight = CardHeight,
 			Padding = new Edges( 12, 14 ),
 			Gap = 3,
 			FlexDirection = FlexDirection.Column,
@@ -233,7 +246,7 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 			AccessibilityName = "Start a chat",
 			Width = Length.Percent( 100 ),
 			MaxWidth = ColumnWidth,
-			Height = PromptHeight,
+			MinHeight = PromptHeight,
 			FlexShrink = 0,
 			Padding = new Edges( 0, PromptHeight / 2 - 4 ),
 			FontSize = theme.FontSize + 1,

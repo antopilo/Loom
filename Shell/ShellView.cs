@@ -154,7 +154,7 @@ internal sealed partial class ShellView : Cell
 		return new Row
 		{
 			Key = "status",
-			Height = StatusHeight,
+			MinHeight = StatusHeight,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			Gap = Theme.Current.Spacing,
@@ -167,6 +167,9 @@ internal sealed partial class ShellView : Cell
 				new Text
 				{
 					Content = $"{_app.Panels.Panels.Count} panels  ·  {_app.Modules.Count} modules",
+					MinWidth = 0,
+					TextWrap = TextWrap.NoWrap,
+					TextTrimming = TextTrimming.Ellipsis,
 				},
 				.. _app.Slots.Get( ShellSlots.StatusLeft ).Select( BuildStatusSlot ),
 				new Spacer(),
@@ -174,6 +177,9 @@ internal sealed partial class ShellView : Cell
 				new Text
 				{
 					Content = "Drag a pane's top grip to dock  ·  Ctrl+K search",
+					MinWidth = 0,
+					TextWrap = TextWrap.NoWrap,
+					TextTrimming = TextTrimming.Ellipsis,
 				},
 			],
 		};

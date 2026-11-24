@@ -62,8 +62,14 @@ internal sealed partial class ShellView
 	/// <summary>Retains the search input handle across palette rebuilds.</summary>
 	private readonly ElementHandle _searchHandle = new();
 
-	/// <summary>Targets the selected result, which keyboard moves scroll into view.</summary>
-	private readonly ElementHandle _selectedHandle = new();
+	/// <summary>Targets the results list, which keyboard moves scroll to the selected row.</summary>
+	private readonly ElementHandle _resultsHandle = new();
+
+	/// <summary>Stores the key of each selectable row the last build listed, in selection order.</summary>
+	private IReadOnlyList<string> _resultKeys = [];
+
+	/// <summary>Builds a results list row from its own builder.</summary>
+	private static readonly Func<BuiltRow, Blob> BuildPaletteRow = row => new Container { Padding = new Edges( 0, 0, 1, 0 ), Children = [row.Build()] };
 
 	/// <summary>Anchors the selected result's actions menu to its ••• button.</summary>
 	private readonly ElementHandle _actionsHandle = new();
@@ -244,48 +250,60 @@ internal sealed partial class ShellView
 		};
 	}
 
-	/// <summary>Builds the scrolling results: headings and rows, the type choices while <c>/</c> picks one, or a note when nothing matches.</summary>
-	private Container BuildSearchResults( SearchView view, int selected )
+	/// <summary>Builds the virtualized results: headings and rows, the type choices while <c>/</c> picks one, or a note when nothing matches.</summary>
+	private Virtual BuildSearchResults( SearchView view, int selected )
 	{
 		var theme = Theme.Current;
-		var children = new List<Blob>();
+		var rows = new List<BuiltRow>();
+		var keys = new List<string>();
 		if ( view.Choices is { } choices )
 		{
-			children.Add( BuildSearchHeading( "Filter by type", isFirst: true ) );
+			rows.Add( new( "heading:Filter by type", () => BuildSearchHeading( "Filter by type", isFirst: true ) ) );
 			foreach ( var (index, type) in choices.Index() )
-				children.Add( BuildSearchRow( "type:" + type.Id, index, index == selected, null, type.Title, "/" + type.Id, [], () => UpdateSearchChoice( type ) ) );
+			{
+				var key = "type:" + type.Id;
+				keys.Add( key );
+				rows.Add( new( key, () => BuildSearchRow( key, index, index == selected, null, type.Title, "/" + type.Id, [], () => UpdateSearchChoice( type ) ) ) );
+			}
 			if ( choices.Count == 0 )
-				children.Add( BuildSearchNote( "No type has that name." ) );
+				rows.Add( new( "note", () => BuildSearchNote( "No type has that name." ) ) );
 		}
 		else
 		{
 			var index = 0;
 			foreach ( var group in view.Groups )
 			{
-				children.Add( BuildSearchHeading( group.Title, isFirst: children.Count == 0 ) );
+				var isFirst = rows.Count == 0;
+				rows.Add( new( "heading:" + group.Title, () => BuildSearchHeading( group.Title, isFirst ) ) );
 				foreach ( var hit in group.Hits )
 				{
 					var row = index;
-					children.Add( BuildSearchRow( $"{group.Title}:{hit.ProviderId}:{hit.Item.Id}", row, row == selected, hit.Item.Glyph, hit.Item.Title, hit.Item.Detail,
-						hit.Item.Actions, () => UpdateSearchRun( hit ) ) );
+					var key = $"{group.Title}:{hit.ProviderId}:{hit.Item.Id}";
+					keys.Add( key );
+					rows.Add( new( key, () => BuildSearchRow( key, row, row == selected, hit.Item.Glyph, hit.Item.Title, hit.Item.Detail, hit.Item.Actions, () => UpdateSearchRun( hit ) ) ) );
 					index++;
 				}
 			}
 
 			if ( view.Hits.Count == 0 )
-				children.Add( BuildSearchNote( _query.Trim().Length > 0 ? "Nothing matches your search." : "Nothing to show yet." ) );
+			{
+				var note = _query.Trim().Length > 0 ? "Nothing matches your search." : "Nothing to show yet.";
+				rows.Add( new( "note", () => BuildSearchNote( note ) ) );
+			}
 		}
 
-		return new Container
+		_resultKeys = keys;
+		return new Virtual
 		{
 			Key = "search-results",
+			Handle = _resultsHandle,
+			Source = new MeasuredRowsSource<BuiltRow>( rows, BuildPaletteRow, static _ => ResultHeight, FollowEnd: false ),
+			AccessibilityName = "Results",
 			FlexGrow = 1,
-			FlexShrink = 1,
 			MinHeight = 0,
-			OverflowY = Overflow.Scroll,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
-			Gap = 1,
-			Children = children,
+			OverflowX = Overflow.Hidden,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
 		};
 	}
 
@@ -366,7 +384,6 @@ internal sealed partial class ShellView
 		return new Row
 		{
 			Key = key,
-			Handle = isSelected ? _selectedHandle : null,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			BorderRadius = theme.Radius,
@@ -592,8 +609,8 @@ internal sealed partial class ShellView
 		{
 			_selectedResult = Math.Clamp( _selectedResult + (key == Key.Down ? 1 : -1), 0, Math.Max( 0, view.Count - 1 ) );
 			Rebuild();
-			// The selected row mounts its handle on the next build, so it scrolls into view after that.
-			Post( () => _selectedHandle.ScrollIntoView() );
+			if ( _selectedResult < _resultKeys.Count )
+				_resultsHandle.ScrollToItem( _resultKeys[_selectedResult], ScrollAlignment.Nearest );
 			return true;
 		}
 

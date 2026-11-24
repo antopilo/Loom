@@ -134,7 +134,9 @@ internal sealed partial class GitContent : PanelContent
 		_focusStaged = input.Staged;
 		_buildLogRow = layout == GitLayout.Full ? BuildTableRow : BuildLogRow;
 		_buildDetailRow = BuildDetailRow;
+		_buildFileItem = BuildFileItem;
 		_buildInspectorRow = BuildInspectorRow;
+		_buildSidebarRow = BuildSidebarRow;
 	}
 
 	/// <summary>Builds the layout's toolbar, banners and views, with any open menu or dialog.</summary>

@@ -77,12 +77,14 @@ public sealed partial class ChatContent
 		{
 			var promote = BuildRailButton( "Steer now", () => context.Run( () => session.UpdatePromote( text ) ) );
 			promote.AccessibilityName = $"Steer now: {line}";
+			promote.FlexShrink = 0;
 			children.Add( promote );
 		}
 		if ( kind != QueuedKind.Delivered )
 		{
 			var remove = BuildRailButton( "×", () => context.Run( () => session.UpdateUnqueue( text, kind == QueuedKind.Steering ) ) );
 			remove.AccessibilityName = $"Take back: {line}";
+			remove.FlexShrink = 0;
 			children.Add( remove );
 		}
 		return new Row
@@ -105,7 +107,7 @@ public sealed partial class ChatContent
 		} ) );
 		button.Key = "conversation-send-mode";
 		button.FlexShrink = 0;
-		button.Height = Theme.Current.ControlHeight;
+		button.MinHeight = Theme.Current.ControlHeight;
 		button.Color = _isSteerMode ? Theme.Current.Accent : Theme.Current.Muted;
 		button.AccessibilityName = _isSteerMode
 			? "Enter steers the running turn. Switch to queue for after it"

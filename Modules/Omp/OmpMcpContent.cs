@@ -77,6 +77,7 @@ internal sealed class OmpMcpContent : PanelContent
 			{
 				AlignItems = AlignItems.Center,
 				Gap = theme.Spacing,
+				FlexWrap = FlexWrap.Wrap,
 				Children =
 				[
 					new Text { Content = "MCP servers", FontSize = theme.FontSize + 4, FontWeight = 600, FlexGrow = 1 },
@@ -136,6 +137,7 @@ internal sealed class OmpMcpContent : PanelContent
 			FontFamily = theme.FontFamily,
 			FontSize = theme.FontSize,
 			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
 			Children = children,
 		};
 	}

@@ -105,7 +105,7 @@ public sealed partial class ChatContent
 			Source = source,
 			Fit = ImageFit.Contain,
 			Width = Math.Max( 1, Math.Round( source.Width * scale ) ),
-			Height = Math.Max( 1, Math.Round( source.Height * scale ) ),
+			AspectRatio = ( double )source.Width / source.Height,
 			MaxWidth = Length.Percent( 100 ),
 			BorderRadius = Theme.Current.Radius,
 			AccessibilityName = Path.GetFileName( path ),
@@ -158,7 +158,7 @@ public sealed partial class ChatContent
 		Key = $"attachment:{path}",
 		AlignItems = AlignItems.Center,
 		Gap = Theme.Current.Spacing / 2,
-		Height = Theme.Current.ControlHeight - Theme.Current.Spacing,
+		MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing,
 		Padding = trailing is null ? new Edges( 0, Theme.Current.Spacing ) : new Edges( 0, 0, 0, Theme.Current.Spacing ),
 		BorderRadius = Theme.Current.Radius,
 		BorderWidth = Theme.Current.BorderWidth,
@@ -339,7 +339,8 @@ public sealed partial class ChatContent
 	{
 		var remove = Theme.Current.BuildButton( "×", () => context.Run( () => UpdateDetach( path ) ) );
 		remove.AccessibilityName = $"Remove {Path.GetFileName( path )}";
-		remove.Height = Theme.Current.ControlHeight - Theme.Current.Spacing;
+		remove.Height = Length.Auto;
+		remove.MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing;
 		remove.Padding = new Edges( 0, Theme.Current.Spacing / 2 );
 		remove.Color = Theme.Current.Muted;
 		var chip = BuildFileChip( path, remove );

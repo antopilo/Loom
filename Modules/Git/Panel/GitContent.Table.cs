@@ -102,6 +102,7 @@ internal sealed partial class GitContent
 			FlexGrow = 1,
 			MinWidth = 0,
 			MinHeight = 0,
+			OverflowX = Overflow.Hidden,
 			Children = [BuildTableHeader(), BuildWorkingTreeRow(), list],
 		};
 	}
@@ -125,7 +126,7 @@ internal sealed partial class GitContent
 		return new Row
 		{
 			Key = "git-table-header",
-			Height = TableHeaderHeight,
+			MinHeight = TableHeaderHeight,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			Padding = new Edges( 0, theme.Spacing, 0, 0 ),
@@ -205,7 +206,7 @@ internal sealed partial class GitContent
 	private static Container BuildChip( string label, Color color ) => new()
 	{
 		FlexShrink = 0,
-		Height = 17,
+		MinHeight = 17,
 		JustifyContent = JustifyContent.Center,
 		Padding = new Edges( 0, Theme.Current.Spacing * 0.75 ),
 		BorderRadius = Theme.Current.Radius,
@@ -435,7 +436,7 @@ internal sealed partial class GitContent
 		return new Button
 		{
 			Handle = EnsureHandle( key ),
-			Height = BadgeHeight,
+			MinHeight = BadgeHeight,
 			FlexShrink = 1,
 			MinWidth = 0,
 			FlexDirection = FlexDirection.Row,
@@ -477,7 +478,7 @@ internal sealed partial class GitContent
 		return new Button
 		{
 			Handle = EnsureHandle( key ),
-			Height = BadgeHeight,
+			MinHeight = BadgeHeight,
 			FlexShrink = 0,
 			JustifyContent = JustifyContent.Center,
 			Padding = new Edges( 0, theme.Spacing / 2 ),

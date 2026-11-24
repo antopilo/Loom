@@ -21,8 +21,14 @@ public sealed partial class ChatContent
 	/// <summary>Defines how many pixels wide an inline image keeps at most.</summary>
 	private const int ThumbnailMaxWidth = 1600;
 
-	/// <summary>Retains each inline image's reduced pixels while its conversation panel remains open.</summary>
-	private readonly Dictionary<string, ImageSource> _images = [];
+	/// <summary>Retains each inline image's reduced pixels while its conversation panel remains open; null marks an image that could not be decoded.</summary>
+	private readonly Dictionary<string, ImageSource?> _images = [];
+
+	/// <summary>Maps each inline image still decoding to the messages whose rows show it, so each one is rebuilt when it arrives.</summary>
+	private readonly Dictionary<string, HashSet<Guid>> _imageLoads = new( StringComparer.Ordinal );
+
+	/// <summary>Holds the inline images decoded since a row last showed them, which fade in once.</summary>
+	private readonly HashSet<string> _loadedImages = new( StringComparer.Ordinal );
 
 	/// <summary>Retains each inline image's block, whose encoded data the viewer decodes full size.</summary>
 	private readonly Dictionary<string, JsonElement> _imageBlocks = [];
@@ -33,29 +39,26 @@ public sealed partial class ChatContent
 	/// <summary>Stores the full-size image the viewer shows, or null while it is closed.</summary>
 	private ImageSource? _fullImage;
 
-	/// <summary>Decodes an inline image once and builds it as a thumbnail that opens full size when clicked.</summary>
-	/// <remarks>An image that arrives in a row already on screen, such as a tool's screenshot, fades in as it is decoded.</remarks>
-	private Blob? BuildImage( string key, JsonElement block )
+	/// <summary>Builds an inline image as a thumbnail that opens full size when clicked, or null while it decodes off the UI thread.</summary>
+	/// <remarks>The thumbnail fades in once when its decode arrives.</remarks>
+	/// <param name="key">The image's stable key.</param>
+	/// <param name="messageId">The message whose row shows the image, rebuilt when its decode arrives.</param>
+	/// <param name="block">The image block with its encoded data.</param>
+	private Blob? BuildImage( string key, Guid messageId, JsonElement block )
 	{
-		ImageSource source;
-		var isNew = false;
-		try
+		if ( !_images.TryGetValue( key, out var source ) )
 		{
-			if ( !_images.TryGetValue( key, out source! ) )
+			var data = ReadText( block, "data" );
+			if ( data.Length > 0 )
 			{
-				var data = ReadText( block, "data" );
-				if ( data.Length == 0 )
-					return null;
-				_images.Add( key, source = DecodeThumbnail( Convert.FromBase64String( data ) ) );
 				_imageBlocks[key] = block;
-				isNew = _isRowLive;
+				UpdateImageLoad( key, messageId, data );
 			}
+			return null;
 		}
-		// Goo rejects formats it cannot decode, such as WebP, with NotSupportedException.
-		catch ( Exception error ) when ( error is FormatException or InvalidOperationException or ArgumentException or NotSupportedException or IOException )
-		{
+		if ( source is null )
 			return BuildText( "Image could not be decoded", muted: true );
-		}
+		var isNew = _loadedImages.Remove( key );
 
 		// The thumbnail keeps the image's shape and never grows past its own pixels, so clicks land on the picture, not beside it.
 		var height = Math.Min( ImageHeight, source.Height );
@@ -89,6 +92,47 @@ public sealed partial class ChatContent
 		return Cell.Mount<RevealInput, Reveal>( "image:" + key, new( thumbnail, isNew ) );
 	}
 
+	/// <summary>Decodes an inline image's thumbnail off the UI thread, once per key, and rebuilds every row waiting for it.</summary>
+	private void UpdateImageLoad( string key, Guid messageId, string data )
+	{
+		if ( _imageLoads.TryGetValue( key, out var waiting ) )
+		{
+			waiting.Add( messageId );
+			return;
+		}
+
+		_imageLoads[key] = [messageId];
+		_ = Task.Run( () =>
+		{
+			ImageSource? source = null;
+			try
+			{
+				source = DecodeThumbnail( Convert.FromBase64String( data ) );
+			}
+			catch ( Exception )
+			{
+				// Goo rejects formats it cannot decode, such as WebP; the row says the image could not be decoded.
+			}
+
+			var isPosted = context.Post( () =>
+			{
+				if ( !_imageLoads.Remove( key, out var messages ) )
+				{
+					source?.Dispose();
+					return;
+				}
+
+				_images[key] = source;
+				if ( source is not null )
+					_loadedImages.Add( key );
+				foreach ( var message in messages )
+					MarkRowChanged( message );
+			} );
+			if ( !isPosted )
+				source?.Dispose();
+		} );
+	}
+
 	/// <summary>Builds the images a tool returned, which stay visible whether or not its details are open.</summary>
 	private List<Blob> BuildToolImages( string toolId, JsonElement? result )
 	{
@@ -100,7 +144,7 @@ public sealed partial class ChatContent
 		foreach ( var block in content.EnumerateArray().Where( block => ReadText( block, "type" ) == "image" ) )
 		{
 			// Keyed by the tool call, so the summary line and the opened tool share one decoded image.
-			if ( BuildImage( $"{toolId}:image:{index++}", block ) is { } image )
+			if ( BuildImage( $"{toolId}:image:{index++}", _toolOwners.GetValueOrDefault( toolId ), block ) is { } image )
 				images.Add( image );
 		}
 
@@ -153,7 +197,7 @@ public sealed partial class ChatContent
 		return Cell.Mount<RevealInput, Reveal>( "image-viewer:" + key, new( viewer, true, Cover: true ) );
 	}
 
-	/// <summary>Shows an image full size, decoding it from its block, or closes the viewer when the key is null; the full image is released on close.</summary>
+	/// <summary>Opens an image full size once its decode off the UI thread arrives, or closes the viewer when the key is null; the full image is released on close.</summary>
 	private void UpdateViewing( string? key )
 	{
 		_fullImage?.Dispose();
@@ -161,16 +205,39 @@ public sealed partial class ChatContent
 		_viewing = null;
 		if ( key is not null && _imageBlocks.TryGetValue( key, out var block ) )
 		{
-			try
+			_viewing = key;
+			var data = ReadText( block, "data" );
+			_ = Task.Run( () =>
 			{
-				_fullImage = ImageSource.Decode( Convert.FromBase64String( ReadText( block, "data" ) ) );
-				_viewing = key;
-			}
-			catch ( Exception error ) when ( error is FormatException or InvalidOperationException or ArgumentException or NotSupportedException )
-			{
-				// The thumbnail decoded, so this only fails for an image too large to keep full size; it stays inline.
-			}
+				ImageSource? source = null;
+				try
+				{
+					source = ImageSource.Decode( Convert.FromBase64String( data ) );
+				}
+				catch ( Exception )
+				{
+					// The thumbnail decoded, so this only fails for an image too large to keep full size; it stays inline.
+				}
+
+				if ( !context.Post( () => UpdateFullImage( key, source ) ) )
+					source?.Dispose();
+			} );
 		}
+		MarkChanged();
+	}
+
+	/// <summary>Shows a decoded full-size image while the viewer still waits for it, and releases it otherwise.</summary>
+	private void UpdateFullImage( string key, ImageSource? source )
+	{
+		if ( _viewing != key || _fullImage is not null )
+		{
+			source?.Dispose();
+			return;
+		}
+
+		_fullImage = source;
+		if ( source is null )
+			_viewing = null;
 		MarkChanged();
 	}
 
@@ -195,10 +262,13 @@ public sealed partial class ChatContent
 	private void ReleaseImages()
 	{
 		foreach ( var image in _images.Values )
-			image.Dispose();
+			image?.Dispose();
 		_images.Clear();
+		_imageLoads.Clear();
+		_loadedImages.Clear();
 		_imageBlocks.Clear();
 		_fullImage?.Dispose();
 		_fullImage = null;
+		_viewing = null;
 	}
 }

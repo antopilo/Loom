@@ -37,8 +37,11 @@ internal sealed record GitInspectorRow( string Key, GitInspectorKind Kind, strin
 /// list; clicking a file shows its diff. A newly selected commit fades in.</summary>
 internal sealed partial class GitContent
 {
-	/// <summary>Defines the column's width in logical pixels.</summary>
+	/// <summary>Defines the column's widest width in logical pixels.</summary>
 	private const int InspectorWidth = 380;
+
+	/// <summary>Defines the column's share of the graph view's width, in percent, so a narrow panel keeps room for the table.</summary>
+	private const double InspectorPercent = 40;
 
 	/// <summary>Defines a file or folder row's height in logical pixels.</summary>
 	private const int InspectorRowHeight = 24;
@@ -81,7 +84,8 @@ internal sealed partial class GitContent
 		return new Container
 		{
 			Key = "git-inspector",
-			Width = InspectorWidth,
+			Width = Length.Percent( InspectorPercent ),
+			MaxWidth = InspectorWidth,
 			FlexShrink = 0,
 			MinHeight = 0,
 			BorderWidth = new Edges( 0, 0, 0, theme.BorderWidth ),
@@ -101,7 +105,7 @@ internal sealed partial class GitContent
 		return new Row
 		{
 			Key = "git-inspector-header",
-			Height = TableHeaderHeight + theme.Spacing,
+			MinHeight = TableHeaderHeight + theme.Spacing,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
@@ -252,7 +256,8 @@ internal sealed partial class GitContent
 		var theme = Theme.Current;
 		var path = row.Key[2..];
 		var folder = theme.BuildButton( row.Label, () => _context.Run( () => UpdateInspectorFolded( path ) ) );
-		folder.Height = InspectorRowHeight;
+		folder.Height = Length.Auto;
+		folder.MinHeight = InspectorRowHeight;
 		folder.FlexDirection = FlexDirection.Row;
 		folder.JustifyContent = JustifyContent.FlexStart;
 		folder.AlignItems = AlignItems.Center;
@@ -279,7 +284,7 @@ internal sealed partial class GitContent
 			new Container
 			{
 				Width = 15,
-				Height = 15,
+				MinHeight = 15,
 				FlexShrink = 0,
 				AlignItems = AlignItems.Center,
 				JustifyContent = JustifyContent.Center,
@@ -316,7 +321,8 @@ internal sealed partial class GitContent
 			if ( commit is not null )
 				ShowFile( new GitFileTarget( file.Path, false, commit ) );
 		} ) );
-		button.Height = InspectorRowHeight;
+		button.Height = Length.Auto;
+		button.MinHeight = InspectorRowHeight;
 		button.FlexDirection = FlexDirection.Row;
 		button.JustifyContent = JustifyContent.FlexStart;
 		button.AlignItems = AlignItems.Center;

@@ -63,7 +63,7 @@ internal sealed class GitAvatars
 		if ( _pictures.TryGetValue( key, out var picture ) )
 			return picture;
 		if ( _loading.Add( key ) )
-			_ = LoadAsync( key );
+			_ = Task.Run( () => LoadAsync( key ) );
 		return null;
 	}
 
@@ -209,7 +209,7 @@ internal sealed class GitAvatar : GuardedCell<GitAvatarInput>
 				FontSize = Math.Max( 7, size * 0.42 ),
 				FontWeight = 700,
 				LineHeight = 1,
-				Color = Color.Parse( "#ffffff" ),
+				Color = Theme.Current.Panel,
 				TextWrap = TextWrap.NoWrap,
 			},
 		};

@@ -339,6 +339,15 @@ internal static class CoreChecks
 		if ( !condition )
 			throw new InvalidOperationException( message );
 	}
+
+	/// <summary>Builds every row of a virtual list of measured rows with the list's own row builder, as if the whole list were in view.</summary>
+	internal static IEnumerable<Blob> BuildRows( Virtual list )
+	{
+		var type = list.Source!.GetType();
+		var build = (Delegate)type.GetProperty( "Build" )!.GetValue( list.Source )!;
+		foreach ( var row in (System.Collections.IEnumerable)type.GetProperty( "Rows" )!.GetValue( list.Source )! )
+			yield return (Blob)build.DynamicInvoke( row )!;
+	}
 }
 
 /// <summary>Defines a focused test module with configurable startup and dependencies.</summary>

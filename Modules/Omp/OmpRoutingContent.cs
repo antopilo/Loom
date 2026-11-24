@@ -108,6 +108,7 @@ internal sealed class OmpRoutingContent : PanelContent
 			FontFamily = theme.FontFamily,
 			FontSize = theme.FontSize,
 			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
 			Children = children,
 		};
 	}
@@ -218,8 +219,8 @@ internal sealed class OmpRoutingContent : PanelContent
 				Children =
 				[
 					new Text { Content = "Role", Width = 100, Color = theme.Muted },
-					new Text { Content = "Primary selector", FlexGrow = 1, Color = theme.Muted },
-					new Text { Content = "Fallback selectors, in order", FlexGrow = 1, Color = theme.Muted },
+					new Text { Content = "Primary selector", FlexGrow = 1, FlexBasis = 0, Color = theme.Muted },
+					new Text { Content = "Fallback selectors, in order", FlexGrow = 1, FlexBasis = 0, Color = theme.Muted },
 				],
 			},
 		};
@@ -259,6 +260,7 @@ internal sealed class OmpRoutingContent : PanelContent
 		Placeholder = isFallback ? "provider/model, @default" : "provider/model:effort",
 		AccessibilityName = $"{role} {(isFallback ? "fallbacks" : "primary model")}",
 		FlexGrow = 1,
+		FlexBasis = 0,
 		MinWidth = 160,
 		OnChange = value =>
 		{

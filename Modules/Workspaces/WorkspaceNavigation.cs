@@ -43,20 +43,13 @@ internal sealed class WorkspaceNavigation( PanelContext context, WorkspacesModul
 		if ( context.App.Modules.Any( item => item.Id == ProjectsModule ) )
 			return new Container();
 
-		var children = new List<Blob> { _sidebar.BuildNewTask( module ), _sidebar.BuildSearch() };
-		_sidebar.AddContributedActions( children );
-		if ( _sidebar.AddHomeTasks( module, children ) == 0 )
-			children.Add( SidebarRows.BuildEmpty( "Start a task to organize your work." ) );
+		var actions = new List<Blob> { _sidebar.BuildNewTask( module ), _sidebar.BuildSearch() };
+		_sidebar.AddContributedActions( actions );
+		var rows = new List<SidebarRow>();
+		if ( _sidebar.AddHomeTasks( module, rows ) == 0 )
+			rows.Add( new( "empty", SidebarRows.RowGap, static () => SidebarRows.BuildEmpty( "Start a task to organize your work." ) ) );
 
-		return new Container
-		{
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = "Tasks",
-			Padding = SidebarRows.ContentPadding,
-			Gap = 2,
-			OverflowY = Overflow.Scroll,
-			Children = children,
-		};
+		return SidebarRows.BuildSidebar( "Tasks", actions, rows );
 	}
 
 	/// <summary>Builds the tab strip: the Tasks group, then the + that starts a task outside projects; nothing while Projects shows them.</summary>

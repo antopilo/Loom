@@ -138,20 +138,23 @@ internal sealed partial class HistoryContent
 	}
 
 	/// <summary>Adds a project's chats below its heading, its tools' tasks left out: flat while they all work in the project's own directory, otherwise under a
-	/// label per worktree, the main checkout last, each with its tools, menu and removal dialog.</summary>
+	/// label per worktree, the main checkout last, each with its tools and menu; a worktree's removal confirmation goes to the dialogs, outside the list.</summary>
 	/// <param name="project">The project.</param>
 	/// <param name="groups">The project's chats by worktree, from <see cref="ComputeShownGroups"/>.</param>
 	/// <param name="worktrees">The working trees of the project's repository, or null when they are not known.</param>
 	/// <param name="actions">The worktree operations, or null while Worktrees is not loaded or the host is a paired one.</param>
-	/// <param name="children">The rows to add to.</param>
-	private void AddProjectChats( ProjectInfo project, IReadOnlyList<WorktreeGroup> groups, IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? actions, int indent, List<Blob> children )
+	/// <param name="indent">How far the flat list's rows are inset, such as <see cref="SidebarRows.ComputeChildIndent"/>.</param>
+	/// <param name="rows">The rows to add to.</param>
+	/// <param name="dialogs">The dialogs to add to, shown outside the list.</param>
+	private void AddProjectChats( ProjectInfo project, IReadOnlyList<WorktreeGroup> groups, IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? actions, int indent,
+		List<SidebarRow> rows, List<Blob> dialogs )
 	{
 		// A paired host's worktrees are grouped by the folder its chats work in: its disk and its Worktrees panel are not this PC's, so neither the git
 		// listing nor the worktree actions apply there.
 		var isLocal = Host.IsLocal;
 		if ( groups.All( group => group.IsMain ) )
 		{
-			AddChats( groups.SelectMany( group => group.Conversations ), "", indent, children );
+			AddChats( groups.SelectMany( group => group.Conversations ), "", indent, rows );
 			return;
 		}
 
@@ -162,26 +165,33 @@ internal sealed partial class HistoryContent
 			var name = ComputeWorktreeName( group.Directory );
 			if ( isLocal && !group.IsMain && IsWorktreeGone( group.Directory ) )
 				context.Post( () => Local.Store.ReleaseWorktree( group.Directory, mainPath ) );
-			children.Add( BuildWorktreeHeading( project, group, id, name ) );
-			if ( isLocal && _sidebar.IsMenuOpen( id ) )
+			rows.Add( new( $"worktree:{project.Id}:{id}", SidebarRows.RowGap, () =>
 			{
-				var isCheckout = group.IsMain || ConversationStore.IsSameFolder( group.Directory, mainPath );
-				children.Add( BuildWorktreeMenu( project, group, id, name, isCheckout ? null : actions ) );
-			}
+				var children = new List<Blob> { BuildWorktreeHeading( project, group, id, name ) };
+				if ( isLocal && _sidebar.IsMenuOpen( id ) )
+				{
+					var isCheckout = group.IsMain || ConversationStore.IsSameFolder( group.Directory, mainPath );
+					children.Add( BuildWorktreeMenu( project, group, id, name, isCheckout ? null : actions ) );
+				}
+				return SidebarRows.BuildGroup( id, children );
+			} ) );
 			if ( actions is not null && _removingWorktree.Value.Length > 0 && ConversationStore.IsSameFolder( _removingWorktree.Value, group.Directory ) )
-				children.Add( BuildRemoveWorktree( project, group, name, actions, mainPath ) );
+				dialogs.Add( BuildRemoveWorktree( project, group, name, actions, mainPath ) );
 			// Worktree labels keep the icon column for their branch icon, so their chats line up with them.
-			AddChats( group.Conversations, group.Directory, SidebarRows.ChildIndent, children );
+			AddChats( group.Conversations, group.Directory, SidebarRows.ChildIndent, rows );
 		}
 	}
 
 	/// <summary>Adds a list's chats inset under their project's name, its tools' tasks left out; each keeps its place among the listed ones for dragging.</summary>
 	/// <param name="indent">How far the rows are inset, such as <see cref="SidebarRows.ComputeChildIndent"/>.</param>
-	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, int indent, List<Blob> children )
+	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, int indent, List<SidebarRow> rows )
 	{
 		var index = 0;
 		foreach ( var conversation in conversations.Where( conversation => !IsToolTask( conversation ) ) )
-			children.Add( BuildConversation( conversation, index++, list, indent ) );
+		{
+			var place = index++;
+			rows.Add( new( "chat:" + conversation.Id, SidebarRows.RowGap, () => BuildConversation( conversation, place, list, indent ) ) );
+		}
 	}
 
 	/// <summary>Builds the label of a worktree: a branch icon in the project icon's column, its branch or folder name, then on This PC its tools, and its …
@@ -356,7 +366,7 @@ internal sealed partial class HistoryContent
 				Controlled = true,
 				Placeholder = "Branch",
 				AccessibilityName = "New worktree branch",
-				Height = theme.ControlHeight,
+				MinHeight = theme.ControlHeight,
 				OnChange = value => context.Run( () => _worktreeBranch.Value = value ),
 				OnSubmit = _ => context.Run( () => CreateWorktree( project, actions ) ),
 				KeyBindings = [new( Key.Escape, KeyModifiers.None, () => context.Run( CancelWorktreeAction ) )],
@@ -368,7 +378,7 @@ internal sealed partial class HistoryContent
 				Controlled = true,
 				Placeholder = "Start from (optional)",
 				AccessibilityName = "New worktree start point",
-				Height = theme.ControlHeight,
+				MinHeight = theme.ControlHeight,
 				OnChange = value => context.Run( () => _worktreeStart.Value = value ),
 				OnSubmit = _ => context.Run( () => CreateWorktree( project, actions ) ),
 				KeyBindings = [new( Key.Escape, KeyModifiers.None, () => context.Run( CancelWorktreeAction ) )],

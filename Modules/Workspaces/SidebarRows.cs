@@ -224,14 +224,52 @@ public sealed partial class SidebarRows( PanelContext context )
 		return (heading, label);
 	}
 
-	/// <summary>Builds a group's container: its heading row and rows, set visibly apart from what comes before.</summary>
+	/// <summary>Defines the space between rows in logical pixels.</summary>
+	public const int RowGap = 2;
+
+	/// <summary>Builds a group's container: its heading row and rows.</summary>
 	public static Container BuildGroup( Guid id, List<Blob> children ) => new()
 	{
 		Key = id.ToString(),
-		Gap = 2,
-		// Each group starts a visibly separate block.
-		Padding = new Edges( Theme.Current.Spacing * 2, 0, 0, 0 ),
+		Gap = RowGap,
 		Children = children,
+	};
+
+	/// <summary>Defines the height assumed for a list row until layout measures it, in logical pixels.</summary>
+	private const double EstimatedRowHeight = 32;
+
+	/// <summary>Builds one list row with the space above it; one delegate for every build.</summary>
+	private static readonly Func<SidebarRow, Blob> BuildListRow = row => new Container { Padding = new Edges( row.Gap, 0, 0, 0 ), Children = [row.Build()] };
+
+	/// <summary>Builds a sidebar: its actions, which stay in place, over its rows, which scroll and build only while in view.</summary>
+	/// <param name="name">The sidebar's accessible name.</param>
+	/// <param name="actions">The actions at the top, such as New task and Search.</param>
+	/// <param name="rows">The rows, top first.</param>
+	public static Container BuildSidebar( string name, List<Blob> actions, List<SidebarRow> rows ) => new()
+	{
+		AccessibilityRole = AccessibilityRole.Group,
+		AccessibilityName = name,
+		FlexGrow = 1,
+		MinWidth = 0,
+		MinHeight = 0,
+		Children = [BuildActions( actions ), BuildRows( rows )],
+	};
+
+	/// <summary>Builds a sidebar's actions, which stay in place above its rows.</summary>
+	public static Container BuildActions( List<Blob> actions ) =>
+		new() { Key = "sidebar-actions", Padding = new Edges( ContentPadding, ContentPadding, 0, ContentPadding ), Gap = RowGap, Children = actions };
+
+	/// <summary>Builds a sidebar's rows, which scroll and build only while in view.</summary>
+	/// <param name="rows">The rows, top first.</param>
+	public static Virtual BuildRows( List<SidebarRow> rows ) => new()
+	{
+		Key = "sidebar-rows",
+		Source = new MeasuredRowsSource<SidebarRow>( rows, BuildListRow, static _ => EstimatedRowHeight, FollowEnd: false ),
+		FlexGrow = 1,
+		MinHeight = 0,
+		Padding = new Edges( 0, ContentPadding, ContentPadding, ContentPadding ),
+		OverflowX = Overflow.Hidden,
+		ScrollbarY = ViewStyle.BuildScrollbar(),
 	};
 
 	/// <summary>Builds a row highlighted edge to edge while selected, under the pointer or showing its menu or + grid, with its actions inside the highlight; right-clicking it opens its menu at the pointer.</summary>
@@ -371,3 +409,9 @@ public sealed partial class SidebarRows( PanelContext context )
 			_hovered.Value = id;
 	}
 }
+
+/// <summary>Describes one row of a sidebar's list, built only while it is in view.</summary>
+/// <param name="Key">The stable row key, unique in the list.</param>
+/// <param name="Gap">The space above the row in logical pixels.</param>
+/// <param name="Build">Builds the row's content.</param>
+public sealed record SidebarRow( string Key, double Gap, Func<Blob> Build ) : IMeasuredRow;

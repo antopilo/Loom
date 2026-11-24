@@ -41,14 +41,15 @@ public sealed partial class ChatContent
 			var branch = BuildRailButton( head, () => context.Run( OpenFolderGit ) );
 			branch.Key = "conversation-branch";
 			branch.AccessibilityName = $"Open Git for {head}";
-			branch.FlexShrink = 0;
+			branch.FlexDirection = FlexDirection.Row;
 			branch.Children =
 			[
 				new Row
 				{
 					AlignItems = AlignItems.Center,
 					Gap = Theme.Current.Spacing / 4,
-					Children = [BuildBranchIcon(), BuildRailRolling( "conversation-branch-name", head, Theme.Current.Muted )],
+					MinWidth = 0,
+					Children = [BuildBranchIcon(), Cell.Mount<RollingTextInput, RollingText>( "conversation-branch-name", new( head, ViewStyle.SmallSize, Theme.Current.Muted ) { FontFamily = ViewStyle.FontFamily } )],
 				},
 			];
 			rail.Add( branch );

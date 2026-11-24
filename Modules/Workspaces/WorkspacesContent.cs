@@ -81,25 +81,36 @@ internal sealed class WorkspacesContent : PanelContent
 		var items = store.Items;
 		var current = store.Current;
 		var columns = _columns.Value;
-		var tiles = items.Select( item => BuildTile( item, item.Id == current ) ).Append( BuildNewTile() ).ToList();
-		var rows = new List<Blob>();
-		for ( var start = 0; start < tiles.Count; start += columns )
+		var tiles = items.Select( item => (Key: item.Id.ToString(), Build: (Func<Blob>)(() => BuildTile( item, item.Id == current ))) )
+			.Append( (Key: "new", Build: (Func<Blob>)BuildNewTile) ).ToArray();
+		var rows = new List<BuiltRow>();
+		for ( var start = 0; start < tiles.Length; start += columns )
 		{
-			var row = tiles.Skip( start ).Take( columns ).ToList();
-			// Fillers keep the last row's tiles the same width as the rows above.
-			while ( row.Count < columns )
-				row.Add( new Container { FlexGrow = 1, FlexBasis = 0, MinWidth = 0 } );
-			rows.Add( new Row { Key = $"row:{start}", Gap = TileGap, Height = TileHeight, FlexShrink = 0, Children = row } );
+			var slice = tiles[start..Math.Min( start + columns, tiles.Length )];
+			rows.Add( new( slice[0].Key, () =>
+			{
+				var row = slice.Select( tile => tile.Build() ).ToList();
+				// Fillers keep the last row's tiles the same width as the rows above.
+				while ( row.Count < columns )
+					row.Add( new Container { FlexGrow = 1, FlexBasis = 0, MinWidth = 0 } );
+				return new Container { Padding = new Edges( 0, 0, TileGap, 0 ), Children = [new Row { Gap = TileGap, Height = TileHeight, Children = row }] };
+			} ) );
 		}
 
 		var children = new List<Blob>
 		{
-			new Container
+			new Virtual
 			{
 				Key = "workspaces-grid",
 				Handle = _grid,
-				Gap = TileGap,
-				Children = rows,
+				Source = new MeasuredRowsSource<BuiltRow>( rows, static row => row.Build(), static _ => TileHeight + TileGap, FollowEnd: false ),
+				FlexGrow = 1,
+				MinWidth = 0,
+				MinHeight = 0,
+				Padding = new Edges( TileGap, TileGap, 0, TileGap ),
+				OverflowX = Overflow.Hidden,
+				ScrollbarY = ViewStyle.BuildScrollbar(),
+				AccessibilityName = "Workspaces",
 			},
 		};
 		if ( _menu.Value is var menu && menu != Guid.Empty && items.FirstOrDefault( item => item.Id == menu ) is { } target )
@@ -111,13 +122,9 @@ internal sealed class WorkspacesContent : PanelContent
 			FlexGrow = 1,
 			MinWidth = 0,
 			MinHeight = 0,
-			Padding = TileGap,
-			OverflowY = Overflow.Scroll,
 			FontFamily = Theme.Current.FontFamily,
 			FontSize = Theme.Current.FontSize,
 			Color = Theme.Current.Text,
-			AccessibilityRole = AccessibilityRole.List,
-			AccessibilityName = "Workspaces",
 			Children = children,
 		};
 	}

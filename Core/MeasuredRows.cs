@@ -4,7 +4,7 @@ using Goo;
 namespace Lokn.Core;
 
 /// <summary>Identifies one row of a measured-height virtual list.</summary>
-internal interface IMeasuredRow
+public interface IMeasuredRow
 {
 	/// <summary>Gets the stable key, unique among the list's rows.</summary>
 	string Key
@@ -20,7 +20,7 @@ internal interface IMeasuredRow
 /// <param name="FollowEnd">Whether new rows and size changes keep the end in view.</param>
 /// <param name="Placed">Receives the committed rows and each row's top edge, with the content height last, after each placement; the array is reused afterwards, so read it during the call.</param>
 /// <typeparam name="TRow">The immutable row value; a row equal to the one already mounted under its key is not built again.</typeparam>
-internal sealed record MeasuredRowsSource<TRow>( IReadOnlyList<TRow> Rows, Func<TRow, Blob> Build, Func<TRow, double> Estimate, bool FollowEnd, Action<IReadOnlyList<TRow>, double[]>? Placed = null ) : VirtualSource
+public sealed record MeasuredRowsSource<TRow>( IReadOnlyList<TRow> Rows, Func<TRow, Blob> Build, Func<TRow, double> Estimate, bool FollowEnd, Action<IReadOnlyList<TRow>, double[]>? Placed = null ) : VirtualSource
 	where TRow : class, IMeasuredRow, IEquatable<TRow>
 {
 	/// <summary>Continues the retained state with these rows pending, or starts one for a new element.</summary>
@@ -167,7 +167,7 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 
 		_pendingRange = ComputeRange( _pendingTops, scroll, size.Height );
 		_pendingMounted.Clear();
-		for ( var i = _pendingRange.Start; i < _pendingRange.End; i++ )
+		void Add( int i )
 		{
 			var row = rows[i];
 			var unchanged = reuse && _mounted.TryGetValue( row.Key, out var mounted ) && mounted.Equals( row );
@@ -181,6 +181,11 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 				Content = unchanged ? null : input.Build( row ),
 			} );
 		}
+		for ( var i = _pendingRange.Start; i < _pendingRange.End; i++ )
+			Add( i );
+		if ( viewport.FocusedChild >= 0 && IndexOf( rows, viewport.Child( viewport.FocusedChild ).Key ) is var focused and >= 0
+			&& (focused < _pendingRange.Start || focused >= _pendingRange.End) )
+			Add( focused );
 		output.ContentSize = new LayoutSize( size.Width, total );
 		output.ItemCount = rows.Count;
 		output.ScrollOffset = new Point { X = viewport.ScrollOffset.X, Y = scroll };
@@ -335,4 +340,25 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 		}
 		return -1;
 	}
+}
+
+/// <summary>Identifies one row of a page built by a delegate; rows compare by reference, so each page build builds its visible rows again.</summary>
+/// <param name="key">The stable row key, unique among the page's rows.</param>
+/// <param name="build">Builds the row's content.</param>
+public sealed class BuiltRow( string key, Func<Blob> build ) : IMeasuredRow, IEquatable<BuiltRow>
+{
+	/// <summary>Gets the stable row key.</summary>
+	public string Key => key;
+
+	/// <summary>Builds the row's content.</summary>
+	public Blob Build() => build();
+
+	/// <summary>Compares rows by reference.</summary>
+	public bool Equals( BuiltRow? other ) => ReferenceEquals( this, other );
+
+	/// <summary>Compares rows by reference.</summary>
+	public override bool Equals( object? obj ) => ReferenceEquals( this, obj );
+
+	/// <summary>Hashes the row by its key.</summary>
+	public override int GetHashCode() => key.GetHashCode( StringComparison.Ordinal );
 }

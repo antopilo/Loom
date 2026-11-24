@@ -44,6 +44,12 @@ public sealed class ThemeModule : ILoknModule
 	/// <summary>Stores the theme being previewed, or null.</summary>
 	private Theme? _preview;
 
+	/// <summary>Defines how long the pointer rests on a theme card before the theme is previewed, in milliseconds.</summary>
+	private const int HoverMilliseconds = 150;
+
+	/// <summary>Holds the pending start or end of a hover preview, or null.</summary>
+	private Goo.WindowTimer? _hover;
+
 	/// <summary>Gets the global theme file path, in the data folder.</summary>
 	public static string DefaultPath => LoknPaths.Combine( "theme.json" );
 
@@ -109,6 +115,8 @@ public sealed class ThemeModule : ILoknModule
 		if ( _context is { } context )
 			context.App.Settings.Changed -= UpdateApplied;
 
+		_hover?.Dispose();
+		_hover = null;
 		_preview = null;
 		_applied = Theme.Default;
 		Theme.Current = Theme.Default;
@@ -117,8 +125,18 @@ public sealed class ThemeModule : ILoknModule
 	/// <summary>Shows a theme across the app until the preview ends with null, without changing the setting.</summary>
 	internal void Preview( Theme? theme )
 	{
+		_hover?.Dispose();
+		_hover = null;
 		_preview = theme;
 		UpdateCurrent();
+	}
+
+	/// <summary>Previews a hovered theme card once the pointer rests on it, and ends the preview once the pointer leaves, from a window timer,
+	/// so a scroll that crosses many cards does not rebuild every view per card or change the theme inside input dispatch.</summary>
+	internal void Hover( Theme? theme )
+	{
+		_hover?.Dispose();
+		_hover = _context?.App.Window?.After( theme is null ? 0 : HoverMilliseconds, () => Preview( theme ) );
 	}
 
 	/// <summary>Composes the picked theme with the file's tokens; an invalid file is reported and the running theme kept.</summary>

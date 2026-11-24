@@ -41,18 +41,19 @@ public sealed partial class SidebarRows
 
 	/// <summary>Adds the Tasks section, the tasks outside projects, when there are any.</summary>
 	/// <returns>How many tasks it added.</returns>
-	public int AddHomeTasks( WorkspacesModule workspaces, List<Blob> children )
+	public int AddHomeTasks( WorkspacesModule workspaces, List<SidebarRow> rows )
 	{
 		var tasks = ComputeShown( workspaces.Tasks( WorkspacesModule.HomeSession ) );
 		if ( tasks.Length == 0 )
 			return 0;
 
-		children.Add( BuildSectionHeading( "Tasks" ) );
+		rows.Add( new( "tasks-heading", 0, () => BuildSectionHeading( "Tasks" ) ) );
 		for ( var index = 0; index < tasks.Length; index++ )
 		{
 			var task = tasks[index];
-			children.Add( BuildTask( workspaces, WorkspacesModule.HomeSession, task, index,
-				() => workspaces.OpenTask( context.App, WorkspacesModule.HomeSession, WorkspacesModule.HomeTitle, task.Id, context.App.Panels.HideAll ) ) );
+			var place = index;
+			rows.Add( new( task.Id.ToString(), RowGap, () => BuildTask( workspaces, WorkspacesModule.HomeSession, task, place,
+				() => workspaces.OpenTask( context.App, WorkspacesModule.HomeSession, WorkspacesModule.HomeTitle, task.Id, context.App.Panels.HideAll ) ) ) );
 		}
 		return tasks.Length;
 	}

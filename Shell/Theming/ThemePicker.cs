@@ -57,7 +57,7 @@ internal static class ThemePicker
 				{
 					FlexWrap = FlexWrap.Wrap,
 					Gap = Theme.Current.Spacing,
-					Children = [.. entries.Select( entry => BuildCard( entry, string.Equals( entry.Name, selected, StringComparison.OrdinalIgnoreCase ), () => Pick( entry ), module.Preview ) )],
+					Children = [.. entries.Select( entry => BuildCard( entry, string.Equals( entry.Name, selected, StringComparison.OrdinalIgnoreCase ), () => Pick( entry ), module.Hover ) )],
 				},
 			],
 		};
@@ -69,9 +69,10 @@ internal static class ThemePicker
 		{
 			MaxHeight = VisibleRows * cardHeight + (VisibleRows - 1) * spacing,
 			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
 			Gap = spacing,
 			// Leaving the whole picker ends any preview, even when a card's own leave was missed.
-			OnPointerLeave = _ => module.Preview( null ),
+			OnPointerLeave = _ => module.Hover( null ),
 			Children =
 			[
 				Group( "Light", ThemeCatalog.Entries.Where( entry => entry.IsLight ) ),
@@ -150,7 +151,6 @@ internal static class ThemePicker
 					Content = entry.Name,
 					Color = isSelected ? current.Text : current.Muted,
 					FontSize = NameSize,
-					Height = NameLineHeight,
 					TextWrap = TextWrap.NoWrap,
 					TextTrimming = TextTrimming.Ellipsis,
 				},

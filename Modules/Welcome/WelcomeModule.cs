@@ -50,7 +50,11 @@ internal sealed class WelcomeContent( PanelContext context ) : PanelContent
 		{
 			Padding = ContentPadding,
 			Gap = Theme.Current.Spacing,
+			FlexGrow = 1,
+			MinWidth = 0,
+			MinHeight = 0,
 			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
 			Children =
 			[
 				new Text
@@ -78,7 +82,7 @@ internal sealed class WelcomeContent( PanelContext context ) : PanelContent
 					Controlled = true,
 					Placeholder = "Type something — it stays when you move this panel",
 					AccessibilityName = "Workspace scratch text",
-					Padding = Theme.Current.Spacing,
+					Padding = new Edges( 0, Theme.Current.Spacing ),
 					Height = Theme.Current.ControlHeight + Theme.Current.Spacing,
 					BackgroundColor = Theme.Current.Raised,
 					BorderColor = Theme.Current.Border,

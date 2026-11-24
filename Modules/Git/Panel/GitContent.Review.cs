@@ -6,6 +6,9 @@ namespace Lokn.Modules.Git;
 /// <summary>Runs the actions other modules add (<see cref="GitAction"/>) and shows the review one of them linked: its state, verdict and findings, marked on the diff.</summary>
 internal sealed partial class GitContent
 {
+	/// <summary>Defines the share of the panel's height the review banner takes at most, in percent; more findings scroll.</summary>
+	private const double ReviewPercent = 40;
+
 	/// <summary>Stores the linked review: the key of the action that linked it and its identifier, or null before the first review.</summary>
 	private (string Action, string Id)? _review;
 
@@ -167,6 +170,9 @@ internal sealed partial class GitContent
 		{
 			Key = "git-review",
 			FlexShrink = 0,
+			MaxHeight = Length.Percent( ReviewPercent ),
+			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
 			Padding = theme.Spacing,
 			Gap = theme.Spacing / 2,
 			BackgroundColor = theme.Accent.WithAlpha( 0.08 ),

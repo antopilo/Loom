@@ -29,6 +29,9 @@ public sealed partial class ChatContent
 	/// dialog id and picture index.</summary>
 	private readonly Dictionary<string, object?> _formPictures = [];
 
+	/// <summary>Holds the keys of the form pictures still decoding off the UI thread.</summary>
+	private readonly HashSet<string> _formPictureLoads = new( StringComparer.Ordinal );
+
 	/// <summary>Gets a form dialog's parsed form, parsing it on first use.</summary>
 	private HtmlForm ReadForm( JsonElement dialog )
 	{
@@ -61,6 +64,7 @@ public sealed partial class ChatContent
 	private List<Blob> BuildForm( JsonElement dialog, HtmlForm form, IReadOnlyList<DialogChoice>? quick )
 	{
 		var id = ReadText( dialog, "id" );
+		var folder = store.GetDirectory( conversationId );
 		var (_, skipsTitle, skipsBlock) = ReadFormLead( form );
 		var children = new List<Blob>();
 		var picture = 0;
@@ -78,7 +82,7 @@ public sealed partial class ChatContent
 				{
 					FormMarkdown { IsHeading: true } text => new Container { FontWeight = AuthorWeight, Children = [MarkdownView.Build( text.Markdown, OpenLink )] },
 					FormMarkdown text => MarkdownView.Build( text.Markdown, OpenLink ),
-					FormImage image => BuildFormPicture( $"{id}:{picture++}", image.Source, image.Alt, () => LoadFormImage( image.Source ) ),
+					FormImage image => BuildFormPicture( $"{id}:{picture++}", image.Source, image.Alt, () => LoadFormImage( image.Source, folder ) ),
 					FormSvg svg => BuildFormPicture( $"{id}:{picture++}", "", svg.Alt, () => ParseSvg( svg.Markup ) ),
 					FormFieldBlock { Field: FormChoiceField choice } => BuildFormChoice( dialog, choice, quick ),
 					FormFieldBlock { Field: FormTextField text } => BuildFormText( dialog, text ),
@@ -170,11 +174,14 @@ public sealed partial class ChatContent
 	/// <param name="key">The picture's cache key.</param>
 	/// <param name="source">The image's address, for a link when it is on the web; empty for an SVG drawing.</param>
 	/// <param name="alt">The picture's description.</param>
-	/// <param name="load">Decodes the picture once.</param>
+	/// <param name="load">Decodes the picture once, off the UI thread.</param>
 	private Blob BuildFormPicture( string key, string source, string alt, Func<object?> load )
 	{
 		if ( !_formPictures.TryGetValue( key, out var picture ) )
-			_formPictures.Add( key, picture = load() );
+		{
+			UpdateFormPictureLoad( key, load );
+			return new Container();
+		}
 		switch ( picture )
 		{
 			case ImageSource image:
@@ -208,9 +215,44 @@ public sealed partial class ChatContent
 		return BuildText( alt.Length > 0 ? alt : "Picture could not be shown", muted: true );
 	}
 
+	/// <summary>Decodes a form picture off the UI thread, once per key, and shows it when it arrives unless its form has finished.</summary>
+	private void UpdateFormPictureLoad( string key, Func<object?> load )
+	{
+		if ( !_formPictureLoads.Add( key ) )
+			return;
+
+		_ = Task.Run( () =>
+		{
+			object? picture = null;
+			try
+			{
+				picture = load();
+			}
+			catch ( Exception )
+			{
+				// The row says the picture could not be shown.
+			}
+
+			var isPosted = context.Post( () =>
+			{
+				if ( !_formPictureLoads.Remove( key ) )
+				{
+					(picture as ImageSource)?.Dispose();
+					return;
+				}
+
+				_formPictures[key] = picture;
+				MarkChanged();
+				UpdateDialogsChanged();
+			} );
+			if ( !isPosted )
+				(picture as ImageSource)?.Dispose();
+		} );
+	}
+
 	/// <summary>Decodes a form image from a data URI or a file, relative to the chat's folder, as an image or an SVG drawing; null for a web address,
 	/// a missing file, such as one on another PC's disk, or a format that cannot be decoded.</summary>
-	private object? LoadFormImage( string source )
+	private static object? LoadFormImage( string source, string folder )
 	{
 		try
 		{
@@ -237,7 +279,7 @@ public sealed partial class ChatContent
 			else if ( uri is not null )
 				return null;
 			else
-				path = Path.Combine( store.GetDirectory( conversationId ), source );
+				path = Path.Combine( folder, source );
 			if ( !File.Exists( path ) )
 				return null;
 
@@ -380,6 +422,7 @@ public sealed partial class ChatContent
 			(_formPictures[key] as ImageSource)?.Dispose();
 			_formPictures.Remove( key );
 		}
+		_formPictureLoads.RemoveWhere( key => key.StartsWith( id + ":", StringComparison.Ordinal ) );
 	}
 
 	/// <summary>Releases every form picture as the panel closes.</summary>
@@ -388,5 +431,6 @@ public sealed partial class ChatContent
 		foreach ( var picture in _formPictures.Values )
 			(picture as ImageSource)?.Dispose();
 		_formPictures.Clear();
+		_formPictureLoads.Clear();
 	}
 }

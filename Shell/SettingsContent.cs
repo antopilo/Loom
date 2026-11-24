@@ -14,6 +14,9 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	/// <summary>Defines the settings content inset in logical pixels.</summary>
 	private const int ContentPadding = 24;
 
+	/// <summary>Defines the right inset that keeps the heading clear of the window's close button and holds the scrollbar beside the settings, in logical pixels.</summary>
+	private const int EdgeGutter = 44;
+
 	/// <summary>Defines the widest the settings column grows, in logical pixels.</summary>
 	private const int ColumnWidth = 720;
 
@@ -125,28 +128,45 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			.OrderBy( group => group.Key, StringComparer.CurrentCulture )
 			.ToArray();
 
-		var children = new List<Blob>
+		var header = new Container
 		{
-			new Row
-			{
-				AlignItems = AlignItems.Center,
-				FlexWrap = FlexWrap.Wrap,
-				Gap = theme.Spacing,
-				Children =
-				[
-					new Text { Content = query.Length > 0 ? $"Results for “{query}”" : shown?.Title ?? "Settings", FontSize = HeadingSize, FontWeight = TitleWeight, FlexGrow = 1 },
-					BuildSegments( "Scope", [.. Enum.GetValues<SettingsScope>().Select( item => new SettingChoice( item, item == SettingsScope.Global ? "Defaults" : item.ToString() ) )],
-						scope, value => _scope.Value = (SettingsScope)value ),
-				],
-			},
-			new Text
-			{
-				Content = scope == SettingsScope.Global
-					? $"Editing the defaults every profile inherits. Active profile: {settings.ActiveProfile}."
-					: $"Editing {scope}: a changed setting overrides the default for this profile only.",
-				Color = theme.Muted,
-			},
+			Width = Length.Percent( 100 ),
+			MaxWidth = ContentPadding + ColumnWidth + EdgeGutter,
+			Padding = new Edges( 0, EdgeGutter, 0, ContentPadding ),
+			Gap = theme.Spacing,
+			Children =
+			[
+				new Row
+				{
+					AlignItems = AlignItems.Center,
+					FlexWrap = FlexWrap.Wrap,
+					Gap = theme.Spacing,
+					Children =
+					[
+						new Text
+						{
+							Content = query.Length > 0 ? $"Results for “{query}”" : shown?.Title ?? "Settings",
+							FontSize = HeadingSize,
+							FontWeight = TitleWeight,
+							FlexGrow = 1,
+							MinWidth = 0,
+							TextMaxLines = 1,
+							TextTrimming = TextTrimming.Ellipsis,
+						},
+						BuildSegments( "Scope", [.. Enum.GetValues<SettingsScope>().Select( item => new SettingChoice( item, item == SettingsScope.Global ? "Defaults" : item.ToString() ) )],
+							scope, value => _scope.Value = (SettingsScope)value ),
+					],
+				},
+				new Text
+				{
+					Content = scope == SettingsScope.Global
+						? $"Editing the defaults every profile inherits. Active profile: {settings.ActiveProfile}."
+						: $"Editing {scope}: a changed setting overrides the default for this profile only.",
+					Color = theme.Muted,
+				},
+			],
 		};
+		var children = new List<Blob>();
 
 		if ( query.Length > 0 )
 		{
@@ -183,6 +203,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Settings editor",
 			FlexGrow = 1,
+			MinWidth = 0,
 			MinHeight = 0,
 			Children =
 			[
@@ -190,20 +211,36 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 				new Container
 				{
 					Key = "page",
-					Handle = _main,
 					FlexGrow = 1,
 					MinWidth = 0,
-					Padding = ContentPadding,
-					OverflowY = Overflow.Scroll,
+					MinHeight = 0,
+					Padding = new Edges( ContentPadding, 0, 0, 0 ),
+					Gap = theme.Spacing,
 					AlignItems = AlignItems.Center,
 					Children =
 					[
+						header,
 						new Container
 						{
+							Key = "settings",
+							Handle = _main,
 							Width = Length.Percent( 100 ),
-							MaxWidth = ColumnWidth,
-							Gap = theme.Spacing,
-							Children = children,
+							FlexGrow = 1,
+							MinHeight = 0,
+							Padding = new Edges( 0, EdgeGutter, ContentPadding, ContentPadding ),
+							OverflowY = Overflow.Scroll,
+							ScrollbarY = ViewStyle.BuildScrollbar(),
+							AlignItems = AlignItems.Center,
+							Children =
+							[
+								new Container
+								{
+									Width = Length.Percent( 100 ),
+									MaxWidth = ColumnWidth,
+									Gap = theme.Spacing,
+									Children = children,
+								},
+							],
 						},
 					],
 				},
@@ -395,7 +432,15 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			} );
 		}
 
-		children.Add( new Container { Key = "modules", Gap = NavItemGap, Children = items } );
+		children.Add( new Container
+		{
+			Key = "modules",
+			FlexGrow = 1,
+			MinHeight = 0,
+			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
+			Children = [new Container { Gap = NavItemGap, Children = items }],
+		} );
 
 		return new Container
 		{
@@ -405,8 +450,8 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			Width = SidebarWidth,
 			FlexShrink = 0,
 			Padding = new Edges( ContentPadding * 0.75, theme.Spacing * 1.25 ),
+			MinHeight = 0,
 			Gap = 0,
-			OverflowY = Overflow.Scroll,
 			BorderColor = theme.Divider,
 			BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
 			Children = children,

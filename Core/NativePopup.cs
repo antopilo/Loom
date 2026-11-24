@@ -90,7 +90,7 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 			portal.OnDismiss = _ => Dismiss();
 		}
 
-		var surface = new Container { Children = [input.Content] };
+		var surface = new Container { FlexGrow = 1, MinHeight = 0, Children = [input.Content] };
 		PopupMotion.Apply( surface, _appear?.Value ?? 1, Rise );
 		portal.Add( surface );
 		return portal;

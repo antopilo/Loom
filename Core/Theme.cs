@@ -230,6 +230,8 @@ public sealed record Theme
 			{
 				Key = "segment:" + label,
 				Padding = new Edges( Spacing * 0.75, Spacing * 1.75 ),
+				AlignItems = AlignItems.Center,
+				JustifyContent = JustifyContent.Center,
 				BorderRadius = Radius,
 				BackgroundColor = isPicked ? Panel : Color.Transparent,
 				BorderColor = isPicked ? Border : Color.Transparent,
@@ -242,7 +244,7 @@ public sealed record Theme
 				KeyBindings = [new( Key.Enter, KeyModifiers.None, Pick ), new( Key.Space, KeyModifiers.None, Pick )],
 				HoverStyle = new Style { Color = Text },
 				FocusStyle = new Style { BorderColor = Accent },
-				Children = [new Text { Content = label, FontWeight = isPicked ? 600 : 400 }],
+				Children = [new Text { Content = label, TextWrap = TextWrap.NoWrap }],
 			} );
 		}
 

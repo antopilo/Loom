@@ -250,7 +250,7 @@ internal sealed partial class GitChangesPane
 		SideRowKind.Summary => BuildSideSummary( row ),
 		SideRowKind.Folder => BuildSideFolder( row ),
 		SideRowKind.File => BuildSideFile( row ),
-		_ => new Text { Content = row.Label, Height = SummaryHeight, Padding = new Edges( 0, Theme.Current.Spacing ), FontSize = ViewStyle.SmallSize, Color = Theme.Current.Muted },
+		_ => new Text { Content = row.Label, MinHeight = SummaryHeight, Padding = new Edges( 0, Theme.Current.Spacing ), FontSize = ViewStyle.SmallSize, Color = Theme.Current.Muted },
 	};
 
 	/// <summary>Builds a section heading: its title and count, and the button that stages or unstages every file.</summary>
@@ -265,7 +265,7 @@ internal sealed partial class GitChangesPane
 			: BuildSmallButton( "Stage all", "Stage all files", ToggleAll, hasFiles );
 		return new Row
 		{
-			Height = SectionHeight,
+			MinHeight = SectionHeight,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
 			Padding = new Edges( 0, theme.Spacing / 2 ),
@@ -287,7 +287,7 @@ internal sealed partial class GitChangesPane
 		var theme = Theme.Current;
 		return new Row
 		{
-			Height = SummaryHeight,
+			MinHeight = SummaryHeight,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
 			Padding = new Edges( 0, theme.Spacing, 0, theme.Spacing ),
@@ -325,7 +325,7 @@ internal sealed partial class GitChangesPane
 		{
 			FlexGrow = 1,
 			MinWidth = 0,
-			Height = RowHeight,
+			MinHeight = RowHeight,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
@@ -372,7 +372,7 @@ internal sealed partial class GitChangesPane
 		{
 			FlexGrow = 1,
 			MinWidth = 0,
-			Height = RowHeight,
+			MinHeight = RowHeight,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
@@ -415,7 +415,7 @@ internal sealed partial class GitChangesPane
 		return new Row
 		{
 			Handle = UpdateRowHandle( key ),
-			Height = RowHeight,
+			MinHeight = RowHeight,
 			AlignItems = AlignItems.Center,
 			Padding = new Edges( 0, theme.Spacing / 2, 0, theme.Spacing / 2 + row.Depth * TreeIndent ),
 			BorderRadius = theme.Radius,
@@ -534,7 +534,7 @@ internal sealed partial class GitChangesPane
 		{
 			Key = name,
 			Width = theme.ControlHeight - theme.Spacing,
-			Height = theme.ControlHeight - theme.Spacing,
+			MinHeight = theme.ControlHeight - theme.Spacing,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
@@ -620,7 +620,7 @@ internal sealed partial class GitChangesPane
 				Placeholder = "Summary",
 				PlaceholderColor = theme.Muted,
 				AccessibilityName = "Commit summary",
-				Height = theme.ControlHeight,
+				MinHeight = theme.ControlHeight,
 				MinWidth = 0,
 				Padding = new Edges( 0, theme.Spacing ),
 				FontSize = theme.FontSize,

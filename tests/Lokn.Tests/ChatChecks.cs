@@ -650,16 +650,33 @@ internal static class ChatChecks
 		Add( "user", """{"content":[{"type":"text","text":"Show me"}]}""" );
 		Add( "assistant", """{"content":[{"type":"toolCall","id":"s1","name":"screenshot","arguments":{}}]}""" );
 		Add( "toolResult", $$"""{"toolCallId":"s1","toolName":"screenshot","content":[{"type":"text","text":"Captured"},{"type":"image","mimeType":"image/png","data":"{{Pixel}}"}]}""" );
+		using var posted = new System.Collections.Concurrent.BlockingCollection<Action>();
+		app.BindDispatcher( action =>
+		{
+			posted.Add( action );
+			return true;
+		} );
+		void PumpUntil( Func<bool> condition )
+		{
+			while ( !condition() && posted.TryTake( out var action, TimeSpan.FromSeconds( 30 ) ) )
+				action();
+		}
+
 		var panel = BuildChat( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
 		var rows = (List<TranscriptRow>)typeof( ChatContent ).GetMethod( "ComputeRows", flags )!.Invoke( panel, [store.GetMessages( chat.Id )] )!;
-		var activity = (Blob)typeof( ChatContent ).GetMethod( "BuildActivity", flags )!.Invoke( panel, [rows.Single( row => row.IsActivity )] )!;
-		var thumbnail = Descendants( activity ).OfType<Button>().SingleOrDefault( button => button.AccessibilityName == "Open image" );
+		Button? FindThumbnail() => Descendants( (Blob)typeof( ChatContent ).GetMethod( "BuildActivity", flags )!.Invoke( panel, [rows.Single( row => row.IsActivity )] )! )
+			.OfType<Button>().SingleOrDefault( button => button.AccessibilityName == "Open image" );
+		PumpUntil( () => FindThumbnail() is not null );
+		var thumbnail = FindThumbnail();
 		CoreChecks.Check( thumbnail is not null && Descendants( thumbnail ).OfType<Image>().Any(), "A tool's image shows under its closed summary line." );
 		thumbnail!.OnClick!();
-		CoreChecks.Check( typeof( ChatContent ).GetMethod( "BuildViewer", flags )!.Invoke( panel, null ) is Blob viewer && Descendants( viewer ).OfType<Button>().Any( button => button.AccessibilityName == "Close image" ),
+		Blob? BuildViewer() => (Blob?)typeof( ChatContent ).GetMethod( "BuildViewer", flags )!.Invoke( panel, null );
+		PumpUntil( () => BuildViewer() is not null );
+		CoreChecks.Check( BuildViewer() is Blob viewer && Descendants( viewer ).OfType<Button>().Any( button => button.AccessibilityName == "Close image" ),
 			"Clicking an image opens it full size over the chat." );
 		panel.Closed();
+		app.BindDispatcher( null );
 	}
 
 	/// <summary>Lists a declaration and every blob below it.</summary>
