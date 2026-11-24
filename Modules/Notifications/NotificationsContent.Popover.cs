@@ -40,6 +40,8 @@ internal sealed partial class NotificationsContent
 
 			var latest = row.Items[0];
 			list.Add( BuildRow( row, view, isSelected: false, () => Open( latest ) ) );
+			if ( BuildRowActions( row ) is { } actions )
+				list.Add( actions );
 			if ( row.Items.Count == 1 && view.Waiting.TryGetValue( latest.Id, out var waiting ) && BuildPromptCard( waiting, "feed", PromptHeight ) is { } card )
 				list.Add( BuildInset( "prompt-inset:" + waiting.Key, card ) );
 		}
@@ -127,8 +129,8 @@ internal sealed partial class NotificationsContent
 		};
 	}
 
-	/// <summary>Builds the popover's tabs: All, Waiting with how many questions wait, and Unread with how many are unread.</summary>
-	private Row BuildTabs( FeedView view, int unread )
+	/// <summary>Builds the tabs: All, Waiting with how many questions wait, Unread with how many are unread, then any further filters, wrapping onto more lines.</summary>
+	private Row BuildTabs( FeedView view, int unread, IReadOnlyList<(string Label, NotificationFilter Filter)>? more = null )
 	{
 		var theme = Theme.Current;
 		var filter = _filter.Value;
@@ -136,7 +138,7 @@ internal sealed partial class NotificationsContent
 		{
 			var isOn = filter == target;
 			var tab = theme.BuildButton( label, () => context.Run( () => UpdateFilter( target ) ) );
-			tab.Key = "tab:" + target.Kind;
+			tab.Key = "tab:" + target.Kind + ":" + target.Value;
 			tab.AccessibilityName = label;
 			tab.Height = 24;
 			tab.FlexShrink = 0;
@@ -150,10 +152,19 @@ internal sealed partial class NotificationsContent
 			return tab;
 		}
 
+		var tabs = new List<Blob>
+		{
+			Tab( "All", new( NotificationFilterKind.All ) ),
+			Tab( view.WaitingCount > 0 ? $"Waiting · {view.WaitingCount}" : "Waiting", new( NotificationFilterKind.Waiting ) ),
+			Tab( unread > 0 ? $"Unread · {unread}" : "Unread", new( NotificationFilterKind.Unread ) ),
+		};
+		foreach ( var (label, target) in more ?? [] )
+			tabs.Add( Tab( label, target ) );
 		return new Row
 		{
 			Key = "notifications-tabs",
 			FlexShrink = 0,
+			FlexWrap = FlexWrap.Wrap,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
 			Padding = new Edges( theme.Spacing * 0.75, theme.Spacing * 1.5 ),
@@ -161,12 +172,7 @@ internal sealed partial class NotificationsContent
 			BorderColor = theme.Divider,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Show",
-			Children =
-			[
-				Tab( "All", new( NotificationFilterKind.All ) ),
-				Tab( view.WaitingCount > 0 ? $"Waiting · {view.WaitingCount}" : "Waiting", new( NotificationFilterKind.Waiting ) ),
-				Tab( unread > 0 ? $"Unread · {unread}" : "Unread", new( NotificationFilterKind.Unread ) ),
-			],
+			Children = tabs,
 		};
 	}
 

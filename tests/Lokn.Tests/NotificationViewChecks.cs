@@ -126,6 +126,7 @@ internal static class NotificationViewChecks
 		for ( var index = 0; index < 4; index++ )
 			feed.Post( new( $"Chat {index + 1}", "Finished and waiting for you" ) { Source = "conversations.chat", Tone = NotificationTone.Success, Project = "Lokn" } );
 		feed.Post( new( "Download finished", "Loom-win-Setup.exe · 84 MB" ) { Source = "browser.page" } );
+		feed.Post( new( "Updates", "Loom 0.4.17 is ready. Restart Loom to use it." ) { Source = "updates", Actions = [new( "Restart now", LoknLinks.Create( "updates", "restart" ) )] } );
 		feed.Post( new( "GitHub", "Checks passed on antopilo/Lokn#88 Compact question card" ) { Source = "github", Tone = NotificationTone.Success, Project = "antopilo/Lokn", Details = ["main", "8d01e4b"] } );
 		feed.Post( new( "GitHub", "2 checks failed on antopilo/Lokn#87 Profile store" ) { Source = "github", Tone = NotificationTone.Failure, Project = "antopilo/Lokn", Details = ["main", "3f2c1a9"] } );
 		foreach ( var (title, panelId, _) in chats )
@@ -184,6 +185,7 @@ internal static class NotificationViewChecks
 		PumpUntil( window, semantics, () => HasNode( semantics, AccessibilityRole.Dialog, "Notifications" ), "The bell opens its popover." );
 		CoreChecks.Check( app.LastError is null, $"The popover builds without contained failures: {app.LastError}" );
 		Capture( "popover" );
+		CoreChecks.Check( HasNode( semantics, AccessibilityRole.Button, "Restart now" ), "A notification's own buttons show on its row in the popover, without opening it." );
 		Click( window, semantics, node => node.Role == AccessibilityRole.Button && node.Name?.StartsWith( "Waiting", StringComparison.Ordinal ) == true, "Waiting tab" );
 		PumpUntil( window, semantics, () => !HasText( semantics, "Download finished" ), "The Waiting tab keeps only what waits." );
 		Capture( "popover-waiting" );
@@ -196,6 +198,29 @@ internal static class NotificationViewChecks
 		PumpUntil( window, semantics, () => HasNode( semantics, AccessibilityRole.Group, "New notifications" ) && HasName( semantics, chats[0].Title + " is waiting for you" ), "A banner announces each notification, a chat's question answered in it." );
 		CoreChecks.Check( app.LastError is null, $"The banners build without contained failures: {app.LastError}" );
 		Capture( "banners" );
+
+		while ( Nodes( semantics ).FirstOrDefault( node => node.Role == AccessibilityRole.Button && node.Name == "Close notification" ) is { } close )
+		{
+			Click( window, semantics, node => node.Id == close.Id, "Close notification" );
+			Pump( window );
+		}
+
+		// Narrow: the list alone with its filters as tabs, a picked notification in its place with a way back.
+		window.Size = new( 560, 900 );
+		PumpUntil( window, semantics, () => !HasNode( semantics, AccessibilityRole.Group, "Filters" ) && HasNode( semantics, AccessibilityRole.Group, "Show" ),
+			"A narrow page hides the rail and shows its filters as tabs over the list." );
+		CoreChecks.Check( HasNode( semantics, AccessibilityRole.Button, "Restart now" ), "A notification's own buttons show on its row in the page's list." );
+		Capture( "page-narrow" );
+		Click( window, semantics, node => node.Role == AccessibilityRole.Button && node.Name?.Contains( "Refactor auth flow, Done.", StringComparison.Ordinal ) == true, "Refactor auth flow" );
+		PumpUntil( window, semantics, () => HasNode( semantics, AccessibilityRole.Button, "Back to notifications" ) && !HasNode( semantics, AccessibilityRole.Group, "Show" ),
+			"A narrow page shows the picked notification in the list's place, with a way back." );
+		Capture( "page-narrow-reading" );
+		Click( window, semantics, node => node.Role == AccessibilityRole.Button && node.Name == "Back to notifications", "Back" );
+		PumpUntil( window, semantics, () => HasNode( semantics, AccessibilityRole.Group, "Show" ), "Back returns to the list." );
+		window.Size = new( 1060, 900 );
+		PumpUntil( window, semantics, () => HasNode( semantics, AccessibilityRole.Group, "Show" ) && HasNode( semantics, AccessibilityRole.Group, "Notification" ),
+			"A medium page shows the list with filter tabs beside the reading pane." );
+		Capture( "page-medium" );
 
 		window.RequestClose();
 		Pump( window );

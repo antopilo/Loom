@@ -43,7 +43,45 @@ internal sealed partial class NotificationsContent
 	/// <summary>Defines the Segoe Fluent Delete glyph of the button that removes a notification.</summary>
 	private const string RemoveGlyph = "\uE74D";
 
-	/// <summary>Builds the page: the rail, the list and the reading pane side by side.</summary>
+	/// <summary>Defines the Segoe Fluent Back glyph that leads from a notification back to the list when the page is narrow.</summary>
+	private const string BackGlyph = "\uE72B";
+
+	/// <summary>Defines the narrowest page that shows the filter rail beside the list and reading pane, in logical pixels.</summary>
+	private const int WideWidth = 1000;
+
+	/// <summary>Defines the narrowest page that shows the list and reading pane side by side, in logical pixels; narrower, one replaces the other.</summary>
+	private const int MediumWidth = 640;
+
+	/// <summary>Defines the list's width in logical pixels when the rail is hidden.</summary>
+	private const int MediumListWidth = 320;
+
+	/// <summary>Follows the page's size, which picks its layout.</summary>
+	private readonly ElementHandle _pageArea = new();
+
+	/// <summary>Tracks the layout the page's width allows; it starts wide until the first measure.</summary>
+	private readonly State<PageLayout> _layout = new( PageLayout.Wide );
+
+	/// <summary>Tracks whether a narrow page shows the picked notification instead of the list.</summary>
+	private readonly State<bool> _isReading = new( false );
+
+	/// <summary>Tracks whether the page's size is followed.</summary>
+	private bool _isPageWatched;
+
+	/// <summary>Names how much of the page fits side by side.</summary>
+	private enum PageLayout
+	{
+		/// <summary>The rail, the list and the reading pane.</summary>
+		Wide,
+
+		/// <summary>The list, with the rail's filters as tabs, and the reading pane.</summary>
+		Medium,
+
+		/// <summary>The list or the reading pane, one at a time.</summary>
+		Narrow,
+	}
+
+	/// <summary>Builds the page for the width it has: the rail, the list and the reading pane side by side when wide; the list with filter
+	/// tabs and the reading pane when narrower; and when narrow, the list alone, a picked notification replacing it with a way back.</summary>
 	private Container BuildPage()
 	{
 		var theme = Theme.Current;
@@ -55,10 +93,27 @@ internal sealed partial class NotificationsContent
 			? view.Unannounced.Where( prompt => query.Length == 0 || prompt.Title.Contains( query, StringComparison.CurrentCultureIgnoreCase ) ).ToList()
 			: [];
 		var selected = ComputeSelected( rows, prompts );
+		if ( !_isPageWatched )
+		{
+			_isPageWatched = true;
+			_pageArea.MetricsChanged += metrics => context.Run( () => UpdateLayout( metrics.ContentBox.Width ) );
+		}
 
+		var layout = _layout.Value;
+		List<Blob> children = layout switch
+		{
+			PageLayout.Wide => [BuildRail( view ), BuildList( view, rows, prompts, selected, layout ), BuildReading( view, rows, prompts, selected, layout )],
+			PageLayout.Medium => [BuildList( view, rows, prompts, selected, layout ), BuildReading( view, rows, prompts, selected, layout )],
+			_ when _isReading.Value && selected is not null => [BuildReading( view, rows, prompts, selected, layout )],
+			_ => [BuildList( view, rows, prompts, null, layout )],
+		};
 		return new Container
 		{
 			Key = "notifications",
+			Handle = _pageArea,
+			// Clipped, so the panel's width sets the page's, and the measure picks a layout that fits instead of growing past it.
+			Width = Length.Percent( 100 ),
+			Overflow = Overflow.Hidden,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Notification feed",
 			FlexGrow = 1,
@@ -69,13 +124,19 @@ internal sealed partial class NotificationsContent
 			FontFamily = ViewStyle.FontFamily,
 			FontSize = theme.FontSize,
 			Color = theme.Text,
-			Children =
-			[
-				BuildRail( view ),
-				BuildList( view, rows, prompts, selected ),
-				BuildReading( view, rows, prompts, selected ),
-			],
+			Children = children,
 		};
+	}
+
+	/// <summary>Picks the page's layout for its width, rebuilding only when it changes; a page that turns narrow starts on its list.</summary>
+	private void UpdateLayout( double width )
+	{
+		var layout = width >= WideWidth ? PageLayout.Wide : width >= MediumWidth ? PageLayout.Medium : PageLayout.Narrow;
+		if ( _layout.Value == layout )
+			return;
+
+		_layout.Value = layout;
+		_isReading.Value = false;
 	}
 
 	/// <summary>Gets the selected row's key: the one picked while it is still listed, else the first question, else the first notification row.</summary>
@@ -87,10 +148,11 @@ internal sealed partial class NotificationsContent
 		return prompts.Count > 0 ? "prompt:" + prompts[0].Key : rows.FirstOrDefault( row => row.Kind != NotificationRowKind.Day )?.Key;
 	}
 
-	/// <summary>Selects a row and marks its notifications read, as reading it in the pane counts as reading it.</summary>
+	/// <summary>Selects a row and marks its notifications read, as reading it in the pane counts as reading it; when narrow, the row then replaces the list.</summary>
 	private void UpdateSelected( NotificationRow row )
 	{
 		_selected.Value = row.Key;
+		_isReading.Value = true;
 		foreach ( var item in row.Items.Where( item => !item.IsRead ) )
 			context.App.Notifications.MarkRead( item.Id );
 	}
@@ -228,64 +290,93 @@ internal sealed partial class NotificationsContent
 	}
 
 	/// <summary>Builds the list: the filter's name and count with its actions, the search box, then the waiting questions and the rows by day.</summary>
-	private Container BuildList( FeedView view, List<NotificationRow> rows, List<NotificationPrompt> prompts, string? selected )
+	private Container BuildList( FeedView view, List<NotificationRow> rows, List<NotificationPrompt> prompts, string? selected, PageLayout layout )
 	{
 		var theme = Theme.Current;
 		var filter = _filter.Value;
 		var unread = context.App.Notifications.UnreadCount;
 		var list = new List<Blob>();
 		foreach ( var prompt in prompts )
-			list.Add( BuildPromptRow( prompt, selected == "prompt:" + prompt.Key, () => _selected.Value = "prompt:" + prompt.Key ) );
+			list.Add( BuildPromptRow( prompt, selected == "prompt:" + prompt.Key, () =>
+			{
+				_selected.Value = "prompt:" + prompt.Key;
+				_isReading.Value = true;
+			} ) );
 		foreach ( var row in rows )
-			list.Add( row.Kind == NotificationRowKind.Day ? BuildDay( row.Key, row.Label ) : BuildRow( row, view, row.Key == selected, () => UpdateSelected( row ) ) );
+		{
+			if ( row.Kind == NotificationRowKind.Day )
+			{
+				list.Add( BuildDay( row.Key, row.Label ) );
+				continue;
+			}
+
+			list.Add( BuildRow( row, view, row.Key == selected, () => UpdateSelected( row ) ) );
+			if ( BuildRowActions( row ) is { } actions )
+				list.Add( actions );
+		}
 		if ( list.Count == 0 )
 			list.Add( BuildEmpty( _query.Value.Length > 0 ? "No notification matches." : "Nothing here." ) );
 
 		var count = rows.Sum( row => row.Items.Count ) + prompts.Count;
+		var header = new List<Blob>
+		{
+			new Text { Content = FormatFilter( filter ), FontWeight = NotificationViews.TitleWeight, FlexShrink = 1, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+			NotificationViews.BuildCount( count ),
+			new Spacer(),
+			NotificationViews.BuildQuietButton( "Mark all read", () => context.Run( () => context.App.Notifications.MarkAllRead() ), unread > 0 ),
+		};
+		if ( layout != PageLayout.Narrow )
+			header.Add( NotificationViews.BuildQuietButton( "Clear read", () => context.Run( UpdateClearRead ), view.Items.Any( item => item.IsRead ) ) );
+		var children = new List<Blob>
+		{
+			new Row
+			{
+				Key = "list-header",
+				FlexShrink = 0,
+				AlignItems = AlignItems.Center,
+				Gap = theme.Spacing / 2,
+				Height = 44,
+				Padding = new Edges( 0, theme.Spacing / 2, 0, theme.Spacing * 1.5 ),
+				BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
+				BorderColor = theme.Divider,
+				Children = header,
+			},
+		};
+		// Without the rail, its filters show as tabs over the list: the states first, then each source and project.
+		if ( layout != PageLayout.Wide )
+			children.Add( BuildTabs( view, unread, ListFacetFilters( view ) ) );
+		children.Add( BuildSearch() );
+		children.Add( new Container
+		{
+			Key = "rows",
+			FlexGrow = 1,
+			MinHeight = 0,
+			Padding = new Edges( 0, 0, theme.Spacing * 1.5, 0 ),
+			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.BuildScrollbar(),
+			Children = list,
+		} );
 		return new Container
 		{
 			Key = "notifications-list",
-			Width = ListWidth,
-			MinWidth = ListMinWidth,
+			Width = layout == PageLayout.Narrow ? Length.Percent( 100 ) : layout == PageLayout.Medium ? MediumListWidth : ListWidth,
+			MinWidth = layout == PageLayout.Narrow ? 0 : ListMinWidth,
 			FlexShrink = 1,
 			MinHeight = 0,
-			BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
+			BorderWidth = new Edges( 0, layout == PageLayout.Narrow ? 0 : theme.BorderWidth, 0, 0 ),
 			BorderColor = theme.Divider,
-			Children =
-			[
-				new Row
-				{
-					Key = "list-header",
-					FlexShrink = 0,
-					AlignItems = AlignItems.Center,
-					Gap = theme.Spacing / 2,
-					Height = 44,
-					Padding = new Edges( 0, theme.Spacing / 2, 0, theme.Spacing * 1.5 ),
-					BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
-					BorderColor = theme.Divider,
-					Children =
-					[
-						new Text { Content = FormatFilter( filter ), FontWeight = NotificationViews.TitleWeight, FlexShrink = 1, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
-						NotificationViews.BuildCount( count ),
-						new Spacer(),
-						NotificationViews.BuildQuietButton( "Mark all read", () => context.Run( () => context.App.Notifications.MarkAllRead() ), unread > 0 ),
-						NotificationViews.BuildQuietButton( "Clear read", () => context.Run( UpdateClearRead ), view.Items.Any( item => item.IsRead ) ),
-					],
-				},
-				BuildSearch(),
-				new Container
-				{
-					Key = "rows",
-					FlexGrow = 1,
-					MinHeight = 0,
-					Padding = new Edges( 0, 0, theme.Spacing * 1.5, 0 ),
-					OverflowY = Overflow.Scroll,
-					ScrollbarY = ViewStyle.BuildScrollbar(),
-					Children = list,
-				},
-			],
+			Children = children,
 		};
 	}
+
+	/// <summary>Lists the source and project filters the feed holds, most used first, for the tabs that replace the rail.</summary>
+	private List<(string Label, NotificationFilter Filter)> ListFacetFilters( FeedView view ) =>
+	[
+		.. view.Items.GroupBy( item => ComputeSourceName( item, ComputePanelType ) ).OrderByDescending( group => group.Count() )
+			.Select( group => (group.Key, new NotificationFilter( NotificationFilterKind.Source, group.Key )) ),
+		.. view.Items.Where( item => item.Project is { Length: > 0 } ).GroupBy( item => item.Project! ).OrderByDescending( group => group.Count() )
+			.Select( group => (group.Key, new NotificationFilter( NotificationFilterKind.Project, group.Key )) ),
+	];
 
 	/// <summary>Names a filter for the list's header.</summary>
 	private static string FormatFilter( NotificationFilter filter ) => filter.Kind switch
@@ -338,7 +429,7 @@ internal sealed partial class NotificationsContent
 	}
 
 	/// <summary>Builds the reading pane of the selected row: its header with Open, Mark read and Remove, then its facts, its text, its buttons, and the question it waits on.</summary>
-	private Container BuildReading( FeedView view, List<NotificationRow> rows, List<NotificationPrompt> prompts, string? selected )
+	private Container BuildReading( FeedView view, List<NotificationRow> rows, List<NotificationPrompt> prompts, string? selected, PageLayout layout )
 	{
 		var theme = Theme.Current;
 		Blob header;
@@ -396,6 +487,22 @@ internal sealed partial class NotificationsContent
 				Children = [BuildEmpty( "Pick a notification to read it." )],
 			};
 
+		if ( layout == PageLayout.Narrow )
+		{
+			// Narrow, the pane stands in for the list, so its header leads back to it.
+			var back = NotificationViews.BuildIconButton( "Back to notifications", BackGlyph, () => context.Run( () => _isReading.Value = false ) );
+			back.Margin = new Edges( 0, 0, 0, theme.Spacing / 2 );
+			header = new Row
+			{
+				Key = "reading-header-back",
+				FlexShrink = 0,
+				AlignItems = AlignItems.Center,
+				BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
+				BorderColor = theme.Divider,
+				Children = [back, new Container { FlexGrow = 1, MinWidth = 0, Margin = new Edges( 0, 0, -theme.BorderWidth, 0 ), Children = [header] }],
+			};
+		}
+
 		return new Container
 		{
 			Key = "notifications-reading",
@@ -450,8 +557,9 @@ internal sealed partial class NotificationsContent
 			icon,
 			new Text { Content = title, FontWeight = NotificationViews.TitleWeight, FlexShrink = 1, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
 		};
+		// The subtitle gives way first, so a narrow header keeps the title.
 		if ( subtitle.Length > 0 )
-			children.Add( new Text { Content = "· " + subtitle, Color = theme.Muted, FlexShrink = 0, TextWrap = TextWrap.NoWrap } );
+			children.Add( new Text { Content = "· " + subtitle, Color = theme.Muted, FlexShrink = 100, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis } );
 		children.Add( new Spacer() );
 		children.AddRange( actions );
 		return new Row

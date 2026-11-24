@@ -672,6 +672,30 @@ internal sealed partial class NotificationsContent( PanelContext context, Action
 		}
 		: null;
 
+	/// <summary>Builds a row's buttons under its text, so a notification such as "Loom is ready" can be acted on from the list; null when the row is a run or has none.</summary>
+	/// <remarks>Following one marks the notification read and closes the popover.</remarks>
+	private Container? BuildRowActions( NotificationRow row )
+	{
+		if ( row.Items is not [var item] || BuildActions( item, uri => context.Run( () =>
+		{
+			context.App.Notifications.MarkRead( item.Id );
+			dismiss?.Invoke();
+			context.App.OpenLink( uri, IsPopover ? null : context.Id );
+		} ) ) is not { } actions )
+			return null;
+
+		var theme = Theme.Current;
+		return new Container
+		{
+			Key = "row-actions:" + row.Key,
+			FlexShrink = 0,
+			MinWidth = 0,
+			// Lined up with the row's text: its inset, the icon's box and the gap after it.
+			Padding = new Edges( 0, theme.Spacing * 1.5, theme.Spacing, theme.Spacing * 1.5 + NotificationViews.IconBox + theme.Spacing * 1.25 ),
+			Children = [actions],
+		};
+	}
+
 	/// <summary>Builds one source glyph at the source icon size.</summary>
 	private static Text BuildGlyph( string glyph ) => NotificationViews.BuildGlyph( glyph, size: NotificationViews.SourceIconSize );
 
