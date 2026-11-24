@@ -55,6 +55,13 @@ internal static class OverviewChecks
 			var report = Path.Combine( root, "bench.html" );
 			File.WriteAllText( report, "<p>bench</p>" );
 			browser.RecordReport( report, "Benchmark", new AgentToolContext( app, null, CancellationToken.None ) { Conversation = idle.Id } );
+			// Showing the same file again, spelled with the other slashes, lists it once; twice would give the overview two cards with one key.
+			browser.RecordReport( report.Replace( '\\', '/' ), "Benchmark", new AgentToolContext( app, null, CancellationToken.None ) { Conversation = idle.Id } );
+			CoreChecks.Check( browser.Reports.Count == 1, "A report shown twice is listed once." );
+			var listed = File.ReadAllText( Path.Combine( browser.ReportsPath, "reports.json" ) );
+			Directory.CreateDirectory( Path.Combine( root, "older", "reports" ) );
+			File.WriteAllText( Path.Combine( root, "older", "reports", "reports.json" ), listed.Replace( "[", "[" + listed.Trim()[1..^1] + "," ) );
+			CoreChecks.Check( new BrowserModule( Path.Combine( root, "older" ) ).Reports.Count == 1, "A list saved with a report twice reads it once." );
 			var stray = Path.Combine( root, "stray.html" );
 			File.WriteAllText( stray, "<p>stray</p>" );
 			browser.RecordReport( stray, "Stray report", new AgentToolContext( app, null, CancellationToken.None ) { Conversation = elsewhere.Id } );

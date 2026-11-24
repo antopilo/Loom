@@ -44,7 +44,12 @@ public sealed partial class BrowserModule
 	internal void RecordReport( string path, string? title, AgentToolContext context )
 	{
 		var reports = ReadReports();
-		reports.Add( new BrowserReport( path, title ?? Path.GetFileNameWithoutExtension( path ), DateTimeOffset.UtcNow, context.Conversation, context.Host ?? LoknHost.LocalId ) );
+
+		// A file shown again moves to the newest place instead of being listed twice: readers key reports by their path.
+		var shown = Path.GetFullPath( path );
+		reports.RemoveAll( report => string.Equals( Path.GetFullPath( report.Path ), shown, StringComparison.OrdinalIgnoreCase ) );
+
+		reports.Add(new BrowserReport( path, title ?? Path.GetFileNameWithoutExtension( path ), DateTimeOffset.UtcNow, context.Conversation, context.Host ?? LoknHost.LocalId ) );
 		if ( reports.Count > MaxReports )
 			reports.RemoveRange( 0, reports.Count - MaxReports );
 		try
@@ -68,7 +73,15 @@ public sealed partial class BrowserModule
 			return _reports;
 		try
 		{
-			_reports = File.Exists( ReportsIndexPath ) ? JsonSerializer.Deserialize<List<BrowserReport>>( File.ReadAllText( ReportsIndexPath ), ReportsJson ) ?? [] : [];
+			List<BrowserReport> saved = File.Exists( ReportsIndexPath ) ? JsonSerializer.Deserialize<List<BrowserReport>>( File.ReadAllText( ReportsIndexPath ), ReportsJson ) ?? [] : [];
+
+			// Lists saved before 1.1.3 can hold a file once per time it was shown; keep each file's newest entry.
+			_reports =
+			[
+				.. Enumerable.Reverse( saved )
+					.DistinctBy( report => Path.GetFullPath( report.Path ), StringComparer.OrdinalIgnoreCase )
+					.Reverse(),
+			];
 		}
 		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException or JsonException )
 		{
