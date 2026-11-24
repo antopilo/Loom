@@ -133,7 +133,6 @@ internal sealed partial class BrowserContent : PanelContent
 	{
 		var theme = Theme.Current;
 		var tab = _selected.Value;
-		var navigation = tab?.Navigation ?? default;
 		var notice = tab is null ? (Session.IsSynced ? "No tab is open here. Open one with New tab or Session tabs." : "Waiting for the host's browser tabs\u2026")
 			: tab.Failure.Length > 0 ? tab.Failure
 			: tab.Info is null ? "Waiting for the host's browser tabs\u2026"
@@ -158,52 +157,57 @@ internal sealed partial class BrowserContent : PanelContent
 			FlexGrow = 1,
 			MinHeight = 0,
 			MinWidth = 0,
+			// A page that brings its own toolbar, such as the design studio, shows without the address bar; the tab strip stays while there is a tab to switch to.
+			Children = tab?.IsImmersive == true && notice is null
+				? _tabs.Value.Count > 1 ? [BuildTabs( theme ), page] : [page]
+				: [BuildTabs( theme ), BuildBar( theme, tab ), page],
+		};
+	}
+
+	/// <summary>Builds the navigation buttons and the address bar of the selected tab.</summary>
+	private Row BuildBar( Theme theme, BrowserTab? tab )
+	{
+		var navigation = tab?.Navigation ?? default;
+		return new Row
+		{
+			Key = "bar",
+			Height = BarHeight + theme.Spacing,
+			FlexShrink = 0,
+			AlignItems = AlignItems.Center,
+			Gap = theme.Spacing / 2,
+			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
 			Children =
 			[
-				BuildTabs( theme ),
-				new Row
+				BuildButton( "\uE72B", "Back", navigation.Back, () => tab?.Controller?.CoreWebView2.GoBack() ),
+				BuildButton( "\uE72A", "Forward", navigation.Forward, () => tab?.Controller?.CoreWebView2.GoForward() ),
+				navigation.Loading
+					? BuildButton( "\uE711", "Stop", true, () => tab?.Controller?.CoreWebView2.Stop() )
+					: BuildButton( "\uE72C", "Reload", tab?.Controller is not null, () => tab?.Controller?.CoreWebView2.Reload() ),
+				new TextEntry
 				{
-					Key = "bar",
-					Height = BarHeight + theme.Spacing,
-					FlexShrink = 0,
-					AlignItems = AlignItems.Center,
-					Gap = theme.Spacing / 2,
-					Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
-					Children =
-					[
-						BuildButton( "\uE72B", "Back", navigation.Back, () => tab?.Controller?.CoreWebView2.GoBack() ),
-						BuildButton( "\uE72A", "Forward", navigation.Forward, () => tab?.Controller?.CoreWebView2.GoForward() ),
-						navigation.Loading
-							? BuildButton( "\uE711", "Stop", true, () => tab?.Controller?.CoreWebView2.Stop() )
-							: BuildButton( "\uE72C", "Reload", tab?.Controller is not null, () => tab?.Controller?.CoreWebView2.Reload() ),
-						new TextEntry
-						{
-							Key = "address",
-							Handle = _addressBar,
-							Value = tab?.Address ?? "",
-							Controlled = true,
-							AutoFocus = tab?.IsEditing == true,
-							Placeholder = "Search or enter an address",
-							AccessibilityName = "Address",
-							InputOptions = new TextInputOptions { Purpose = InputPurpose.Url },
-							Height = BarHeight - 4,
-							FlexGrow = 1,
-							MinWidth = 0,
-							Padding = new Edges( 0, theme.Spacing ),
-							BackgroundColor = theme.Raised,
-							BorderColor = theme.Border,
-							BorderWidth = theme.BorderWidth,
-							BorderRadius = theme.Radius,
-							FocusStyle = new Style { BorderColor = theme.Accent },
-							OnFocus = _ => _context.Run( () => _selected.Value?.BeginEditing() ),
-							OnBlur = _ => _context.Run( () => _selected.Value?.EndEditing() ),
-							OnChange = text => _context.Run( () => _selected.Value?.SetAddress( text ) ),
-							OnSubmit = text => _context.Run( () => UpdateNavigate( text ) ),
-						},
-						BuildButton( "\uE8A7", "Open in default browser", tab is not null, () => _context.Run( UpdateOpenExternal ) ),
-					],
+					Key = "address",
+					Handle = _addressBar,
+					Value = tab?.Address ?? "",
+					Controlled = true,
+					AutoFocus = tab?.IsEditing == true,
+					Placeholder = "Search or enter an address",
+					AccessibilityName = "Address",
+					InputOptions = new TextInputOptions { Purpose = InputPurpose.Url },
+					Height = BarHeight - 4,
+					FlexGrow = 1,
+					MinWidth = 0,
+					Padding = new Edges( 0, theme.Spacing ),
+					BackgroundColor = theme.Raised,
+					BorderColor = theme.Border,
+					BorderWidth = theme.BorderWidth,
+					BorderRadius = theme.Radius,
+					FocusStyle = new Style { BorderColor = theme.Accent },
+					OnFocus = _ => _context.Run( () => _selected.Value?.BeginEditing() ),
+					OnBlur = _ => _context.Run( () => _selected.Value?.EndEditing() ),
+					OnChange = text => _context.Run( () => _selected.Value?.SetAddress( text ) ),
+					OnSubmit = text => _context.Run( () => UpdateNavigate( text ) ),
 				},
-				page,
+				BuildButton( "\uE8A7", "Open in default browser", tab is not null, () => _context.Run( UpdateOpenExternal ) ),
 			],
 		};
 	}
@@ -285,7 +289,7 @@ internal sealed partial class BrowserContent : PanelContent
 			return;
 
 		var modifiers = BrowserKeys.ReadModifiers();
-		if ( (key == Key.L && modifiers == KeyModifiers.Primary) || (key == Key.F6 && modifiers == KeyModifiers.None) )
+		if ( ((key == Key.L && modifiers == KeyModifiers.Primary) || (key == Key.F6 && modifiers == KeyModifiers.None)) && _selected.Value?.IsImmersive != true )
 		{
 			e.Handled = true;
 			BrowserKeys.Focus( handle );

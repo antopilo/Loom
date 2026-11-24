@@ -30,6 +30,9 @@ internal sealed partial class BrowserTab
 	/// <summary>Tracks a failure to start the page, shown in its place.</summary>
 	private readonly State<string> _failure = new( "" );
 
+	/// <summary>Tracks whether the page asks to show without the panel's address bar, with <c>&lt;meta name="loom-chrome" content="none"&gt;</c>.</summary>
+	private readonly State<bool> _isImmersive = new( false );
+
 	/// <summary>Tracks whether creating the page has started.</summary>
 	private bool _isStarting;
 
@@ -86,6 +89,9 @@ internal sealed partial class BrowserTab
 
 	/// <summary>Gets a failure to start the page, or an empty string.</summary>
 	internal string Failure => _failure.Value;
+
+	/// <summary>Gets whether the page asks to show without the panel's address bar, such as a tool's own page that brings its own toolbar.</summary>
+	internal bool IsImmersive => _isImmersive.Value;
 
 	/// <summary>Gets why this PC does not show the tab's address, such as a file on the paired host, or an empty string when it does.</summary>
 	internal string Blocked => Info is { } info && !Tabs.CanShow( info.Url )
@@ -232,7 +238,11 @@ internal sealed partial class BrowserTab
 			web.HistoryChanged += ( _, _ ) => context.Run( () => UpdateNavigation( BrowserPageEvent.State ) );
 			web.NavigationStarting += ( _, e ) => context.Run( () => UpdateStarting( e ) );
 			web.ContentLoading += ( _, _ ) => context.Run( () => UpdateProgress( 50 ) );
-			web.DOMContentLoaded += ( _, _ ) => context.Run( () => UpdateProgress( 80 ) );
+			web.DOMContentLoaded += ( _, _ ) => context.Run( () =>
+			{
+				UpdateProgress( 80 );
+				_ = UpdateImmersiveAsync( web );
+			} );
 			web.NavigationCompleted += ( _, e ) => context.Run( () => UpdateCompleted( web, e ) );
 			web.NewWindowRequested += ( _, e ) => context.Run( () =>
 			{
@@ -332,6 +342,27 @@ internal sealed partial class BrowserTab
 			if ( activated == "true" )
 				_sync.TakeOver();
 			Report( BrowserPageEvent.Commit );
+		} );
+	}
+
+	/// <summary>Reads whether the loaded page asks to show without the address bar; a page that cannot be asked keeps the bar.</summary>
+	private async Task UpdateImmersiveAsync( CoreWebView2 web )
+	{
+		string asked;
+		try
+		{
+			asked = await web.ExecuteScriptAsync( "document.querySelector( 'meta[name=\"loom-chrome\"]' )?.content === 'none'" );
+		}
+		catch ( Exception error ) when ( error is COMException or InvalidOperationException )
+		{
+			// The page closed or navigated away meanwhile.
+			return;
+		}
+
+		_owner.Context.Run( () =>
+		{
+			if ( Controller?.CoreWebView2 == web )
+				_isImmersive.Value = asked == "true";
 		} );
 	}
 

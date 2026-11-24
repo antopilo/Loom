@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="loom-chrome" content="none">
 <title>Design</title>
 <style>
 :root { --canvas: #262624; --panel: #222220; --raised: #2d2d29; --hover: #3a3a34; --text: #e8e6df; --muted: #a09f96; --border: #3b3b35; --accent: #d5a583; --font: 'Segoe UI'; /*THEME*/
@@ -117,6 +118,14 @@ kbd { font: 11px Consolas, monospace; color: var(--muted); padding: 1px 4px; bor
 .menu .k { margin-left: auto; }
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 8px); z-index: 40; padding: 8px 14px; border-radius: 8px; background: var(--raised); border: 1px solid var(--border); box-shadow: 0 10px 30px -8px #000c; opacity: 0; pointer-events: none; transition: all .2s var(--ease); }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+.share { width: 420px; max-width: calc(100vw - 32px); padding: 16px; color: var(--text); background: var(--raised); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 20px 50px -12px #000c; animation: pop .14s var(--ease); }
+.share::backdrop { background: #0006; }
+.share h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+.share p { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+.share .row { display: flex; gap: 8px; }
+.share input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; font: 12px Consolas, monospace; color: var(--text); background: var(--canvas); border: 1px solid var(--border); border-radius: 6px; outline: none; }
+.share input:focus { border-color: var(--accent); }
+.share .btn { height: 32px; display: inline-flex; align-items: center; gap: 6px; }
 
 /* Narrow panels: icons only, comments over the canvas */
 @media (max-width: 860px) {
@@ -143,6 +152,7 @@ kbd { font: 11px Consolas, monospace; color: var(--muted); padding: 1px 4px; bor
 	<symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
 	<symbol id="i-open" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3"/></symbol>
 	<symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+	<symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M16 6l-4-4-4 4M12 2v13"/></symbol>
 	<symbol id="i-focus" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></symbol>
 </svg>
 
@@ -161,6 +171,7 @@ kbd { font: 11px Consolas, monospace; color: var(--muted); padding: 1px 4px; bor
 		<span class="readout wide" id="readout"></span>
 		<span class="grow"></span>
 		<span class="chip" id="chat" hidden><span class="dot"></span><span id="chatText"></span></span>
+		<button class="tool" id="shareButton" title="Share"><svg><use href="#i-share"/></svg><span class="wide">Share</span></button>
 		<button class="tool" id="commentMode" title="Comment on an element (C)"><svg><use href="#i-comment"/></svg><span class="wide">Comment</span> <kbd class="wide">C</kbd></button>
 		<button class="tool icon" id="panelToggle" title="Comments panel (\)"><svg><use href="#i-panel"/></svg></button>
 		<button class="tool icon" id="moreButton" title="More"><svg><use href="#i-more"/></svg></button>
@@ -179,8 +190,12 @@ kbd { font: 11px Consolas, monospace; color: var(--muted); padding: 1px 4px; bor
 <div class="menu" id="menu">
 	<a id="menuExport" download><svg><use href="#i-download"/></svg>Export variant as zip</a>
 	<a id="menuOpen" target="_blank"><svg><use href="#i-open"/></svg>Open variant alone</a>
-	<button id="menuCopy"><svg><use href="#i-link"/></svg>Copy studio link</button>
 </div>
+<dialog class="share" id="share" aria-labelledby="shareTitle">
+	<h3 id="shareTitle">Share this design</h3>
+	<p>Open this address in a browser on this PC to see the studio.</p>
+	<div class="row"><input id="shareUrl" readonly aria-label="Studio address"><button class="btn primary" id="shareCopy"><svg><use href="#i-link"/></svg>Copy</button></div>
+</dialog>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -637,7 +652,16 @@ $( "commentMode" ).onclick = () => setCommenting( !ui.commenting );
 $( "panelToggle" ).onclick = () => togglePanel();
 $( "moreButton" ).onclick = e => { e.stopPropagation(); const m = $( "menu" ); m.style.display = m.style.display === "block" ? "none" : "block"; };
 document.addEventListener( "click", () => $( "menu" ).style.display = "none" );
-$( "menuCopy" ).onclick = async () => { await navigator.clipboard.writeText( location.href ); toast( "Link copied" ); };
+$( "shareButton" ).onclick = () => {
+	const input = $( "shareUrl" );
+	input.value = location.href;
+	$( "share" ).showModal();
+	input.focus();
+	input.select();
+};
+$( "shareCopy" ).onclick = async () => { await navigator.clipboard.writeText( $( "shareUrl" ).value ); $( "share" ).close(); toast( "Link copied" ); };
+// A click on the backdrop lands on the dialog itself, outside its content box.
+$( "share" ).addEventListener( "click", e => { if ( e.target === $( "share" ) ) $( "share" ).close(); } );
 $( "composerCancel" ).onclick = closeComposer;
 $( "composerAdd" ).onclick = () => saveComment( false );
 $( "composerSend" ).onclick = () => saveComment( true );

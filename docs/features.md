@@ -249,13 +249,19 @@ page. The page is a native window placed over its panel: menus and tooltips open
 native popups above it, the palette and dialogs hide it while open, and panels cannot
 be dropped onto it while docking.
 
+A page with `<meta name="loom-chrome" content="none">` shows without the address bar, for
+tools that bring their own toolbar, such as the Design studio. The tab strip stays while
+the panel has more than one tab.
+
 ## Design
 
 Ask an agent to design a screen, and it writes the design as plain HTML and CSS in your
 project, in `.lokn/design/<name>/`. The design's **studio** opens in Loom's browser beside
 the chat as soon as the agent calls `design_open` or starts to write in that folder, and
 swaps in each save without a flash and at the same scroll position, so you watch the
-design take shape. The chip in the toolbar shows **Working…** while the agent works.
+design take shape. The chip in the toolbar shows **Working…** while the agent works. The
+studio fills its panel without the address bar and uses Loom's theme. **Share** opens a
+small dialog with the studio's address selected and a **Copy** button.
 
 - **Variants.** One design can have several variants, one folder each (`a/`, `b/`, `c/`).
   Switch with the toolbar or `[` and `]`; **Compare** (V) shows them side by side.
