@@ -21,3 +21,6 @@ desktop.ini
 # Logs and scratch files
 *.log
 *.tmp
+
+# Designs agents make with the Design module; per project, not part of the app
+.lokn/design/

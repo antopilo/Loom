@@ -19,14 +19,17 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Defines the widest the page's column grows, in logical pixels.</summary>
 	private const int ColumnWidth = 1040;
 
-	/// <summary>Defines how many chats and tasks show before Show all.</summary>
-	private const int ChatLimit = 12;
+	/// <summary>Defines how many recent chats and tasks show under those that need the user, before Show all.</summary>
+	private const int RecentLimit = 3;
 
-	/// <summary>Defines how many activity rows show.</summary>
-	private const int ActivityLimit = 30;
+	/// <summary>Defines how many GitHub updates show.</summary>
+	private const int GitHubLimit = 6;
+
+	/// <summary>Defines the GitHub module's pull request panel, opened by id so the page needs no reference to that module.</summary>
+	private const string PullRequestsPanel = "github.dashboard";
 
 	/// <summary>Defines an artifact card's width in logical pixels.</summary>
-	private const int CardWidth = 196;
+	private const int CardWidth = 150;
 
 	/// <summary>Defines small detail text's size in logical pixels.</summary>
 	private const int DetailSize = 11;
@@ -64,6 +67,15 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Stores the pending design read after a change, cancelled by the next change.</summary>
 	private CancellationTokenSource? _rescan;
 
+	/// <summary>Stores what is typed in the prompt bar.</summary>
+	private readonly State<string> _prompt = new( "" );
+
+	/// <summary>Stores the project's checked-out branch, or empty when it is no git repository.</summary>
+	private readonly State<string> _branch = new( "" );
+
+	/// <summary>Stores the project's GitHub repository as <c>owner/name</c>, read from its <c>origin</c> remote, or empty for none.</summary>
+	private readonly State<string> _repository = new( "" );
+
 	/// <summary>Stores the chat host whose working changes the page follows.</summary>
 	private ChatHost? _followed;
 
@@ -79,6 +91,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 		_projectId = new( project );
 		Follow();
 		ScanDesigns();
+		_ = ReadGitAsync();
 		context.Lifetime.Register( Release );
 	}
 
@@ -100,7 +113,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Remembers the project shown.</summary>
 	public override JsonElement? CaptureState() => _projectId.Value is { } id ? JsonSerializer.SerializeToElement( id.ToString( "N" ) ) : null;
 
-	/// <summary>Builds the page: the project's header, its chats and tasks beside its activity, then its designs and reports.</summary>
+	/// <summary>Builds the page: the project's header, then its prompt bar and chats beside its designs, reports and GitHub updates.</summary>
 	public override Blob Build()
 	{
 		var theme = Theme.Current;
@@ -139,48 +152,51 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Builds the overview of a project.</summary>
 	private List<Blob> BuildProject( ChatHost host, ProjectInfo project )
 	{
+		var theme = Theme.Current;
 		var chats = ComputeChats( host, project );
 		var reports = ComputeReports( host, chats );
 		var designs = _designs.Value;
 		var now = DateTimeOffset.UtcNow;
+		var side = new List<Blob> { BuildSection( "artifacts", "Designs and reports", BuildArtifacts( host, project, chats, designs, reports, now ) ) };
+		if ( _repository.Value.Length > 0 )
+			side.Add( BuildSection( "github", "GitHub", BuildGitHub( now ) ) );
 		return
 		[
-			BuildHeader( host, project, chats, designs.Count, reports.Count ),
+			BuildHeader( host, project ),
 			new Row
 			{
 				Key = "lists",
 				FlexWrap = FlexWrap.Wrap,
 				AlignItems = AlignItems.FlexStart,
-				Gap = Theme.Current.Spacing * 3,
+				Gap = theme.Spacing * 4,
 				Children =
 				[
-					BuildSection( "chats", "Chats and tasks", BuildChats( host, project, chats, now ), flexGrow: 3 ),
-					BuildSection( "activity", "Activity", BuildActivity( host, chats, designs, reports, now ), flexGrow: 2 ),
+					new Column
+					{
+						Key = "main",
+						FlexGrow = 3,
+						FlexBasis = 320,
+						MinWidth = 0,
+						Gap = theme.Spacing * 2,
+						Children = [BuildPrompt( host, project ), .. BuildChats( host, project, chats, now )],
+					},
+					new Column { Key = "side", FlexGrow = 2, FlexBasis = 320, MinWidth = 0, Gap = theme.Spacing * 3, Children = side },
 				],
 			},
-			BuildSection( "artifacts", "Designs and reports", BuildArtifacts( host, project, chats, designs, reports, now ) ),
 		];
 	}
 
-	/// <summary>Builds the project's icon, name, folder and host, its counts, and the actions that start work in it.</summary>
-	private Blob BuildHeader( ChatHost host, ProjectInfo project, IReadOnlyList<ChatEntry> chats, int designs, int reports )
+	/// <summary>Builds the project's icon, name, folder and branch.</summary>
+	private Blob BuildHeader( ChatHost host, ProjectInfo project )
 	{
 		var theme = Theme.Current;
-		var working = chats.Count( chat => chat.State == ChatState.Working );
-		var waiting = chats.Count( chat => chat.State == ChatState.Waiting );
-		var counts = new List<string>();
-		if ( waiting > 0 )
-			counts.Add( $"{waiting} waiting for you" );
-		if ( working > 0 )
-			counts.Add( $"{working} working" );
-		counts.Add( Count( chats.Count( chat => chat.Conversation.HasChat ), "chat" ) );
-		counts.Add( Count( chats.Count( chat => !chat.Conversation.HasChat ), "task" ) );
-		counts.Add( Count( designs, "design" ) );
-		counts.Add( Count( reports, "report" ) );
-
 		var icon = _context.App.GetModule<ProjectsModule>().GetIcon( project, host.Id );
-		var title = new Row
+		var folder = host.IsLocal ? FormatDirectory( project.Directory ) : $"{project.Directory}  ·  {host.Name}";
+		if ( _branch.Value.Length > 0 )
+			folder += $"  ·  \u2387 {_branch.Value}";
+		return new Row
 		{
+			Key = "header",
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing * 1.5,
 			MinWidth = 0,
@@ -195,48 +211,61 @@ internal sealed class ProjectOverviewContent : PanelContent
 					Children =
 					[
 						new Text { Key = "name", Content = project.Name, FontSize = 22, FontWeight = 600, TextMaxLines = 1 },
-						new Text
-						{
-							Key = "folder",
-							Content = host.IsLocal ? FormatDirectory( project.Directory ) : $"{project.Directory}  ·  {host.Name}",
-							FontSize = DetailSize + 1,
-							Color = theme.Muted,
-							TextMaxLines = 1,
-						},
+						new Text { Key = "folder", Content = folder, FontSize = DetailSize + 1, Color = theme.Muted, TextMaxLines = 1 },
 					],
 				},
 			],
 		};
-		var actions = new Row
+	}
+
+	/// <summary>Builds the prompt bar: Enter starts a chat in the project with what was typed, Ctrl+Enter a task named after it.</summary>
+	private Blob BuildPrompt( ChatHost host, ProjectInfo project )
+	{
+		var theme = Theme.Current;
+		const int height = 44;
+		return new TextEntry
 		{
-			Gap = theme.Spacing,
-			Children =
-			[
-				theme.BuildButton( "New chat", () => _context.Run( () => _conversations.NewConversation( _context.App, host, project.Id ) ) ),
-				theme.BuildButton( "New task", () => _context.Run( () => _conversations.NewTask( _context.App, host, project.Id ) ) ),
-				theme.BuildButton( "Open project", () => _context.Run( () => _context.App.GetModule<ProjectsModule>().OpenProject( _context.App, project, host.Id ) ) ),
-			],
-		};
-		return new Column
-		{
-			Key = "header",
-			Gap = theme.Spacing * 1.5,
-			Children =
-			[
-				new Row { AlignItems = AlignItems.Center, JustifyContent = JustifyContent.SpaceBetween, FlexWrap = FlexWrap.Wrap, Gap = theme.Spacing * 2, Children = [title, actions] },
-				new Text { Key = "counts", Content = string.Join( "  ·  ", counts ), Color = waiting > 0 ? theme.Attention : theme.Muted },
-			],
+			Key = "prompt",
+			Value = _prompt.Value,
+			Controlled = true,
+			Placeholder = $"Ask anything about {project.Name}…   Enter: chat   Ctrl+Enter: task",
+			AccessibilityName = $"Start a chat in {project.Name}",
+			Width = Length.Percent( 100 ),
+			Height = height,
+			FlexShrink = 0,
+			Padding = new Edges( 0, 14 ),
+			FontSize = theme.FontSize + 1,
+			BackgroundColor = theme.Raised,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = 12,
+			FocusStyle = new Style { BorderColor = theme.Accent },
+			OnChange = value => _context.Run( () => _prompt.Value = value ),
+			OnSubmit = value => _context.Run( () => UpdateStart( host, project, value, isTask: false ) ),
+			KeyBindings = [new( Key.Enter, KeyModifiers.Primary, () => _context.Run( () => UpdateStart( host, project, _prompt.Value, isTask: true ) ) )],
 		};
 	}
 
-	/// <summary>Builds the rows of the project's chats and tasks: those waiting for the user, then working ones, then the rest by last use.</summary>
+	/// <summary>Starts a chat that sends the typed prompt, or a task named after it, in the project, and empties the bar.</summary>
+	private void UpdateStart( ChatHost host, ProjectInfo project, string text, bool isTask )
+	{
+		text = text.Trim();
+		if ( text.Length == 0 )
+			return;
+		_prompt.Value = "";
+		if ( isTask )
+			_conversations.NewTask( _context.App, host, project.Id, text.Split( '\n' )[0] );
+		else
+			_conversations.StartConversation( _context.App, host, text, project.Id );
+	}
+
+	/// <summary>Builds the project's chats and tasks: those waiting for the user or working under Needs you, then the few most recent, and a link to all of them.</summary>
 	private List<Blob> BuildChats( ChatHost host, ProjectInfo project, IReadOnlyList<ChatEntry> chats, DateTimeOffset now )
 	{
 		if ( chats.Count == 0 )
-			return [BuildNote( "none", "No chats or tasks yet. Start one with New chat." )];
+			return [BuildNote( "none", "No chats or tasks yet. Type above to start one." )];
 
-		var shown = _isShowingAll.Value ? chats : chats.Take( ChatLimit );
-		var rows = shown.Select( chat => (Blob)BuildRow(
+		Blob Row( ChatEntry chat ) => BuildRow(
 			chat.Conversation.Id.ToString( "N" ),
 			chat.Conversation.HasChat ? "\uE8BD" : "\uE9D5",
 			chat.Conversation.Title,
@@ -253,56 +282,89 @@ internal sealed class ProjectOverviewContent : PanelContent
 				_ => Theme.Current.Inactive,
 			},
 			$"Open {chat.Conversation.Title}",
-			() => OpenChat( host.Ref( chat.Conversation.Id ) ) ) ).ToList();
-		if ( chats.Count > ChatLimit )
+			() => OpenChat( host.Ref( chat.Conversation.Id ) ) );
+
+		var active = chats.Where( chat => chat.State != ChatState.Idle ).ToList();
+		var idle = chats.Where( chat => chat.State == ChatState.Idle ).ToList();
+		var sections = new List<Blob>();
+		if ( active.Count > 0 )
+			sections.Add( BuildSection( "needs-you", "Needs you", [.. active.Select( Row )] ) );
+		if ( idle.Count > 0 )
 		{
-			var label = _isShowingAll.Value ? "Show less" : $"Show all {chats.Count}";
-			rows.Add( BuildLink( "more", label, () => _isShowingAll.Value = !_isShowingAll.Value ) );
+			List<Blob> rows = [.. (_isShowingAll.Value ? idle : idle.Take( RecentLimit )).Select( Row )];
+			if ( idle.Count > RecentLimit )
+				rows.Add( BuildLink( "more", _isShowingAll.Value ? "Show less" : $"All {chats.Count} chats and tasks", () => _isShowingAll.Value = !_isShowingAll.Value ) );
+			sections.Add( BuildSection( "recent", "Recent", rows ) );
 		}
+		return sections;
+	}
+
+	/// <summary>Builds the GitHub updates of the project's repository from the notification feed, newest first, and a link to the pull requests.</summary>
+	/// <remarks>The GitHub module posts what changed on pull requests and runs to the feed with their page; the repository's are those whose page is under it.</remarks>
+	private List<Blob> BuildGitHub( DateTimeOffset now )
+	{
+		var theme = Theme.Current;
+		var prefix = $"https://github.com/{_repository.Value}/";
+		var items = _context.App.Notifications.Items
+			.Where( item => item.Source == "github" && item.Url is { } url && url.StartsWith( prefix, StringComparison.OrdinalIgnoreCase ) )
+			.Take( GitHubLimit )
+			.ToList();
+		var rows = new List<Blob>();
+		if ( items.Count == 0 )
+			rows.Add( BuildNote( "none", $"No pull request comments, reviews or checks on {_repository.Value} yet." ) );
+		foreach ( var item in items )
+		{
+			var link = new Uri( item.Url! );
+			rows.Add( BuildRow( $"github-{item.Id:N}", item.IsRead ? "\uE8BD" : "\uE91F", item.Message, FormatAge( item.Time, now ),
+				item.IsRead ? theme.Inactive : theme.Attention, item.Message, () => _context.App.OpenLink( link, _context.Id ) ) );
+		}
+		if ( _context.App.Panels.Types.Any( type => type.Id == PullRequestsPanel ) )
+			rows.Add( BuildLink( "pulls", "Open pull requests", () => _context.App.Panels.OpenBeside( PullRequestsPanel, _context.Id ) ) );
 		return rows;
 	}
 
-	/// <summary>Builds the project's timeline, newest first: notifications of its chats, chats and tasks started and updated, designs changed and reports shown.</summary>
-	private List<Blob> BuildActivity( ChatHost host, IReadOnlyList<ChatEntry> chats, IReadOnlyList<DesignEntry> designs, IReadOnlyList<BrowserReport> reports, DateTimeOffset now )
+	/// <summary>Reads the project's branch and GitHub repository with git on its host; a folder that is no repository leaves both empty.</summary>
+	private async Task ReadGitAsync()
 	{
-		var byId = chats.ToDictionary( chat => chat.Conversation.Id, chat => chat.Conversation );
-		var items = new List<ActivityEntry>();
-		foreach ( var item in _context.App.Notifications.Items )
+		var host = ChatHost;
+		if ( host is null || _projectId.Value is not { } id || host.Projects.Find( id ) is not { } project )
+			return;
+		var workspace = _context.Host.Workspace;
+		async Task<string> RunAsync( params string[] arguments )
 		{
-			if ( FindChat( item ) is { } chat && chat.HostId == host.Id && byId.ContainsKey( chat.ConversationId ) )
+			try
 			{
-				Action open = item.Url is { } url && Uri.TryCreate( url, UriKind.Absolute, out var link )
-					? () => _context.App.OpenLink( link, _context.Id )
-					: () => OpenChat( chat );
-				items.Add( new( item.Time, item.Title, item.Message, "\uEA8F", open ) );
+				var result = await workspace.RunAsync( "git", arguments, project.Directory, null, null, _context.Lifetime );
+				return result.Code == 0 ? result.Output.Trim() : "";
+			}
+			catch ( Exception error ) when ( error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or UnauthorizedAccessException )
+			{
+				return "";
 			}
 		}
-		foreach ( var chat in byId.Values )
+		var branch = await RunAsync( "rev-parse", "--abbrev-ref", "HEAD" );
+		var remote = await RunAsync( "remote", "get-url", "origin" );
+		_context.Post( () =>
 		{
-			var kind = chat.HasChat ? "chat" : "task";
-			Action open = () => OpenChat( host.Ref( chat.Id ) );
-			if ( chat.CreatedAt != default )
-				items.Add( new( chat.CreatedAt, chat.Title, $"Started {kind}", chat.HasChat ? "\uE8BD" : "\uE9D5", open ) );
-			if ( chat.CreatedAt == default || chat.UpdatedAt - chat.CreatedAt > TimeSpan.FromMinutes( 1 ) )
-				items.Add( new( chat.UpdatedAt, chat.Title, $"Updated {kind}", "\uE70F", open ) );
-		}
-		var canOpenDesigns = host.IsLocal && _context.App.Tools.Items.Any( tool => tool.Name == "design_open" );
-		foreach ( var design in designs )
-			items.Add( new( design.Modified, design.Name, "Design changed", "\uE790", canOpenDesigns ? () => OpenDesign( design ) : () => { } ) );
-		foreach ( var report in reports )
+			_branch.Value = branch == "HEAD" ? "detached" : branch;
+			_repository.Value = ParseGitHubRepository( remote ) ?? "";
+		} );
+	}
+
+	/// <summary>Reads <c>owner/name</c> from a GitHub remote address, https or ssh, or null for another host.</summary>
+	internal static string? ParseGitHubRepository( string remote )
+	{
+		var text = remote.Trim();
+		foreach ( var start in (string[])["https://github.com/", "http://github.com/", "git@github.com:", "ssh://git@github.com/"] )
 		{
-			var detail = report.Conversation is { } id && byId.TryGetValue( id, out var chat ) ? $"Report from {chat.Title}" : "Report";
-			items.Add( new( report.Created, report.Title, detail, "\uE9F9", () => _browser.ShowReport( _context.App, report, _context.Id ) ) );
+			if ( !text.StartsWith( start, StringComparison.OrdinalIgnoreCase ) )
+				continue;
+			var path = text[start.Length..].TrimEnd( '/' );
+			if ( path.EndsWith( ".git", StringComparison.OrdinalIgnoreCase ) )
+				path = path[..^4];
+			return path.Split( '/' ) is [{ Length: > 0 } owner, { Length: > 0 } name] ? $"{owner}/{name}" : null;
 		}
-
-		if ( items.Count == 0 )
-			return [BuildNote( "none", "Nothing happened here yet." )];
-
-		return [.. items
-			.OrderByDescending( item => item.Time )
-			.Take( ActivityLimit )
-			.Select( ( item, index ) => (Blob)BuildRow( $"activity-{index}", item.Glyph, item.Title, $"{item.Detail}  ·  {FormatAge( item.Time, now )}",
-				Theme.Current.Inactive, $"{item.Detail}: {item.Title}", item.Open ) )];
+		return null;
 	}
 
 	/// <summary>Builds the cards of the project's designs, newest first, then its reports, newest first.</summary>
@@ -310,14 +372,12 @@ internal sealed class ProjectOverviewContent : PanelContent
 	{
 		var titles = chats.ToDictionary( chat => chat.Conversation.Id, chat => chat.Conversation.Title );
 		var cards = new List<Blob>();
-		// A design opens in the Design studio, which only This PC serves, and only while the Design module offers its tool.
-		var canOpen = host.IsLocal && _context.App.Tools.Items.Any( tool => tool.Name == "design_open" );
 		foreach ( var design in designs )
 		{
 			var variants = design.Variants switch { 0 => "one page", 1 => "1 variant", var count => $"{count} variants" };
 			cards.Add( BuildCard( $"design:{design.Name}", "\uE790", design.Name, $"Design  ·  {variants}", FormatAge( design.Modified, now ),
-				canOpen ? $"Open design {design.Name} in the studio" : $"Design {design.Name}",
-				canOpen ? () => OpenDesign( design ) : null ) );
+				host.IsLocal ? $"Open design {design.Name} in the studio" : $"Design {design.Name} on {host.Name}",
+				host.IsLocal ? () => OpenDesign( host, design ) : null ) );
 		}
 		foreach ( var report in reports )
 		{
@@ -377,23 +437,15 @@ internal sealed class ProjectOverviewContent : PanelContent
 		return [.. _browser.Reports.Where( report => report.Host == host.Id && report.Conversation is { } id && ids.Contains( id ) )];
 	}
 
-	/// <summary>Finds the chat a notification is about: the chat its link opens, else the chat its panel shows; null for any other.</summary>
-	private ChatRef? FindChat( LoknNotification item )
-	{
-		if ( item.Url is { } url && Uri.TryCreate( url, UriKind.Absolute, out var link ) && link.Scheme == LoknLinks.Scheme && link.Host == "conversations" )
-		{
-			var segments = link.AbsolutePath.Split( '/', StringSplitOptions.RemoveEmptyEntries );
-			if ( segments is ["open", var path] && ChatRef.TryParse( Uri.UnescapeDataString( path ), out var chat ) )
-				return chat;
-		}
-		return item.PanelId is { } panel ? _conversations.FindConversation( panel )?.Ref : null;
-	}
-
 	/// <summary>Opens a chat or task in its own workspace, as the sidebar does.</summary>
 	private void OpenChat( ChatRef chat ) => _conversations.SelectConversation( _context.App, chat );
 
 	/// <summary>Opens a This PC design in the Design studio beside this page, through the Design module's tool.</summary>
-	private void OpenDesign( DesignEntry design ) => _ = OpenDesignAsync( design );
+	private void OpenDesign( ChatHost host, DesignEntry design )
+	{
+		if ( host.IsLocal )
+			_ = OpenDesignAsync( design );
+	}
 
 	/// <summary>Asks the Design module to show a design's studio and reports why it could not.</summary>
 	private async Task OpenDesignAsync( DesignEntry design )
@@ -644,9 +696,6 @@ internal sealed class ProjectOverviewContent : PanelContent
 		Padding = new Edges( 6, 10 ),
 	};
 
-	/// <summary>Formats a count with its noun, such as 1 chat or 3 chats.</summary>
-	private static string Count( int count, string noun ) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
-
 	/// <summary>Formats how long ago something happened, in the largest whole unit.</summary>
 	internal static string FormatAge( DateTimeOffset date, DateTimeOffset now )
 	{
@@ -681,9 +730,6 @@ internal sealed class ProjectOverviewContent : PanelContent
 
 	/// <summary>Holds one of the project's chats or tasks with what it is doing.</summary>
 	private sealed record ChatEntry( ConversationInfo Conversation, ChatState State );
-
-	/// <summary>Holds one row of the project's timeline.</summary>
-	private sealed record ActivityEntry( DateTimeOffset Time, string Title, string Detail, string Glyph, Action Open );
 
 	/// <summary>Holds one of the project's designs as read from its folder.</summary>
 	/// <param name="Name">The design's name, its folder's name.</param>

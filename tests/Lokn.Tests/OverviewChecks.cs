@@ -100,16 +100,32 @@ internal static class OverviewChecks
 				"The overview lists the project's chats and tasks, the working chat first." );
 			CoreChecks.Check( !texts.Contains( "Other project's chat" ) && !texts.Contains( "Elsewhere finished" ) && !texts.Contains( "Stray report" ),
 				"Chats, notifications and reports of other projects stay off the overview." );
-			CoreChecks.Check( texts.Contains( "Busy chat needs you" ) && texts.Contains( "Benchmark" ),
-				"The overview's activity shows the notifications of the project's chats, and its reports list the ones its chats showed." );
+			CoreChecks.Check( texts.Contains( "Benchmark" ), "The overview's reports list the ones its chats showed." );
+			CoreChecks.Check( ProjectOverviewContent.ParseGitHubRepository( "git@github.com:antopilo/loom.git" ) == "antopilo/loom"
+				&& ProjectOverviewContent.ParseGitHubRepository( "https://github.com/antopilo/loom/" ) == "antopilo/loom"
+				&& ProjectOverviewContent.ParseGitHubRepository( "https://gitlab.com/antopilo/loom.git" ) is null
+				&& ProjectOverviewContent.ParseGitHubRepository( "" ) is null,
+				"The overview reads owner/name from a GitHub remote over https or ssh, and nothing from other hosts." );
 			CoreChecks.Check( texts.Contains( "landing" ) && texts.Contains( "Design  ·  1 variant" ), "The overview lists the project's designs with their variants." );
 		}
 		finally
 		{
 			app.BindDispatcher( null );
-			Directory.Delete( root, recursive: true );
+			// The page reads the project's branch and remote with git, which may still hold the folder for a moment.
+			for ( var tries = 0; ; tries++ )
+			{
+				try
+				{
+					Directory.Delete( root, recursive: true );
+					break;
+				}
+				catch ( IOException ) when ( tries < 40 )
+				{
+					await Task.Delay( 50 );
+				}
+			}
 		}
-		Console.WriteLine( "PASS project overview: chats and tasks with working ones first, activity and reports of the project's own chats, and its designs." );
+		Console.WriteLine( "PASS project overview: chats that need the user first then the recent ones, reports of the project's own chats, its designs, and its GitHub repository from its remote." );
 	}
 
 	/// <summary>Lists the text of a declaration and every blob below it.</summary>
