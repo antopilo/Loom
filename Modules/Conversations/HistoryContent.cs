@@ -9,17 +9,14 @@ namespace Lokn.Modules.Conversations;
 /// <summary>Builds a compact project sidebar and conversation management controls for the host the user is on, under the host switcher.</summary>
 internal sealed partial class HistoryContent( PanelContext context, ConversationsModule module ) : PanelContent
 {
-	/// <summary>Defines the chat panel type, left out of a chat's panel icons.</summary>
-	private const string ChatPanelType = "conversations.chat";
-
 	/// <summary>Defines how many chats outside projects show before View all; pinned chats and the open one always show.</summary>
 	private const int ScratchLimit = 5;
 
 	/// <summary>Defines the module whose link opens a project's overview, named rather than referenced so the overview stays optional.</summary>
 	private const string OverviewModuleId = "overview";
 
-	/// <summary>Defines the Segoe Fluent ViewAll glyph of a project's overview button.</summary>
-	private const string OverviewGlyph = "\uE8A9";
+	/// <summary>Identifies the Scratch heading's row and menu among the sidebar's rows.</summary>
+	private static readonly Guid ScratchMenuId = new( "6c1d9f5e-2b7a-4e0b-9d53-5a0f3c2e8b71" );
 
 	/// <summary>Holds the sidebar's row state, such as the hovered row, the open menu and the search, and builds its rows.</summary>
 	private readonly SidebarRows _sidebar = new( context );
@@ -63,21 +60,16 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		}
 	}
 
-	/// <summary>Builds the host switcher, the new-chat, search and new-project actions, then the current host's projects and loose chats of the active profile.</summary>
+	/// <summary>Builds the header (host switcher, New project and the contributed buttons, then New chat and Search), then the current host's projects and
+	/// loose chats of the active profile.</summary>
 	public override Blob Build()
 	{
 		var profile = context.App.Settings.ActiveProfile;
 		var host = _host = module.Hosts.Current;
 		_waiting = module.ComputeWaiting( context.App );
-		var children = new List<Blob>();
-		if ( Switcher.BuildRow() is { } switcher )
-			children.Add( switcher );
+		var children = new List<Blob> { BuildHeader() };
 		if ( Switcher.BuildBanner() is { } banner )
 			children.Add( banner );
-		children.Add( _sidebar.BuildIconAction( "New chat", SidebarRows.AddGlyph, () => module.NewConversation( context.App, Host ) ) );
-		children.Add( _sidebar.BuildSearch() );
-		children.Add( Projects.BuildNewProjectAction( project => module.OpenProject( context.App, Host, project ) ) );
-		_sidebar.AddContributedActions( children );
 
 		// Projects and chats belong to the profile, so only they swipe on a profile switch; the actions above are shared and keep still.
 		var rows = new List<Blob>();
@@ -117,36 +109,36 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		};
 	}
 
-	/// <summary>Builds a bold project heading with its disclosure chevron, then its chats at the same indent, or under a label per worktree once its repository
-	/// has a linked worktree or its chats work in several; its menu creates and manages worktrees while Worktrees is loaded, for This PC's projects only.</summary>
+	/// <summary>Builds a project's heading (chevron, icon, name that opens its overview, chat count, then its tools, pull requests and menu in fixed
+	/// columns), then its chats, flat or under a label per worktree once its repository has a linked worktree or its chats work in several; its menu
+	/// creates and manages worktrees while Worktrees is loaded, for This PC's projects only.</summary>
 	private Container BuildProject( ProjectInfo project, IReadOnlyList<ConversationInfo> conversations, IReadOnlyList<ConversationInfo> archived )
 	{
 		var host = Host;
 		var isCollapsed = _sidebar.IsCollapsed( project.Id );
 		var isTidying = module.IsTidying( project.Id );
-		var heading = Projects.BuildHeading( project, module.Projects.GetIcon( project, host.Id ), isCollapsed,
-			$"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}{(isTidying ? ", tidying" : "")}",
-			isTidying ? [Cell.Mount<Color, ActivityOrb>( "tidying", Theme.Current.Accent )] : null );
-		// Row actions stay out of sight until the pointer is on the row, or its menu or + grid is open.
-		var isRevealed = _sidebar.IsRevealed( project.Id );
 		var worktreeActions = host.IsLocal ? FindWorktreeActions() : null;
 		var worktrees = ReadWorktrees( project, worktreeActions );
-		List<Blob> actions =
+		var groups = ComputeShownGroups( project, conversations, worktrees );
+		var isFlat = groups.All( group => group.IsMain );
+		var listed = conversations.Where( conversation => !IsToolTask( conversation ) ).ToArray();
+		var hasOverview = context.App.Modules.Any( loaded => loaded.Id == OverviewModuleId );
+		var heading = Projects.BuildHeading( project, module.Projects.GetIcon( project, host.Id ), isCollapsed,
+			hasOverview ? $"{project.Name}, open overview{(isTidying ? ", tidying" : "")}" : $"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}",
+			isTidying ? [Cell.Mount<Color, ActivityOrb>( "tidying", Theme.Current.Accent )] : null,
+			// Without the overview, the name folds the project like its chevron, so the heading keeps its layout either way.
+			hasOverview ? () => OpenOverview( host, project ) : () => _sidebar.ToggleCollapsed( project.Id ),
+			listed.Length.ToString( System.Globalization.CultureInfo.CurrentCulture ) );
+		// A folded project still shows whether one of its chats works or waits.
+		var mark = isCollapsed ? BuildStateMark( listed.Select( conversation => host.Ref( conversation.Id ) ).ToArray() ) : null;
+		var tools = isFlat && host.IsLocal ? BuildTools( project, project.Directory, conversations ) : null;
+		var pullRequests = host.IsLocal ? BuildPullRequests( project, conversations ) : null;
+		var row = _sidebar.BuildHoverRow( project.Id, isSelected: false,
 		[
 			heading,
-			_sidebar.BuildAddButton( project.Id, $"New chat in {project.Name}", () => module.NewConversation( context.App, host, project.Id ), isRevealed ),
-			_sidebar.BuildIconButton( TidyGlyph, $"Tidy chats in {project.Name}", () => BeginTidy( project ), isRevealed ),
-		];
-		var hasOverview = context.App.Modules.Any( loaded => loaded.Id == OverviewModuleId );
-		if ( hasOverview )
-			actions.Insert( 2, _sidebar.BuildIconButton( OverviewGlyph, $"Overview of {project.Name}", () => OpenOverview( host, project ), isRevealed ) );
-		// The archive shows whenever the project has archived chats, so they can always be found.
-		if ( archived.Count > 0 )
-			actions.Add( BuildArchiveButton( project.Id, project.Name, archived.Count ) );
-		actions.Add( _sidebar.BuildMoreButton( project.Id, $"{project.Name} options", isRevealed ) );
-		var children = new List<Blob> { _sidebar.BuildHoverRow( project.Id, isSelected: false, actions ) };
-		if ( _sidebar.BuildStarters( project.Id, project.Name, name => module.NewTask( context.App, host, project.Id, name ) ) is { } starters )
-			children.Add( starters );
+			BuildEndColumns( project.Id, $"{project.Name} options", tools, pullRequests, mark ),
+		] );
+		var children = new List<Blob> { row };
 		if ( _sidebar.IsMenuOpen( project.Id ) )
 		{
 			var entries = new List<MenuEntry>
@@ -157,9 +149,11 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			if ( hasOverview )
 				entries.Add( new MenuAction( "Overview", () => context.Run( () => OpenOverview( host, project ) ) ) { AccessKey = Key.O } );
 			AddWorktreeEntries( project, worktrees, worktreeActions, entries );
+			entries.Add( new MenuSeparator() );
+			AddArchiveEntry( project.Id, archived.Count, entries );
+			entries.Add( new MenuAction( "Tidy chats", () => context.Run( () => BeginTidy( project ) ) ) { AccessKey = Key.Y } );
 			entries.Add( new MenuAction( "Rename", () => context.Run( () => Projects.BeginRename( project ) ) ) { AccessKey = Key.R } );
 			entries.Add( new MenuAction( "Change folder…", () => context.Run( () => Projects.BeginChangeFolder( project ) ) ) { AccessKey = Key.F } );
-			entries.Add( new MenuAction( "Tidy chats", () => context.Run( () => BeginTidy( project ) ) ) { AccessKey = Key.Y } );
 			entries.Add( new MenuSeparator() );
 			entries.Add( new MenuAction( "Remove project", () => context.Run( () => host.Projects.Delete( project.Id ) ) ) { AccessKey = Key.D, IsDestructive = true } );
 			children.Add( _sidebar.BuildMenu( project.Id, $"{project.Name} options", entries ) );
@@ -169,32 +163,73 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		if ( _tidyPlan.Value.ProjectId == project.Id )
 			children.Add( BuildTidy( project, _tidyPlan.Value ) );
 		if ( _openArchive.Value == project.Id )
-			AddArchived( archived, children );
+			AddArchived( archived, children, SidebarRows.ChildIndent );
 
 		if ( !isCollapsed )
-			AddProjectChats( project, conversations, worktrees, worktreeActions, children );
+			AddProjectChats( project, groups, worktrees, worktreeActions, children );
 
 		return SidebarRows.BuildGroup( project.Id, children );
+	}
+
+	/// <summary>Builds the header: the host switcher, then New project and the buttons other modules contribute, such as Notifications; under them, the wide
+	/// New chat button and the Search button.</summary>
+	private Container BuildHeader()
+	{
+		var theme = Theme.Current;
+		var top = new List<Blob>();
+		if ( Switcher.BuildRow() is { } switcher )
+			top.Add( switcher );
+		top.Add( new Container { Key = "header-space", FlexGrow = 1 } );
+		top.Add( _sidebar.BuildHeaderButton( SidebarRows.NewFolderGlyph, "New project", () => Projects.BeginCreate( project => module.OpenProject( context.App, Host, project ) ) ) );
+		_sidebar.AddContributedHeaderButtons( top );
+		return new Container
+		{
+			Key = "header",
+			Gap = theme.Spacing,
+			Padding = new Edges( 0, 0, theme.Spacing, 0 ),
+			Children =
+			[
+				new Row { Key = "header-top", AlignItems = AlignItems.Center, Gap = 2, Children = top },
+				new Row
+				{
+					Key = "header-new",
+					Gap = theme.Spacing / 2 + 2,
+					Children =
+					[
+						_sidebar.BuildPrimaryAction( "New chat", SidebarRows.AddGlyph, () => module.NewConversation( context.App, Host ) ),
+						_sidebar.BuildSearchButton(),
+					],
+				},
+			],
+		};
 	}
 
 	/// <summary>Opens a project's overview through the Overview module's link: <c>&lt;project&gt;</c> on This PC, <c>&lt;project&gt;@&lt;host&gt;</c> on a paired host.</summary>
 	private void OpenOverview( ChatHost host, ProjectInfo project ) =>
 		context.App.OpenLink( LoknLinks.Create( OverviewModuleId, "project", host.IsLocal ? project.Id.ToString( "N" ) : $"{project.Id:N}@{host.Id}" ), context.Id );
 
-	/// <summary>Adds the Scratch heading and the chats outside projects: the latest few, pinned ones and the open one, then View all when more are
-	/// hidden; once expanded, every chat, then Show less.</summary>
+	/// <summary>Adds the Scratch heading, whose menu shows its archived chats while it has some, and the chats outside projects: the latest few, pinned ones
+	/// and the open one, then View all when more are hidden; once expanded, every chat, then Show less.</summary>
 	/// <param name="ungrouped">The chats outside projects, pinned first, each group most recent first.</param>
 	/// <param name="archived">The archived chats outside projects, most recent first, which show under the heading while their archive is open.</param>
 	/// <param name="children">The sidebar rows to add to.</param>
 	private void AddScratch( ConversationInfo[] ungrouped, ConversationInfo[] archived, List<Blob> children )
 	{
-		children.Add( archived.Length == 0 ? SidebarRows.BuildSectionHeading( ConversationsModule.ChatsTitle ) : new Row
+		var title = ConversationsModule.ChatsTitle;
+		children.Add( archived.Length == 0 ? (Blob)SidebarRows.BuildSectionHeading( title ) : _sidebar.BuildHoverRow( ScratchMenuId, isSelected: false,
+		[
+			SidebarRows.BuildSectionHeading( title ),
+			new Container { FlexGrow = 1 },
+			BuildEndColumns( ScratchMenuId, $"{title} options", null, null, null ),
+		] ) );
+		if ( _sidebar.IsMenuOpen( ScratchMenuId ) )
 		{
-			AlignItems = AlignItems.Center,
-			Children = [SidebarRows.BuildSectionHeading( ConversationsModule.ChatsTitle ), new Container { FlexGrow = 1 }, BuildArchiveButton( Guid.Empty, ConversationsModule.ChatsTitle, archived.Length )],
-		} );
+			var entries = new List<MenuEntry>();
+			AddArchiveEntry( Guid.Empty, archived.Length, entries );
+			children.Add( _sidebar.BuildMenu( ScratchMenuId, $"{title} options", entries ) );
+		}
 		if ( _openArchive.Value == Guid.Empty )
-			AddArchived( archived, children );
+			AddArchived( archived, children, 0 );
 		var isExpanded = _isScratchExpanded.Value;
 		var selected = module.GetSelected( context.App );
 		var host = Host;
@@ -213,27 +248,35 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		if ( isExpanded ? ungrouped.Length <= ScratchLimit : hidden == 0 )
 			return;
 		var toggle = _sidebar.BuildAction( isExpanded ? "Show less" : $"View all ({ungrouped.Length})", () => _isScratchExpanded.Value = !isExpanded,
-			isExpanded ? $"Show fewer {ConversationsModule.ChatsTitle} chats" : $"View all {ungrouped.Length} {ConversationsModule.ChatsTitle} chats" );
+			isExpanded ? $"Show fewer {title} chats" : $"View all {ungrouped.Length} {title} chats" );
 		toggle.Key = "scratch-toggle";
 		toggle.Color = Theme.Current.Muted;
+		toggle.FontSize = Theme.Current.FontSize - 1;
 		children.Add( toggle );
 	}
 
-	/// <summary>Builds a list's archive button: the archive glyph with how many chats it holds, which shows or hides them under the list's heading.</summary>
+	/// <summary>Adds a list's archive entry to its menu, Show archived (n) or Hide archived, which shows or hides its archived chats under its heading;
+	/// nothing when the list has none.</summary>
 	/// <param name="list">The project's id, or <see cref="Guid.Empty"/> for the chats outside projects.</param>
-	/// <param name="name">The list's name, for the accessible name.</param>
 	/// <param name="count">How many chats are archived.</param>
-	private Button BuildArchiveButton( Guid list, string name, int count )
+	/// <param name="entries">The menu's entries.</param>
+	private void AddArchiveEntry( Guid list, int count, List<MenuEntry> entries )
 	{
+		if ( count == 0 )
+			return;
+
 		var isOpen = _openArchive.Value == list;
-		var button = _sidebar.BuildIconButton( ArchiveGlyph, $"{(isOpen ? "Hide" : "Show")} {count} archived {(count == 1 ? "chat" : "chats")} in {name}",
-			() => _openArchive.Value = isOpen ? null : list );
-		button.Color = isOpen ? Theme.Current.Accent : Theme.Current.Muted;
-		return button;
+		entries.Add( new MenuAction( isOpen ? "Hide archived" : $"Show archived ({count})", () => context.Run( () => _openArchive.Value = isOpen ? null : list ) )
+		{
+			AccessKey = Key.H,
+		} );
 	}
 
 	/// <summary>Adds a list's archived chats, most recent first, each with how long ago it was used; choosing one brings it back and opens it.</summary>
-	private void AddArchived( IReadOnlyList<ConversationInfo> archived, List<Blob> children )
+	/// <param name="archived">The archived chats.</param>
+	/// <param name="children">The rows to add to.</param>
+	/// <param name="indent">How far the rows are inset, so their titles line up with the list's chats.</param>
+	private void AddArchived( IReadOnlyList<ConversationInfo> archived, List<Blob> children, int indent )
 	{
 		var host = Host;
 		foreach ( var conversation in archived )
@@ -243,6 +286,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 				$"Restore {conversation.Title}" );
 			restore.Key = "archived:" + conversation.Id;
 			restore.Color = Theme.Current.Muted;
+			restore.Margin = new Edges( 0, 0, 0, indent );
 			children.Add( restore );
 		}
 	}
@@ -256,13 +300,15 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 
 	/// <summary>Builds one selectable task row, the same whether or not the task has a chat, its context menu while open, and its title editor while renaming.</summary>
 	/// <remarks>
-	/// Double-click the title, press F2 on it, or choose Rename in its menu to rename it in place. Drag it onto another task of its list,
-	/// pinned or not as it is, to move it there.
+	/// The title fills the row; the state column on the right shows the thread sewing while the agent works, a dot while it waits for the user, a pin
+	/// on a pinned task, and the … button instead while the pointer is on the row or its menu is open. Double-click the title, press F2 on it, or
+	/// choose Rename in its menu to rename it in place. Drag it onto another task of its list, pinned or not as it is, to move it there.
 	/// </remarks>
 	/// <param name="conversation">The task.</param>
 	/// <param name="index">The task's place in the list it shows in, top first.</param>
 	/// <param name="list">The list it shows in among its project's, such as a worktree's; empty for the only one.</param>
-	private Blob BuildConversation( ConversationInfo conversation, int index, string list = "" )
+	/// <param name="indent">How far the row is inset, so a project's titles start where its name does.</param>
+	private Blob BuildConversation( ConversationInfo conversation, int index, string list = "", int indent = 0 )
 	{
 		var host = Host;
 		var history = host.Store;
@@ -273,7 +319,6 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var isWorking = history.IsWorking( conversation.Id );
 		var isWaiting = !isWorking && _waiting.Contains( chat );
 		var isMenuOpen = _sidebar.IsMenuOpen( conversation.Id );
-		var isHovered = _sidebar.IsHovered( conversation.Id );
 		Blob main;
 		if ( _sidebar.IsRenaming( conversation.Id ) )
 		{
@@ -288,41 +333,22 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		{
 			var button = _sidebar.BuildRowButton( conversation.Title, () => module.SelectConversation( context.App, chat ),
 				() => _sidebar.BeginRename( conversation.Id, conversation.Title ),
-				isWorking ? $"{conversation.Title}, working" : isWaiting ? $"{conversation.Title}, waiting for you" : null );
+				isWorking ? $"{conversation.Title}, working" : isWaiting ? $"{conversation.Title}, waiting for you"
+				: conversation.IsPinned ? $"{conversation.Title}, pinned" : null );
 			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order );
 			// A long title stays on one line and ends with an ellipsis rather than growing the row; a generated title replacing the first line rolls in.
-			// Tiny icons for the panels the chat's workspace holds, its chat first, such as a terminal or a browser, lead the title.
-			List<Blob> content = [];
-			if ( ConversationsModule.FindWorkspaces( context.App ) is { } workspaces )
-			{
-				// The chat icon leads only for a task that has a chat; a task of other panels, such as Git, shows just theirs.
-				var panels = workspaces.Tasks( ConversationsModule.ConversationSession( chat ) ).SelectMany( task => task.PanelTypes ).Where( type => type != ChatPanelType );
-				var types = (conversation.HasChat ? panels.Prepend( ChatPanelType ) : panels).Distinct().ToArray();
-				content.AddRange( _sidebar.BuildPanelIcons( new WorkspaceTask( conversation.Id, conversation.Title ) { PanelTypes = types } ) );
-			}
-			content.Add( Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) ) );
-			if ( isWorking )
-				content.Add( Cell.Mount<Color, ActivityOrb>( "activity", Theme.Current.Accent ) );
-			else if ( isWaiting )
-				content.Add( BuildWaitingDot() );
-			button.Children = content;
+			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) )];
 			main = button;
 		}
 
-		// A pinned task always shows its pin, which turns into unpin under the pointer; others offer pinning on hover.
-		var pin = _sidebar.BuildIconButton( conversation.IsPinned && isHovered ? SidebarRows.UnpinGlyph : SidebarRows.PinGlyph,
-			conversation.IsPinned ? $"Unpin {conversation.Title}" : $"Pin {conversation.Title}",
-			() => history.SetPinned( conversation.Id, !conversation.IsPinned ),
-			conversation.IsPinned || isHovered || isMenuOpen );
-		var children = new List<Blob>
-		{
-			_sidebar.BuildHoverRow( conversation.Id, module.GetSelected( context.App ) == chat,
-			[
-				main,
-				pin,
-				_sidebar.BuildMoreButton( conversation.Id, $"{conversation.Title} options", isHovered || isMenuOpen ),
-			], order ),
-		};
+		var mark = isWorking ? BuildWorkingMark() : isWaiting ? BuildWaitingDot() : conversation.IsPinned ? BuildPinMark() : null;
+		var row = _sidebar.BuildHoverRow( conversation.Id, module.GetSelected( context.App ) == chat,
+		[
+			main,
+			BuildStateColumn( conversation.Id, $"{conversation.Title} options", mark ),
+		], order );
+		row.Margin = new Edges( 0, 0, 0, indent );
+		var children = new List<Blob> { row };
 		if ( isMenuOpen )
 		{
 			var entries = new List<MenuEntry>

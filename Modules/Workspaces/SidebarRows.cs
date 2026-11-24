@@ -21,6 +21,12 @@ public sealed partial class SidebarRows( PanelContext context )
 	/// <summary>Defines a group heading's icon width and height in logical pixels, such as a project's icon.</summary>
 	public const int GroupIconSize = 16;
 
+	/// <summary>Defines the width of a linked heading's chevron button in logical pixels, the first column of the sidebar's grid.</summary>
+	public const int ChevronColumn = 16;
+
+	/// <summary>Defines how far a group's rows are inset so their titles start where the linked heading's name does: past the chevron and the icon column.</summary>
+	public const int ChildIndent = ChevronColumn + GroupIconSize;
+
 	/// <summary>Tracks collapsed groups.</summary>
 	private readonly State<HashSet<Guid>> _collapsed = new( [] );
 
@@ -133,6 +139,82 @@ public sealed partial class SidebarRows( PanelContext context )
 			.. trailing ?? [],
 		];
 		return heading;
+	}
+
+	/// <summary>Builds a group's heading whose name opens the group, such as a project's overview: a chevron button that folds or unfolds it, the icon,
+	/// then the bold name with an optional muted count, which opens it.</summary>
+	/// <param name="id">The group, whose folding <see cref="IsCollapsed"/> reports.</param>
+	/// <param name="name">The group's name.</param>
+	/// <param name="icon">The icon before the name, or null for none; it takes its column either way, so names line up.</param>
+	/// <param name="isCollapsed">Whether the chevron shows the group folded.</param>
+	/// <param name="accessibilityName">The name's accessible name, such as "Lokn, open overview".</param>
+	/// <param name="open">Runs when the name is clicked.</param>
+	/// <param name="badge">A muted count after the name, or null for none.</param>
+	/// <param name="trailing">Marks after the name, such as an activity dot.</param>
+	/// <returns>The heading and its name button, which takes key bindings such as F2.</returns>
+	public (Row Heading, Button Name) BuildLinkedGroupHeading( Guid id, string name, Blob? icon, bool isCollapsed, string accessibilityName, Action open, string? badge = null,
+		IEnumerable<Blob>? trailing = null )
+	{
+		var theme = Theme.Current;
+		var chevron = new Button
+		{
+			Key = "chevron",
+			Width = ChevronColumn,
+			Height = theme.ControlHeight,
+			FlexShrink = 0,
+			AlignItems = AlignItems.Center,
+			JustifyContent = JustifyContent.Center,
+			BorderRadius = theme.Radius,
+			Cursor = Cursor.Pointer,
+			Focusable = true,
+			AccessibilityName = isCollapsed ? $"Expand {name}" : $"Collapse {name}",
+			HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( ActionHoverAlpha ) },
+			OnClick = () => context.Run( () => ToggleCollapsed( id ) ),
+			KeyBindings =
+			[
+				new( Key.Enter, KeyModifiers.None, () => context.Run( () => ToggleCollapsed( id ) ) ),
+				new( Key.Space, KeyModifiers.None, () => context.Run( () => ToggleCollapsed( id ) ) ),
+			],
+			Children = [theme.BuildChevron( !isCollapsed )],
+		};
+		var label = BuildAction( name, open, accessibilityName );
+		label.FlexDirection = FlexDirection.Row;
+		label.JustifyContent = JustifyContent.FlexStart;
+		label.AlignItems = AlignItems.Center;
+		label.Gap = theme.Spacing / 2;
+		label.FlexGrow = 1;
+		label.MinWidth = 0;
+		label.Padding = new Edges( 0, theme.Spacing / 2 );
+		label.Children =
+		[
+			new Container
+			{
+				Key = "icon",
+				Width = GroupIconSize,
+				FlexShrink = 0,
+				AlignItems = AlignItems.Center,
+				Children = icon is null ? [] : [icon],
+			},
+			new Text
+			{
+				Content = name,
+				FontWeight = GroupWeight,
+				MinWidth = 0,
+				FlexShrink = 1,
+				TextWrap = TextWrap.NoWrap,
+				TextTrimming = TextTrimming.Ellipsis,
+			},
+			.. badge is null ? Array.Empty<Blob>() : [new Text { Key = "badge", Content = badge, Color = theme.Muted, FontSize = theme.FontSize - 1, FlexShrink = 0 }],
+			.. trailing ?? [],
+		];
+		var heading = new Row
+		{
+			AlignItems = AlignItems.Center,
+			FlexGrow = 1,
+			MinWidth = 0,
+			Children = [chevron, label],
+		};
+		return (heading, label);
 	}
 
 	/// <summary>Builds a group's container: its heading row and rows, set visibly apart from what comes before.</summary>

@@ -236,15 +236,25 @@ sidebar's width and visibility, keeps the profile switcher below its sections, a
 status contribution only while the status bar is on. The **Navigation** setting
 (`shell.navigation`) switches the sidebar for tabs: the `Tabs` contributions and the
 profile switcher then fill the middle of the titlebar, between the shell's actions and
-the window controls. Conversations fills it with its chats, grouped as described below. Ctrl+B and the sidebar button hide only the sidebar; with tabs, both are off. In both,
+the window controls. Conversations fills it with its chats, grouped as described below. Ctrl+B and the sidebar button hide only the sidebar; with tabs, both are off.
+While the sidebar is hidden, resting the pointer on the window's left edge floats it out over the workspace (`SidebarPeek`); it slides
+back 350 ms after the pointer leaves it, or at once on Escape. In both,
 the first section fills the space and later ones take only what they need. Without
 Conversations, a saved workspace is a **task**, in a project or not, and the sidebar looks
 and behaves like the chat sidebar: **New task**, **Search** and **New project**, then each
 project under a bold heading that folds its tasks, then the tasks outside projects under
-**Tasks**. With Conversations, the chats outside projects sit under **Scratch**: the 5 latest, pinned ones and the open one,
+**Tasks**. With Conversations, the chat sidebar starts with a header: the host switcher, then icon buttons for **New project**
+and each `SidebarAction` contribution (Files, Notifications; `SidebarRows.BuildHeaderButton`), then the wide **New chat** button
+and **Search**. A project's heading is a chevron that folds it, its icon, and its name with its chat count, which opens the
+project's overview while the Overview module is loaded (`SidebarRows.BuildLinkedGroupHeading`). Its right side has fixed columns:
+the folder's tools (**Files**, **Git**, **Terminal**: the `TaskStarter`s of those titles), the repository's **Pull Requests**
+when it is on GitHub, then the state column. A tool's icon opens the task of that name in its folder, or creates it there with its
+starter, so a project's tools stay out of its chat list; worktree labels carry their own tools. The state column shows the
+chat's thread (`StitchMark`) while its agent works, a dot while it waits, a pin when pinned, and the row's **…** under the pointer.
+Archived chats and **Tidy chats** are in a heading's **…** menu. The chats outside projects sit under **Scratch**: the 5 latest, pinned ones and the open one,
 then **View all (N)**, which shows every one until **Show less**. Projects draws the task list; while Projects is not loaded, Workspaces draws it
 without the projects. Rows show their actions on hover (a project's **+** and **…**, a task's pin
-and **…**), a right-click opens the row's menu, pinned tasks come first, and double-click or
+and **…**; in the chat sidebar, only **…**), a right-click opens the row's menu, pinned tasks come first, and double-click or
 F2 renames a task in place. Resting the pointer on a project's **+** opens a grid of icons
 (`SidebarRows.BuildAddButton` and `BuildStarters`), one per `TaskStarter` contributed to
 `TaskStarter.Point` (declared by Workspaces) by `Order`, then **Empty task**: choosing one creates an empty task in the

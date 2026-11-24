@@ -3,6 +3,17 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.17
+
+- **A calmer sidebar.** New chat and Search sit at the top, with New project and Notifications as small icons beside your
+  host. Each project shows its name and chat count; click the name to open its overview, or the arrow to fold it.
+- **Tools where they belong.** Files, Git and Terminal are small icons on each project and worktree, and open in that
+  folder. Pull requests have their own icon on projects hosted on GitHub. They no longer take a row each in your chats.
+- **See which chats work.** A working chat shows the Loom thread sewing; a chat that waits for you shows a dot. Archived
+  chats and Tidy chats are in each project's … menu.
+- **The sidebar slides in.** With the sidebar hidden (Ctrl+B), move the pointer to the window's left edge and it floats
+  in over your work, then slides away when you leave it.
+
 ## 0.4.16
 
 - **A project hub that shows what matters.** A project's overview page now starts with a prompt bar: type and press

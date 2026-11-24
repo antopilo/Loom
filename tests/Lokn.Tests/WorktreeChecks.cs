@@ -282,6 +282,15 @@ internal static class WorktreeChecks
 		var parked = store.CreateConversation( SettingsProfile.Personal, project.Id );
 		store.SetWorktree( parked.Id, changed );
 		CoreChecks.Check( PumpUntil( () => Label( changed ) is not null ), "A linked worktree shows its label once a chat works in it." );
+		var branch = Label( changed )!.Content;
+		FindButton( $"Git in {branch}" )!.OnClick!();
+		ConversationInfo[] GitTasks() => [.. Chats().Where( chat => !chat.HasChat && chat.Title == "Git" )];
+		CoreChecks.Check( GitTasks() is [{ Worktree: { } gitFolder }] && ConversationStore.IsSameFolder( gitFolder, changed ) && FindButton( $"Git in {branch}, open" ) is not null
+			&& !Shown().OfType<Button>().Any( button => button.AccessibilityName == "Git" ),
+			"A worktree's Git icon opens a Git task working in that worktree, which its icon stands for instead of a row of its own." );
+		FindButton( $"Git in {branch}, open" )!.OnClick!();
+		CoreChecks.Check( GitTasks().Length == 1, "Clicking the Git icon again opens the same task rather than a second one." );
+		app.GetModule<ConversationsModule>().DeleteConversation( app, ChatRef.Local( GitTasks()[0].Id ) );
 		Remove( changed );
 		CoreChecks.Check( PumpUntil( () => Dialog()?.Error?.Contains( "uncommitted", StringComparison.Ordinal ) == true ) && Directory.Exists( changed ),
 			"Removing a worktree with uncommitted changes shows why git refused in its dialog and keeps it." );

@@ -53,13 +53,17 @@ public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, Proj
 				store.Update( current.Id, current.Name, directory );
 		} );
 
-	/// <summary>Builds a project's bold heading with its icon and disclosure chevron, or its name editor while it is renamed; clicking the heading folds or unfolds its rows.</summary>
+	/// <summary>Builds a project's bold heading with its icon and disclosure chevron, or its name editor while it is renamed: clicking the heading folds or
+	/// unfolds its rows, or, given <paramref name="open"/>, only the chevron does and clicking the name opens the project.</summary>
 	/// <param name="project">The project.</param>
 	/// <param name="icon">The project's icon from <see cref="ProjectsModule.GetIcon"/>, or null for none.</param>
 	/// <param name="isCollapsed">Whether its rows are folded.</param>
 	/// <param name="accessibilityName">The heading's accessible name.</param>
-	/// <param name="trailing">Marks after the chevron, such as an activity dot.</param>
-	public Blob BuildHeading( ProjectInfo project, AsyncImageSource? icon, bool isCollapsed, string accessibilityName, IEnumerable<Blob>? trailing = null )
+	/// <param name="trailing">Marks after the name, such as an activity dot.</param>
+	/// <param name="open">Runs when the name is clicked, such as opening the project's overview, or null to fold on a click anywhere.</param>
+	/// <param name="badge">A muted count after the name, such as its chats, or null for none; shown with <paramref name="open"/> only.</param>
+	public Blob BuildHeading( ProjectInfo project, AsyncImageSource? icon, bool isCollapsed, string accessibilityName, IEnumerable<Blob>? trailing = null,
+		Action? open = null, string? badge = null )
 	{
 		if ( sidebar.IsRenaming( project.Id ) )
 		{
@@ -70,16 +74,32 @@ public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, Proj
 			} );
 		}
 
-		var heading = sidebar.BuildGroupHeading( project.Id, project.Name, icon is null ? null : ProjectsModule.BuildIcon( icon, project.Name, SidebarRows.GroupIconSize ),
-			isCollapsed, accessibilityName, trailing );
-		heading.KeyBindings = [new( Key.F2, KeyModifiers.None, () => context.Run( () => BeginRename( project ) ) )];
-		// The double-click's two clicks fold and unfold the project, which leaves it as it was.
+		var image = icon is null ? null : ProjectsModule.BuildIcon( icon, project.Name, SidebarRows.GroupIconSize );
+		if ( open is not null )
+		{
+			var (row, name) = sidebar.BuildLinkedGroupHeading( project.Id, project.Name, image, isCollapsed, accessibilityName, open, badge, trailing );
+			AddRename( name, project, keepKeys: true );
+			return row;
+		}
+
+		var heading = sidebar.BuildGroupHeading( project.Id, project.Name, image, isCollapsed, accessibilityName, trailing );
+		AddRename( heading, project, keepKeys: false );
+		return heading;
+	}
+
+	/// <summary>Lets F2 or a double-click on a heading rename its project; a double-click's two clicks fold and unfold a folding heading, which leaves it as it was.</summary>
+	/// <param name="heading">The heading's button.</param>
+	/// <param name="project">The project.</param>
+	/// <param name="keepKeys">Whether the button keeps its own keys, such as Enter that opens a linked heading's project, beside F2.</param>
+	private void AddRename( Button heading, ProjectInfo project, bool keepKeys )
+	{
+		var rename = new KeyBinding( Key.F2, KeyModifiers.None, () => context.Run( () => BeginRename( project ) ) );
+		heading.KeyBindings = keepKeys ? [.. heading.KeyBindings ?? [], rename] : [rename];
 		heading.OnPointerUp = pointer => context.Run( () =>
 		{
 			if ( pointer.Button == PointerButton.Primary && pointer.ClickCount == 2 )
 				BeginRename( project );
 		} );
-		return heading;
 	}
 
 	/// <summary>Asks for a folder of the projects' host and passes a chosen one on the UI thread: a typed path checked on a paired host, else the native

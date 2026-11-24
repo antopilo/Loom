@@ -60,14 +60,15 @@ internal static class OverviewChecks
 			browser.RecordReport( stray, "Stray report", new AgentToolContext( app, null, CancellationToken.None ) { Conversation = elsewhere.Id } );
 
 			var sidebar = app.Slots.Get( ShellSlots.Sidebar ).Single( item => item.ModuleId == "conversations" ).Content;
-			CoreChecks.Check( Descendants( sidebar.Build() ).OfType<Button>().Any( button => button.AccessibilityName == "Overview of App" ),
-				"A project's heading in the sidebar has an overview button while the Overview module is loaded." );
+			var name = Descendants( sidebar.Build() ).OfType<Button>().SingleOrDefault( button => button.AccessibilityName == "App, open overview" );
+			CoreChecks.Check( name is not null, "A project's name in the sidebar links to its overview while the Overview module is loaded." );
 			var workspaces = app.GetModule<WorkspacesModule>();
 			var scratch = app.Panels.Open( "conversations.chat" );
 			// An overview opened as a panel in another layout, as 0.4.13 did, stays in that layout.
 			var older = app.Panels.Open( OverviewModule.PanelType, input: (Guid?)project.Id, hostId: LoknHost.LocalId );
 			var link = LoknLinks.Create( "overview", "project", project.Id.ToString( "N" ) );
-			app.OpenLink( link );
+			// Clicking the name follows the overview link.
+			name!.OnClick!();
 			var overview = app.Panels.ActivePanelId;
 			CoreChecks.Check( workspaces.CurrentSession == "overview:" + project.Id.ToString( "N" ) && app.Panels.Panes.Count == 1 && !app.Panels.IsShown( scratch )
 				&& !app.Panels.IsShown( older ) && overview is { } shown && shown != older && app.Panels.Panels.Single( panel => panel.Id == shown ).TypeId == OverviewModule.PanelType,

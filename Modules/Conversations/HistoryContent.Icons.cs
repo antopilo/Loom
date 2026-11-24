@@ -7,11 +7,11 @@ namespace Lokn.Modules.Conversations;
 /// <summary>Builds the chat sidebar's own icons and marks beside the shared <see cref="SidebarRows"/> ones.</summary>
 internal sealed partial class HistoryContent
 {
-	/// <summary>Defines the broom glyph from Segoe Fluent Icons, on the action that tidies a project's chats.</summary>
-	private const string TidyGlyph = "\uEA99";
+	/// <summary>Defines the linked-nodes glyph from Segoe Fluent Icons, before a worktree's name, unlike the Git tool's branch on the same row.</summary>
+	private const string WorktreeGlyph = "\uEC26";
 
-	/// <summary>Defines the archive box glyph from Segoe Fluent Icons, beside a list that has archived chats.</summary>
-	private const string ArchiveGlyph = "\uE7B8";
+	/// <summary>Defines a worktree label's height in logical pixels, lower than a chat's so the labels read as part of their project.</summary>
+	private const int WorktreeRowHeight = 24;
 
 	/// <summary>Builds a steady dot in the attention color beside a chat whose agent finished or asked something and waits for the user.</summary>
 	/// <remarks>It does not pulse: nothing runs, the chat only waits to be looked at.</remarks>

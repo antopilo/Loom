@@ -259,6 +259,8 @@ internal static class NativeChecks
 		var isSidebarShown = app.Settings.Get( ShellSettings.ShowSidebar );
 		ClickTitlebarAction( window, semantics, "Toggle sidebar" );
 		PumpUntil( window, semantics, () => app.Settings.Get( ShellSettings.ShowSidebar ) != isSidebarShown, "The titlebar sidebar icon shows or hides the sidebar." );
+		if ( !app.Settings.Get( ShellSettings.ShowSidebar ) )
+			CheckSidebarPeek( window, shell, semantics );
 		ClickTitlebarAction( window, semantics, "Toggle sidebar" );
 		PumpUntil( window, semantics, () => app.Settings.Get( ShellSettings.ShowSidebar ) == isSidebarShown, "The titlebar sidebar icon toggles back." );
 
@@ -345,6 +347,25 @@ internal static class NativeChecks
 			Pump( window );
 		}
 		Pump( window );
+	}
+
+	/// <summary>Checks the hidden sidebar's peek: resting at the window's left edge floats it out over the workspace, and leaving it sends it back.</summary>
+	private static void CheckSidebarPeek( Window window, ShellView shell, SemanticAdapter semantics )
+	{
+		var peeking = typeof( ShellView ).GetField( "_isPeeking", BindingFlags.Instance | BindingFlags.NonPublic )!;
+		bool IsPeeking() => (bool)peeking.GetValue( shell )!;
+		bool IsFloating() => semantics.Tree?.Root is { } root
+			&& Flatten( root ).Any( node => node.Name == "Sidebar" && node.Bounds.X > 0 && node.Bounds.Y > TitleBar.BarHeight );
+		var middle = window.Size.Height / 2;
+		PointerMove( window, window.Size.Width / 2, middle );
+		Pump( window );
+		PointerMove( window, 2, middle );
+		PumpUntil( window, semantics, () => IsPeeking() && IsFloating(), "Resting the pointer at the window's left edge floats the hidden sidebar out over the workspace." );
+		PointerMove( window, 40, middle );
+		Pump( window );
+		CoreChecks.Check( IsPeeking(), "Moving from the edge onto the floating sidebar keeps it out." );
+		PointerMove( window, window.Size.Width - 40, middle );
+		PumpUntil( window, semantics, () => !IsPeeking() && !IsFloating(), "Leaving the floating sidebar sends it back." );
 	}
 
 	/// <summary>Enumerates a semantic subtree.</summary>

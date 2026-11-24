@@ -4,6 +4,7 @@ using Lokn.Core;
 using Lokn.Modules.Chat;
 using Lokn.Modules.Git;
 using Lokn.Modules.Projects;
+using Lokn.Modules.Workspaces;
 
 namespace Lokn.Modules.Conversations;
 
@@ -136,18 +137,21 @@ internal sealed partial class HistoryContent
 		} );
 	}
 
-	/// <summary>Adds a project's chats below its heading: flat while they all work in the project's own directory, otherwise under a label
-	/// per worktree, the main checkout last, each with its menu, removal dialog and + grid.</summary>
-	private void AddProjectChats( ProjectInfo project, IReadOnlyList<ConversationInfo> conversations, IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? actions, List<Blob> children )
+	/// <summary>Adds a project's chats below its heading, its tools' tasks left out: flat while they all work in the project's own directory, otherwise under a
+	/// label per worktree, the main checkout last, each with its tools, menu and removal dialog.</summary>
+	/// <param name="project">The project.</param>
+	/// <param name="groups">The project's chats by worktree, from <see cref="ComputeShownGroups"/>.</param>
+	/// <param name="worktrees">The working trees of the project's repository, or null when they are not known.</param>
+	/// <param name="actions">The worktree operations, or null while Worktrees is not loaded or the host is a paired one.</param>
+	/// <param name="children">The rows to add to.</param>
+	private void AddProjectChats( ProjectInfo project, IReadOnlyList<WorktreeGroup> groups, IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? actions, List<Blob> children )
 	{
 		// A paired host's worktrees are grouped by the folder its chats work in: its disk and its Worktrees panel are not this PC's, so neither the git
 		// listing nor the worktree actions apply there.
 		var isLocal = Host.IsLocal;
-		var groups = ComputeWorktreeGroups( project, conversations, isLocal ? worktrees : null );
 		if ( groups.All( group => group.IsMain ) )
 		{
-			for ( var index = 0; index < conversations.Count; index++ )
-				children.Add( BuildConversation( conversations[index], index ) );
+			AddChats( groups.SelectMany( group => group.Conversations ), "", children );
 			return;
 		}
 
@@ -166,35 +170,60 @@ internal sealed partial class HistoryContent
 			}
 			if ( actions is not null && _removingWorktree.Value.Length > 0 && ConversationStore.IsSameFolder( _removingWorktree.Value, group.Directory ) )
 				children.Add( BuildRemoveWorktree( project, group, name, actions, mainPath ) );
-			if ( isLocal && _sidebar.BuildStarters( id, name, starter => module.NewTask( context.App, Local, project.Id, starter, group.Directory ) ) is { } starters )
-				children.Add( starters );
-			for ( var index = 0; index < group.Conversations.Count; index++ )
-				children.Add( BuildConversation( group.Conversations[index], index, group.Directory ) );
+			AddChats( group.Conversations, group.Directory, children );
 		}
 	}
 
-	/// <summary>Builds the label of a worktree, its branch or folder name, with a + and a … revealed on hover; resting on the + offers other starters.</summary>
+	/// <summary>Adds a list's chats inset under their project's name, its tools' tasks left out; each keeps its place among the listed ones for dragging.</summary>
+	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, List<Blob> children )
+	{
+		var index = 0;
+		foreach ( var conversation in conversations.Where( conversation => !IsToolTask( conversation ) ) )
+			children.Add( BuildConversation( conversation, index++, list, SidebarRows.ChildIndent ) );
+	}
+
+	/// <summary>Builds the label of a worktree: a branch icon in the project icon's column, its branch or folder name, then on This PC its tools, and its …
+	/// button on hover.</summary>
 	private Row BuildWorktreeHeading( ProjectInfo project, WorktreeGroup group, Guid id, string name )
 	{
-		var isRevealed = _sidebar.IsRevealed( id );
-		return _sidebar.BuildHoverRow( id, isSelected: false,
+		var theme = Theme.Current;
+		var row = _sidebar.BuildHoverRow( id, isSelected: false,
 		[
-			new Text
+			new Row
 			{
-				Key = $"worktree:{group.Directory}",
-				Content = name,
-				Color = Theme.Current.Muted,
-				FontSize = Theme.Current.FontSize - 1,
 				FlexGrow = 1,
 				MinWidth = 0,
-				TextWrap = TextWrap.NoWrap,
-				TextTrimming = TextTrimming.Ellipsis,
-				Padding = new Edges( Theme.Current.Spacing / 2, Theme.Current.Spacing, 0, Theme.Current.Spacing ),
-				AccessibilityName = group.IsMain ? $"Main checkout, {name}" : $"Worktree {name}",
+				AlignItems = AlignItems.Center,
+				Gap = theme.Spacing / 2,
+				// The branch icon sits in the project icon's column, so the name starts where chat titles do.
+				Padding = new Edges( 0, 0, 0, SidebarRows.ChevronColumn + theme.Spacing / 2 ),
+				Children =
+				[
+					new Container
+					{
+						Width = SidebarRows.GroupIconSize,
+						FlexShrink = 0,
+						AlignItems = AlignItems.Center,
+						Children = [SidebarRows.BuildIcon( WorktreeGlyph )],
+					},
+					new Text
+					{
+						Key = $"worktree:{group.Directory}",
+						Content = name,
+						Color = theme.Muted,
+						FontSize = theme.FontSize - 1,
+						FlexShrink = 1,
+						MinWidth = 0,
+						TextWrap = TextWrap.NoWrap,
+						TextTrimming = TextTrimming.Ellipsis,
+						AccessibilityName = group.IsMain ? $"Main checkout, {name}" : $"Worktree {name}",
+					},
+				],
 			},
-			_sidebar.BuildAddButton( id, $"New chat in {name}", () => module.NewConversation( context.App, Host, project.Id, group.Directory ), isRevealed ),
-			_sidebar.BuildMoreButton( id, $"{name} options", isRevealed ),
+			BuildEndColumns( id, $"{name} options", Host.IsLocal ? BuildTools( project, group.Directory, group.Conversations ) : null, null, null ),
 		] );
+		row.Height = WorktreeRowHeight;
+		return row;
 	}
 
 	/// <summary>Builds a worktree label's menu: New chat, New task and Open folder, then Remove worktree while Worktrees is loaded, greyed out for the main checkout.</summary>
