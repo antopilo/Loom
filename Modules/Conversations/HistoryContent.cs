@@ -337,7 +337,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order );
 			// A long title stays on one line and ends with an ellipsis rather than growing the row; a generated title replacing the first line rolls in.
 			// Emoji the user typed in it fall back to the emoji face.
-			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = SidebarRows.BodyFontFamily } )];
+			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily } )];
 			main = button;
 		}
 

@@ -284,7 +284,6 @@ public sealed partial class SidebarRows( PanelContext context )
 		Padding = ContentPadding,
 		OverflowY = Overflow.Scroll,
 		OverflowX = Overflow.Hidden,
-		FontFamily = BodyFontFamily,
 		Children = [content],
 	};
 
@@ -403,7 +402,7 @@ public sealed partial class SidebarRows( PanelContext context )
 		Height = Theme.Current.ControlHeight,
 		Padding = new Edges( 0, Theme.Current.Spacing - Theme.Current.BorderWidth ),
 		FontSize = Theme.Current.FontSize,
-		FontFamily = BodyFontFamily,
+		FontFamily = ViewStyle.FontFamily,
 		Color = Theme.Current.Text,
 		BackgroundColor = Theme.Current.Panel,
 		BorderColor = Theme.Current.Accent,

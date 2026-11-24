@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<!-- This module's release version; raise it to publish the module as an update (scripts/release.ps1). -->
-		<Version>1.5.1</Version>
+		<Version>1.5.2</Version>
 	</PropertyGroup>
 	<ItemGroup>
-		<!-- The sidebar's faces, Fraunces and SN Pro, under the SIL Open Font License beside them. -->
+		<!-- The sidebar's faces, Fraunces, under the SIL Open Font License beside them. -->
 		<EmbeddedResource Include="Fonts\*.ttf" LogicalName="Fonts.%(Filename)%(Extension)" />
 		<None Include="Fonts\OFL-*.txt" />
 	</ItemGroup>
