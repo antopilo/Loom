@@ -243,7 +243,8 @@ public sealed partial class ChatContent : PanelContent
 	/// <summary>Lists the visible messages as transcript rows, pairing tool results with their calls and spacing agent turns as one flow.</summary>
 	/// <remarks>
 	/// Consecutive reasoning and tool calls, across messages, become one activity row; the agent's prose between them ends a run.
-	/// A finished turn that edited or wrote files ends with a card listing them; the turn still running gets its card when it ends.
+	/// A finished turn that edited or wrote files ends with a card listing them; the turn still running gets its card when the agent's run ends,
+	/// even while background work, such as jobs or subagents, keeps the session busy.
 	/// </remarks>
 	private List<TranscriptRow> ComputeRows( IReadOnlyList<ConversationMessage> messages )
 	{
@@ -352,7 +353,7 @@ public sealed partial class ChatContent : PanelContent
 			}
 		}
 		Flush();
-		if ( !session.IsBusy )
+		if ( !session.IsBusy || session.IsSettling )
 			AddChanges();
 		return rows;
 	}

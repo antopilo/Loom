@@ -70,6 +70,9 @@ public interface IChatSession : IDisposable
 	/// <summary>Gets whether the agent is connecting, working or waiting on tools.</summary>
 	bool IsBusy { get; }
 
+	/// <summary>Gets whether the agent's run ended and the session stays busy only until background work, such as jobs or subagents, settles.</summary>
+	bool IsSettling { get; }
+
 	/// <summary>Gets the visible backend status or error.</summary>
 	string Status { get; }
 
