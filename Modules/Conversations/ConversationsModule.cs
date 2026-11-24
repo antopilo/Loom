@@ -606,6 +606,8 @@ public sealed partial class ConversationsModule(
 		{
 			Source = ChatPanelType,
 			Link = LoknLinks.Create( Id, OpenRoute, chat.ToString() ),
+			Tone = session.PendingDialog is not null ? NotificationTone.Attention : session.Status == "Ready" ? NotificationTone.Success : NotificationTone.None,
+			Project = host.Store.Find( session.ConversationId )?.ProjectId is { } projectId ? host.Projects.Find( projectId )?.Name : null,
 		} );
 		_background.Value = new Dictionary<ChatRef, Guid>( _background.Value ) { [chat] = posted.Id };
 	}

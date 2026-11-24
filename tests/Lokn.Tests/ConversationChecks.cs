@@ -254,9 +254,9 @@ internal static class ConversationChecks
 			"The feed opens as a page of its own, like Settings, and is the active panel." );
 
 		var rows = NotificationsContent.ComputeRows( app.Notifications.Items, DateTimeOffset.Now, kinds );
-		Check( rows.Select( row => row.Kind ).SequenceEqual( [NotificationRowKind.Day, NotificationRowKind.Activity, NotificationRowKind.Activity, NotificationRowKind.Message] )
-			&& rows[0].Label == "Today" && rows[1].Label == "Build fix finished" && rows[2].Items.Count == 2 && rows[3].Label == "Build fix",
-			"The feed reads oldest first like a chat: short updates from one source fold into one run, and a message worth reading stands alone." );
+		Check( rows.Select( row => row.Kind ).SequenceEqual( [NotificationRowKind.Day, NotificationRowKind.Message, NotificationRowKind.Activity, NotificationRowKind.Activity] )
+			&& rows[0].Label == "Today" && rows[1].Label == "Build fix" && rows[2].Items.Count == 2 && rows[3].Label == "Build fix finished",
+			"The feed lists newest first under each day: short updates from one source fold into one run, and a message worth reading stands alone." );
 		Check( rows[2].Label == "Checks passed on #12, review requested"
 			&& NotificationsContent.ComputeSummary( [.. Enumerable.Range( 0, 3 ).Select( index => app.Notifications.Post( new( "CI", $"CI succeeded on o/r main {index}" ) { Source = "ci", Kind = "ci.passed" } ) )], kinds ) == "3 checks passed",
 			"A run's summary counts its updates by kind, worded by the module that posted them." );
@@ -266,6 +266,13 @@ internal static class ConversationChecks
 			&& NotificationsContent.ComputeSource( fromChat with { Source = "terminal.shell" }, _ => null ) == NotificationSource.Other
 			&& NotificationsContent.ComputeSource( fromChat with { Source = null, PanelId = null }, _ => null ) == NotificationSource.Other,
 			"Each source gets its built-in icon, and anything else the bell." );
+		var tagged = app.Notifications.Post( new( "GitHub", "Checks failed on #14" ) { Source = "github", Tone = NotificationTone.Failure, Project = "o/r" } );
+		var feedInput = new NotificationsContent.FeedViewInput( app.Notifications.Items, new HashSet<Guid> { fromChat.Id } );
+		Check( NotificationsContent.ComputeVisible( feedInput, new( NotificationFilterKind.Project, "o/r" ), "", _ => null ) is [var inProject] && inProject.Id == tagged.Id
+			&& NotificationsContent.ComputeVisible( feedInput, new( NotificationFilterKind.Source, "GitHub" ), "", _ => null ) is [var fromGitHub] && fromGitHub.Id == tagged.Id
+			&& NotificationsContent.ComputeVisible( feedInput, new( NotificationFilterKind.Waiting ), "", _ => null ) is [var asked] && asked.Id == fromChat.Id
+			&& NotificationsContent.ComputeVisible( feedInput, new( NotificationFilterKind.All ), "MISSING reference", _ => null ) is [{ Title: "Build fix" }],
+			"The Notifications page filters by project, by source, by what waits for the user, and by search text in any case." );
 		Check( app.Load( new FixtureModule( "kinds", builder => builder.Contribute( NotificationKind.Point, new NotificationKind( "terminal", "\uE756" ) ) ) )
 			&& NotificationsModule.FindKind( app, fromChat with { Source = "terminal.shell" } )?.Glyph == "\uE756" && NotificationsModule.FindKind( app, fromChat ) is null
 			&& app.Unload( "kinds" ) && NotificationsModule.FindKind( app, fromChat with { Source = "terminal.shell" } ) is null,

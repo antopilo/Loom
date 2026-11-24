@@ -98,6 +98,12 @@ if ( args.Contains( "--chat-view-only" ) )
 	return;
 }
 
+if ( args.Contains( "--notifications-view-only" ) )
+{
+	NotificationViewChecks.Run( args );
+	return;
+}
+
 if ( args.Contains( "--terminal-view-only" ) )
 {
 	TerminalUiChecks.Run( args );

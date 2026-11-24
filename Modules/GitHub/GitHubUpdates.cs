@@ -7,7 +7,7 @@ internal static class GitHubUpdates
 	internal static List<GitHubUpdate> Compute( GitHubSnapshot previous, GitHubSnapshot current, DateTimeOffset now )
 	{
 		var updates = new List<GitHubUpdate>();
-		void Add( string text, string url, CheckState tone, string kind ) => updates.Add( new( now, text, url, tone, kind ) );
+		void Add( string text, string url, CheckState tone, string kind, string repository ) => updates.Add( new( now, text, url, tone, kind, repository ) );
 
 		var before = previous.Mine.ToDictionary( pull => pull.Url, StringComparer.Ordinal );
 		foreach ( var pull in current.Mine )
@@ -21,16 +21,16 @@ internal static class GitHubUpdates
 				var failed = pull.CheckRuns.Count( check => check.State == CheckState.Failure );
 				Add( pull.Checks == CheckState.Success ? $"Checks passed on {name}" : $"{failed} check{(failed == 1 ? "" : "s")} failed on {name}",
 					pull.CheckRuns.FirstOrDefault( check => check.State == CheckState.Failure && check.Url.Length > 0 )?.Url ?? pull.Url, pull.Checks,
-					pull.Checks == CheckState.Success ? GitHubKinds.ChecksPassed : GitHubKinds.ChecksFailed );
+					pull.Checks == CheckState.Success ? GitHubKinds.ChecksPassed : GitHubKinds.ChecksFailed, pull.Repository );
 			}
 			if ( pull.ReviewDecision != old.ReviewDecision && pull.ReviewDecision is "APPROVED" or "CHANGES_REQUESTED" )
 				Add( pull.ReviewDecision == "APPROVED" ? $"Approved: {name}" : $"Changes requested on {name}", pull.Url,
 					pull.ReviewDecision == "APPROVED" ? CheckState.Success : CheckState.Failure,
-					pull.ReviewDecision == "APPROVED" ? GitHubKinds.Approved : GitHubKinds.ChangesRequested );
+					pull.ReviewDecision == "APPROVED" ? GitHubKinds.Approved : GitHubKinds.ChangesRequested, pull.Repository );
 			if ( pull.Activity > old.Activity )
 			{
 				var count = pull.Activity - old.Activity;
-				Add( $"{count} new comment{(count == 1 ? "" : "s")} or review{(count == 1 ? "" : "s")} on {name}", pull.Url, CheckState.None, GitHubKinds.Comments );
+				Add( $"{count} new comment{(count == 1 ? "" : "s")} or review{(count == 1 ? "" : "s")} on {name}", pull.Url, CheckState.None, GitHubKinds.Comments, pull.Repository );
 			}
 		}
 
@@ -42,14 +42,14 @@ internal static class GitHubUpdates
 				continue;
 
 			Add( pull.State == "MERGED" ? $"Merged: {Name( pull )}" : $"Closed: {Name( pull )}", pull.Url,
-				pull.State == "MERGED" ? CheckState.Success : CheckState.Neutral, pull.State == "MERGED" ? GitHubKinds.Merged : GitHubKinds.Closed );
+				pull.State == "MERGED" ? CheckState.Success : CheckState.Neutral, pull.State == "MERGED" ? GitHubKinds.Merged : GitHubKinds.Closed, pull.Repository );
 		}
 
 		var requested = previous.Reviews.Select( pull => pull.Url ).ToHashSet( StringComparer.Ordinal );
 		foreach ( var pull in current.Reviews )
 		{
 			if ( !requested.Contains( pull.Url ) )
-				Add( $"Review requested by {(pull.Author.Length > 0 ? pull.Author : "someone")}: {Name( pull )}", pull.Url, CheckState.Pending, GitHubKinds.ReviewRequested );
+				Add( $"Review requested by {(pull.Author.Length > 0 ? pull.Author : "someone")}: {Name( pull )}", pull.Url, CheckState.Pending, GitHubKinds.ReviewRequested, pull.Repository );
 		}
 
 		var running = previous.Runs.Where( run => run.State == CheckState.Pending ).Select( run => run.Id ).ToHashSet();
@@ -57,7 +57,7 @@ internal static class GitHubUpdates
 		{
 			if ( running.Contains( run.Id ) && run.State != CheckState.Pending )
 				Add( $"{run.Workflow} {Describe( run.State )} on {run.Repository} {run.Branch}", run.Url, run.State,
-					run.State switch { CheckState.Success => GitHubKinds.ChecksPassed, CheckState.Failure => GitHubKinds.ChecksFailed, _ => GitHubKinds.RunEnded } );
+					run.State switch { CheckState.Success => GitHubKinds.ChecksPassed, CheckState.Failure => GitHubKinds.ChecksFailed, _ => GitHubKinds.RunEnded }, run.Repository );
 		}
 		return updates;
 	}

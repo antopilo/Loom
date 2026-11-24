@@ -139,6 +139,14 @@ internal sealed class GitHubWatcher : IDisposable
 						Link = Uri.TryCreate( updates[index].Url, UriKind.Absolute, out var link ) ? link : null,
 						Source = "github",
 						Kind = updates[index].Kind,
+						Tone = updates[index].Tone switch
+						{
+							CheckState.Success => NotificationTone.Success,
+							CheckState.Failure => NotificationTone.Failure,
+							CheckState.Pending => NotificationTone.Attention,
+							_ => NotificationTone.None,
+						},
+						Project = updates[index].Repository.Length > 0 ? updates[index].Repository : null,
 					} );
 			}
 		}

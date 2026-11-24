@@ -54,12 +54,11 @@ public sealed partial class ChatContent
 		return ("Your input is needed", false, false);
 	}
 
-	/// <summary>Builds a form's sections: their titles, prose, pictures and fields, without the text that already heads the card.</summary>
+	/// <summary>Builds a form's sections in the chat's card: their titles, prose, pictures and fields, without the text that already heads the card.</summary>
 	/// <param name="dialog">The form dialog.</param>
 	/// <param name="form">Its parsed form.</param>
-	/// <param name="surface">The view outside the chat it shows in; null in the chat.</param>
 	/// <param name="quick">The answer buttons of a form whose one field is a single choice; null for a form that is filled, then submitted.</param>
-	private List<Blob> BuildForm( JsonElement dialog, HtmlForm form, string? surface, IReadOnlyList<DialogChoice>? quick )
+	private List<Blob> BuildForm( JsonElement dialog, HtmlForm form, IReadOnlyList<DialogChoice>? quick )
 	{
 		var id = ReadText( dialog, "id" );
 		var (_, skipsTitle, skipsBlock) = ReadFormLead( form );
@@ -81,8 +80,8 @@ public sealed partial class ChatContent
 					FormMarkdown text => MarkdownView.Build( text.Markdown, OpenLink ),
 					FormImage image => BuildFormPicture( $"{id}:{picture++}", image.Source, image.Alt, () => LoadFormImage( image.Source ) ),
 					FormSvg svg => BuildFormPicture( $"{id}:{picture++}", "", svg.Alt, () => ParseSvg( svg.Markup ) ),
-					FormFieldBlock { Field: FormChoiceField choice } => BuildFormChoice( dialog, choice, surface, quick ),
-					FormFieldBlock { Field: FormTextField text } => BuildFormText( dialog, text, surface ),
+					FormFieldBlock { Field: FormChoiceField choice } => BuildFormChoice( dialog, choice, quick ),
+					FormFieldBlock { Field: FormTextField text } => BuildFormText( dialog, text ),
 					_ => new Container(),
 				} );
 			}
@@ -92,7 +91,7 @@ public sealed partial class ChatContent
 
 	/// <summary>Builds a choice field: its label, its options as buttons, a box for an answer of one's own when the field offers one, and the error
 	/// the last submit gave it.</summary>
-	private Blob BuildFormChoice( JsonElement dialog, FormChoiceField field, string? surface, IReadOnlyList<DialogChoice>? quick )
+	private Blob BuildFormChoice( JsonElement dialog, FormChoiceField field, IReadOnlyList<DialogChoice>? quick )
 	{
 		var key = ReadText( dialog, "id" ) + "." + field.Name;
 		var children = new List<Blob>();
@@ -101,8 +100,8 @@ public sealed partial class ChatContent
 		if ( quick is not null )
 		{
 			children.Add( BuildChoices( "options", quick ) );
-			// In the chat the message box below takes the answer of one's own; elsewhere it has its own box.
-			if ( field.HasOther && surface is null && ComposerAnswerKey() == key )
+			// The message box below takes the answer of one's own when it can; otherwise the field has its own box.
+			if ( field.HasOther && ComposerAnswerKey() == key )
 				children.Add( BuildText( "Or type your own answer in the message box below.", muted: true, size: ViewStyle.SmallSize ) );
 			else if ( field.HasOther )
 				children.Add( BuildAnswerEntry( "other:" + key, EnsureDialogEditor( key + ".other", "" ), "Other", "Other answer", false,
@@ -133,7 +132,7 @@ public sealed partial class ChatContent
 	}
 
 	/// <summary>Builds a text field: its label, a one-line box or a multiline editor, and the error the last submit gave it.</summary>
-	private Blob BuildFormText( JsonElement dialog, FormTextField field, string? surface )
+	private Blob BuildFormText( JsonElement dialog, FormTextField field )
 	{
 		var key = ReadText( dialog, "id" ) + "." + field.Name;
 		var editor = EnsureDialogEditor( key, field.Value );
@@ -142,22 +141,22 @@ public sealed partial class ChatContent
 		if ( field.Label.Length > 0 )
 			children.Add( MarkdownView.Build( field.Label, OpenLink ) );
 		if ( field.IsMultiline )
-			children.Add( BuildDialogEditor( surface is null ? editor : EnsureOutsideEditor( surface, key, editor ), name, "answer:" + key ) );
+			children.Add( BuildDialogEditor( editor, name, "answer:" + key ) );
 		else
-		{
-			var placeholder = field.Placeholder.Length > 0 ? field.Placeholder : field.Type switch
-			{
-				"date" => "YYYY-MM-DD",
-				"email" => "name@example.com",
-				"url" => "https://",
-				"number" or "range" when field.Min is { } min && field.Max is { } max => $"{min.ToString( CultureInfo.InvariantCulture )}–{max.ToString( CultureInfo.InvariantCulture )}",
-				_ => "",
-			};
-			children.Add( BuildAnswerEntry( "input:" + key, editor, placeholder, name, field.Type == "password", _ => context.Run( () => UpdateFormSubmit( dialog ) ) ) );
-		}
+			children.Add( BuildAnswerEntry( "input:" + key, editor, ReadFormPlaceholder( field ), name, field.Type == "password", _ => context.Run( () => UpdateFormSubmit( dialog ) ) ) );
 		AddFormError( children, key );
 		return new Container { Key = "field:" + key, Gap = Theme.Current.Spacing * 0.75, Children = children };
 	}
+
+	/// <summary>Gets the text a one-line text field shows while empty: its placeholder, or the format its type expects.</summary>
+	private static string ReadFormPlaceholder( FormTextField field ) => field.Placeholder.Length > 0 ? field.Placeholder : field.Type switch
+	{
+		"date" => "YYYY-MM-DD",
+		"email" => "name@example.com",
+		"url" => "https://",
+		"number" or "range" when field.Min is { } min && field.Max is { } max => $"{min.ToString( CultureInfo.InvariantCulture )}–{max.ToString( CultureInfo.InvariantCulture )}",
+		_ => "",
+	};
 
 	/// <summary>Adds the message the last submit gave a field, if any.</summary>
 	private void AddFormError( List<Blob> children, string key )
@@ -323,13 +322,7 @@ public sealed partial class ChatContent
 				continue;
 
 			var key = id + "." + field.Name;
-			var value = field switch
-			{
-				FormChoiceField choice => HtmlForm.ComputeChoiceValue( choice, ReadFormPicks( key ),
-					choice.HasOther ? EnsureDialogEditor( key + ".other", "" ).Document.GetText() : null ),
-				FormTextField text => HtmlForm.ComputeTextValue( text, EnsureDialogEditor( key, text.Value ).Document.GetText() ),
-				_ => null,
-			};
+			var value = ReadFormValue( id, field );
 			if ( HtmlForm.Validate( field, value ) is { } error )
 				_formErrors[key] = error;
 			else if ( value is not null )
@@ -342,6 +335,32 @@ public sealed partial class ChatContent
 		}
 
 		UpdateDialogAnswer( id, new { type = "extension_ui_response", id, data } );
+	}
+
+	/// <summary>Gets the value a form field would send now: its picked options and answer of one's own, or its typed text.</summary>
+	private JsonNode? ReadFormValue( string id, FormField field )
+	{
+		var key = id + "." + field.Name;
+		return field switch
+		{
+			FormChoiceField choice => HtmlForm.ComputeChoiceValue( choice, ReadFormPicks( key ),
+				choice.HasOther ? EnsureDialogEditor( key + ".other", "" ).Document.GetText() : null ),
+			FormTextField text => HtmlForm.ComputeTextValue( text, EnsureDialogEditor( key, text.Value ).Document.GetText() ),
+			_ => null,
+		};
+	}
+
+	/// <summary>Gets the message of each named field that is not valid now, by field name, as a submit would check it.</summary>
+	private Dictionary<string, string> ComputeFormErrors( string id, HtmlForm form )
+	{
+		var errors = new Dictionary<string, string>();
+		foreach ( var field in form.Fields )
+		{
+			// Omp leaves fields without a name out of the answer, so it does not check them.
+			if ( field.Name.Length > 0 && HtmlForm.Validate( field, ReadFormValue( id, field ) ) is { } error )
+				errors[field.Name] = error;
+		}
+		return errors;
 	}
 
 	/// <summary>Forgets the errors the last submit gave a form's fields.</summary>

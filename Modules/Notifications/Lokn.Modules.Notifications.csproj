@@ -2,6 +2,6 @@
 	<!-- References no other module: chats, terminals and others reach the feed through Core's extension points. -->
 	<PropertyGroup>
 		<!-- This module's release version; raise it to publish the module as an update (scripts/release.ps1). -->
-		<Version>1.1.0</Version>
+		<Version>1.2.0</Version>
 	</PropertyGroup>
 </Project>

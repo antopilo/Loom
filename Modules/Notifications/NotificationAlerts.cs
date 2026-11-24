@@ -84,7 +84,14 @@ internal sealed class NotificationAlerts
 		if ( isFocused && _app.Panels.IsShown( panel.Id ) )
 			return;
 
-		_app.Notifications.Post( new( attention.Title, attention.Message ) { PanelId = panel.Id, Source = panel.TypeId } );
+		_app.Notifications.Post( new( attention.Title, attention.Message )
+		{
+			PanelId = panel.Id,
+			Source = panel.TypeId,
+			Tone = attention.Tone,
+			Project = attention.Project,
+			Details = attention.Details,
+		} );
 		if ( _app.Settings.Get( NotificationSettings.Sound ) )
 			AttentionChime.Play();
 		if ( !isFocused && _app.ApplicationId.Length > 0 && _app.Settings.Get( NotificationSettings.Desktop ) && OperatingSystem.IsWindows() && NotificationIdentity.CanInstall )

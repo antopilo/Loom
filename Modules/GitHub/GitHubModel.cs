@@ -72,7 +72,8 @@ internal sealed record GitHubSnapshot( string Login, IReadOnlyList<PullRequestIn
 /// <param name="Url">The page it concerns.</param>
 /// <param name="Tone">How it should be colored.</param>
 /// <param name="Kind">The notification kind, one of <see cref="GitHubKinds"/>, which picks its summary in the feed.</param>
-internal sealed record GitHubUpdate( DateTimeOffset Time, string Text, string Url, CheckState Tone, string Kind );
+/// <param name="Repository">The repository it concerns, <c>owner/name</c>.</param>
+internal sealed record GitHubUpdate( DateTimeOffset Time, string Text, string Url, CheckState Tone, string Kind, string Repository );
 
 /// <summary>Reads GitHub's GraphQL and REST payloads into dashboard records.</summary>
 internal static class GitHubModel

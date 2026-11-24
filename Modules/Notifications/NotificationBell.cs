@@ -30,7 +30,7 @@ internal sealed class NotificationBell : PanelContent
 	private const int BadgeLimit = 9;
 
 	/// <summary>Defines the popover width in logical pixels.</summary>
-	private const int PopoverWidth = 460;
+	private const int PopoverWidth = 420;
 
 	/// <summary>Defines the popover height in logical pixels.</summary>
 	private const int PopoverHeight = 560;

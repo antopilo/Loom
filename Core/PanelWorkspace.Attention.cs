@@ -69,4 +69,14 @@ public sealed partial class PanelWorkspace
 /// <summary>Describes why a panel is waiting for the user.</summary>
 /// <param name="Title">What is waiting, such as a conversation title.</param>
 /// <param name="Message">What it needs from the user.</param>
-public sealed record PanelAttention( string Title, string Message );
+public sealed record PanelAttention( string Title, string Message )
+{
+	/// <summary>Gets how its notification is marked: done, failed, or waiting for the user.</summary>
+	public NotificationTone Tone { get; init; }
+
+	/// <summary>Gets the name of the project it belongs to, or null.</summary>
+	public string? Project { get; init; }
+
+	/// <summary>Gets short facts its notification shows, such as a branch or a change count.</summary>
+	public IReadOnlyList<string> Details { get; init; } = [];
+}

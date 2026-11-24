@@ -3,6 +3,18 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.15
+
+- **A new Notifications page.** Filter by what waits for you, what is unread, where it came from (Chats, GitHub,
+  Browser…) or project, search everything, and read the selected notification in full beside the list, with its
+  branch and changes. Questions from chats are answered right there.
+- **A clearer bell.** The list under the bell shows the newest first, by day, with a mark for done, failed or
+  waiting, a line of detail and its age. Tabs show only what waits or what is unread.
+- **Smaller banners.** A new notification shows as a compact card with one line of its message.
+- **Questions fit in the banner and the bell.** Answers are one row each, with number keys 1–9. Questions with
+  several parts go one step at a time, and forms use compact fields. A form with pictures says to answer it in the
+  chat. The chat itself keeps its own question card.
+
 ## 0.4.14
 
 - **A project's overview is its own page.** The overview button opens the project's overview alone, full window, as

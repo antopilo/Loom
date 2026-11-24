@@ -88,6 +88,9 @@ public sealed class NotificationFeed
 		{
 			Kind = request.Kind,
 			Actions = request.Actions.Count == 0 ? null : [.. request.Actions],
+			Tone = request.Tone,
+			Project = request.Project,
+			Details = request.Details.Count == 0 ? null : [.. request.Details],
 		};
 		_items.Insert( 0, notification );
 		if ( _items.Count > Capacity )
@@ -225,6 +228,31 @@ public sealed record LoknNotification( Guid Id, DateTimeOffset Time, string Titl
 
 	/// <summary>Gets the buttons shown with it, or null when it has none.</summary>
 	public IReadOnlyList<NotificationAction>? Actions { get; init; }
+
+	/// <summary>Gets how the views mark it: done, failed, or waiting for the user; <see cref="NotificationTone.None"/> for no mark.</summary>
+	public NotificationTone Tone { get; init; }
+
+	/// <summary>Gets the name of the project it belongs to, which the full feed filters by; null when it belongs to none.</summary>
+	public string? Project { get; init; }
+
+	/// <summary>Gets short facts the views show with it, such as a branch or a change count; null when it has none.</summary>
+	public IReadOnlyList<string>? Details { get; init; }
+}
+
+/// <summary>Names how the notification views mark a notification, beside its icon.</summary>
+public enum NotificationTone
+{
+	/// <summary>No mark.</summary>
+	None,
+
+	/// <summary>Something finished well, such as a chat that finished or checks that passed.</summary>
+	Success,
+
+	/// <summary>Something failed, such as checks that failed.</summary>
+	Failure,
+
+	/// <summary>Something waits for the user, such as a question.</summary>
+	Attention,
 }
 
 /// <summary>Describes a notification to post with <see cref="NotificationFeed.Post"/>.</summary>
@@ -246,6 +274,15 @@ public sealed record NotificationRequest( string Title, string Message )
 
 	/// <summary>Gets the buttons shown with it, each following its link.</summary>
 	public IReadOnlyList<NotificationAction> Actions { get; init; } = [];
+
+	/// <summary>Gets how the views mark it: done, failed, or waiting for the user.</summary>
+	public NotificationTone Tone { get; init; }
+
+	/// <summary>Gets the name of the project it belongs to, which the full feed filters by; null when it belongs to none.</summary>
+	public string? Project { get; init; }
+
+	/// <summary>Gets short facts the views show with it, such as a branch or a change count.</summary>
+	public IReadOnlyList<string> Details { get; init; } = [];
 }
 
 /// <summary>A button on a notification.</summary>

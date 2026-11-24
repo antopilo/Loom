@@ -506,7 +506,8 @@ internal static class ChatChecks
 		panel.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		CoreChecks.Check( app.Panels.GetAttention( panelId ) is null, "A working chat does not ask for the user." );
 		panel.Session.UpdateFrame( Parse( """{"type":"extension_ui_request","method":"select","id":"d1","title":"Pick a branch","options":["main"]}""" ) );
-		CoreChecks.Check( app.Panels.GetAttention( panelId ) == new PanelAttention( "Fix the build", "Pick a branch" ), "A tool question asks for the user with its title." );
+		CoreChecks.Check( app.Panels.GetAttention( panelId ) is { Title: "Fix the build", Message: "Pick a branch", Tone: NotificationTone.Attention },
+			"A tool question asks for the user with its title, marked as waiting." );
 		app.Panels.Activate( panelId );
 		panel.Session.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
 		CoreChecks.Check( app.Panels.GetAttention( panelId )?.Message == "Finished and waiting for you", "A finished turn asks for the user again." );

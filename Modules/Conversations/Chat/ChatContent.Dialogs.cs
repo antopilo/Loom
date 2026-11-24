@@ -47,12 +47,14 @@ public sealed partial class ChatContent
 	/// <summary>Holds the questions answered or cancelled whose exit is playing, oldest first; the session no longer counts them as pending.</summary>
 	private readonly List<JsonElement> _leavingDialogs = [];
 
-	/// <summary>Builds the first pending question for a view outside the chat, answering it as the chat would, or null when none is pending.</summary>
-	/// <param name="surface">Names the view, such as <c>feed</c> or <c>banner</c>; views shown at the same time need different names, as each gets its own text editors.</param>
+	/// <summary>Builds the first pending question for a view outside the chat as the compact card's content, answering it as the chat would, or null
+	/// when none is pending.</summary>
+	/// <param name="surface">Names the view, such as <c>feed</c>, <c>banner</c> or <c>page</c>; views shown at the same time need different names, as
+	/// each gets its own text editors and card state.</param>
 	internal Blob? BuildPendingDialog( string surface )
 	{
 		_ = _dialogVersion.Value;
-		return session.PendingDialog is { } dialog ? BuildDialog( dialog, surface ) : null;
+		return session.PendingDialog is { } dialog ? BuildCompactDialog( dialog, surface ) : null;
 	}
 
 	/// <summary>Moves <see cref="_dialogVersion"/> when the session's pending questions or their selections changed.</summary>
@@ -75,16 +77,15 @@ public sealed partial class ChatContent
 	/// <summary>Marks this panel read once an answer reached Omp, wherever it came from, such as the notification feed.</summary>
 	private void UpdateDialogAnswered() => context.App.Notifications.MarkPanelRead( context.Id );
 
-	/// <summary>Builds a pending select, confirm, text editor, or questionnaire as a card: the question, then its answers as a row of buttons, the
-	/// recommended one filled and showing its Ctrl+Enter shortcut.</summary>
+	/// <summary>Builds a pending select, confirm, text editor, or questionnaire as the chat's card: the question, then its answers as a row of
+	/// buttons, the recommended one filled and showing its Ctrl+Enter shortcut. Views outside the chat show the compact card instead.</summary>
 	/// <param name="dialog">The question.</param>
-	/// <param name="surface">The view outside the chat it shows in, whose text editors get their own controllers over the same documents; null in the chat.</param>
-	private Blob BuildDialog( JsonElement dialog, string? surface = null )
+	private Blob BuildDialog( JsonElement dialog )
 	{
 		var theme = Theme.Current;
 		var id = ReadText( dialog, "id" );
 		var method = ReadText( dialog, "method" );
-		var choices = ListChoices( dialog, surface );
+		var choices = ListChoices( dialog, null );
 		// A lone question is the card's heading, unless the tool gave the card its own title; a form's heading is its first title or paragraph.
 		var title = ReadText( dialog, "title" );
 		var lone = ReadLoneQuestion( dialog );
@@ -123,7 +124,7 @@ public sealed partial class ChatContent
 		{
 			// A form whose one field is a single choice answers on a click, so its options are the field's own buttons.
 			var isQuick = ReadQuickField( form ) is not null;
-			children.AddRange( BuildForm( dialog, form, surface, isQuick ? choices : null ) );
+			children.AddRange( BuildForm( dialog, form, isQuick ? choices : null ) );
 			hasChoiceRow = !isQuick;
 		}
 		else if ( method == "ask" && dialog.TryGetProperty( "questions", out var questions ) )
@@ -131,20 +132,20 @@ public sealed partial class ChatContent
 			// A lone single-choice question answers on a click, so its options are the question's own buttons.
 			var isQuick = ReadQuickQuestion( dialog ) is not null;
 			foreach ( var question in questions.EnumerateArray() )
-				children.Add( BuildQuestion( dialog, question, surface, showsText: title.Length > 0 || lone is null, isQuick ? choices : null ) );
+				children.Add( BuildQuestion( dialog, question, showsText: title.Length > 0 || lone is null, isQuick ? choices : null ) );
 			hasChoiceRow = !isQuick;
 		}
 		else if ( method is "input" or "editor" )
 		{
 			var editor = EnsureDialogEditor( id, ReadText( dialog, "prefill", ReadText( dialog, "value" ) ) );
-			// In the chat the message box below takes a plain answer; secret answers and views outside the chat keep their own box.
-			if ( surface is null && ComposerAnswerKey() == id )
+			// The message box below takes a plain answer; a secret answer keeps its own box.
+			if ( ComposerAnswerKey() == id )
 				children.Add( BuildText( "Type your answer in the message box below, then press Enter.", muted: true ) );
 			else if ( method == "input" )
 				children.Add( BuildAnswerEntry( "input:" + id, editor, ReadText( dialog, "placeholder" ), "Tool answer", ReadText( dialog, "secret" ) is "True" or "true",
 					value => UpdateDialogAnswer( id, new { type = "extension_ui_response", id, value } ) ) );
 			else
-				children.Add( BuildDialogEditor( surface is null ? editor : EnsureOutsideEditor( surface, id, editor ), "Tool answer", "answer:" + id ) );
+				children.Add( BuildDialogEditor( editor, "Tool answer", "answer:" + id ) );
 		}
 		if ( hasChoiceRow && choices.Count > 0 )
 			children.Add( BuildChoices( "answers", choices ) );
@@ -357,13 +358,12 @@ public sealed partial class ChatContent
 		Children = [face],
 	};
 
-	/// <summary>Builds one question of a questionnaire: its text, its options, and a way to write a custom answer.</summary>
+	/// <summary>Builds one question of a questionnaire in the chat's card: its text, its options, and a way to write a custom answer.</summary>
 	/// <param name="dialog">The questionnaire.</param>
 	/// <param name="question">The question.</param>
-	/// <param name="surface">The view outside the chat it shows in; null in the chat.</param>
 	/// <param name="showsText">Whether to show the question's text; false when the card's heading already is that text.</param>
 	/// <param name="quick">The answer buttons of a lone single-choice question, which answer on a click; null for options that are picked, then submitted.</param>
-	private Blob BuildQuestion( JsonElement dialog, JsonElement question, string? surface, bool showsText, IReadOnlyList<DialogChoice>? quick )
+	private Blob BuildQuestion( JsonElement dialog, JsonElement question, bool showsText, IReadOnlyList<DialogChoice>? quick )
 	{
 		var key = ReadText( dialog, "id" ) + "." + ReadText( question, "id" );
 		var multi = ReadText( question, "multi" ) is "True" or "true";
@@ -386,15 +386,15 @@ public sealed partial class ChatContent
 		else if ( quick.Count > 0 )
 			children.Add( BuildChoices( "options", quick ) );
 
-		// A lone question in the chat takes its own answer from the message box below instead of a second text box.
-		if ( surface is null && ComposerAnswerKey() == key )
+		// A lone question takes its own answer from the message box below instead of a second text box.
+		if ( ComposerAnswerKey() == key )
 			children.Add( BuildText( multi ? "Or type your own answer in the message box below." : "Or type your own answer in the message box below; it replaces the choice.",
 				muted: true, size: ViewStyle.SmallSize ) );
 		else
 		{
 			children.Add( BuildText( multi ? "Or add your own answer" : "Or write your own answer", muted: true, size: ViewStyle.SmallSize ) );
 			var custom = EnsureDialogEditor( key, "" );
-			var box = BuildDialogEditor( surface is null ? custom : EnsureOutsideEditor( surface, key, custom ), "Custom answer", "answer:" + key );
+			var box = BuildDialogEditor( custom, "Custom answer", "answer:" + key );
 			children.Add( box );
 			if ( quick is not null )
 			{
@@ -549,13 +549,14 @@ public sealed partial class ChatContent
 	/// <summary>Sends one tool answer through the session, which removes its question only after the pipe accepts it.</summary>
 	private void UpdateDialogAnswer( string id, object response ) => session.AnswerDialog( id, response );
 
-	/// <summary>Releases completed dialog text, parsed forms and their errors and pictures, so old prompts do not accumulate.</summary>
+	/// <summary>Releases completed dialog text, parsed forms and their errors and pictures, and what compact cards showed, so old prompts do not accumulate.</summary>
 	private void ReleaseDialogEditors( string id )
 	{
 		foreach ( var key in _dialogEditors.Keys.Where( key => key == id || key.StartsWith( id + ".", StringComparison.Ordinal ) ).ToArray() )
 			_dialogEditors.Remove( key );
 		foreach ( var key in _outsideEditors.Keys.Where( key => key.Key == id || key.Key.StartsWith( id + ".", StringComparison.Ordinal ) ).ToArray() )
 			_outsideEditors.Remove( key );
+		ReleaseCompactDialogs( id );
 		ReleaseForm( id );
 	}
 }

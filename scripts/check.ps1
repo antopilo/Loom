@@ -13,7 +13,7 @@ Headless suites (no window):
   all            default and features
 
 Suites that open a real window on the desktop for a few seconds:
-  chat-view, terminal-view, omp-setup, startup
+  chat-view, terminal-view, notifications-view, omp-setup, startup
   -Ui adds the window checks to default, settings, or features.
 
 Only run window suites when the change affects rendering or input, and say so first:
@@ -70,6 +70,7 @@ $flags = @{
 	'settings' = @( '--settings-only' )
 	'chat-view' = @( '--chat-view-only' )
 	'terminal-view' = @( '--terminal-view-only' )
+	'notifications-view' = @( '--notifications-view-only' )
 	'omp-setup' = @( '--omp-setup-only' )
 	'startup' = @( '--startup-only' )
 }

@@ -3,22 +3,20 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Notifications;
 
-/// <summary>Announces one notification as it arrives, in a card under the titlebar bell, with the question an agent waits on answered in place.</summary>
+/// <summary>Announces one notification as it arrives, in a compact card under the titlebar bell, with the question an agent waits on answered in place.</summary>
 /// <remarks>
-/// The card leaves on its own after a few seconds, later while the pointer is on it. While its chat waits on a question it stays
-/// until that is answered or withdrawn, the user opens the chat, or closes the card; the shell also removes it once the user looks
-/// at its panel. Its name opens the notification as the feed does.
+/// The card shows the source's icon with its mark, the title and one line of the message. It leaves on its own after a few seconds, later
+/// while the pointer is on it. While its chat waits on a question it stays, outlined in the waiting color, until that is answered or
+/// withdrawn, the user opens the chat, or closes the card; the shell also removes it once the user looks at its panel. Its title opens the
+/// notification as the feed does. The question scrolls inside the card past <see cref="QuestionHeight"/>, so the header stays.
 /// </remarks>
 internal sealed class NotificationBannerContent : PanelContent
 {
 	/// <summary>Defines how long a banner without a question stays.</summary>
 	private static readonly TimeSpan Duration = TimeSpan.FromSeconds( 6 );
 
-	/// <summary>Defines the longest message preview in characters.</summary>
-	private const int PreviewLimit = 160;
-
-	/// <summary>Defines the emphasized weight of the source name.</summary>
-	private const int SourceWeight = 600;
+	/// <summary>Defines the tallest the question grows inside the card before it scrolls, in logical pixels.</summary>
+	private const int QuestionHeight = 360;
 
 	/// <summary>Defines the Segoe Fluent Cancel glyph that closes the banner.</summary>
 	private const string CloseGlyph = "\uE711";
@@ -50,13 +48,12 @@ internal sealed class NotificationBannerContent : PanelContent
 		_ = UpdateExpiryAsync();
 	}
 
-	/// <summary>Builds the card: the source's icon and name, then the question its chat waits on, or else the message.</summary>
+	/// <summary>Builds the card: the header with the icon, title and message, then the question its chat waits on, or the notification's buttons.</summary>
 	public override Blob Build()
 	{
 		var theme = Theme.Current;
-		var question = _item.PanelId is { } panelId && _context.App.Panels.ResolvePanelId( panelId ) is var waiting
-			? NotificationPromptSource.ListAll( _context.App ).FirstOrDefault( prompt => prompt.PanelId == waiting )
-			: null;
+		var question = NotificationsContent.ComputeWaiting( [_item], NotificationPromptSource.ListAll( _context.App ), id => _context.App.Panels.ResolvePanelId( id ) )
+			.GetValueOrDefault( _item.Id );
 		if ( _isExpired.Value && question is null )
 		{
 			// Removing it changes the shell, which must not happen while it builds.
@@ -64,35 +61,37 @@ internal sealed class NotificationBannerContent : PanelContent
 			return new Container { Key = "banner-leaving" };
 		}
 
-		var children = new List<Blob> { BuildHeader( question is not null ) };
-		if ( question?.Build( "banner" ) is { } dialog )
-			children.Add( dialog );
-		else
-		{
-			children.Add( new Text
+		var dialog = question?.Build( "banner" );
+		var children = new List<Blob> { BuildHeader( dialog is not null ) };
+		if ( dialog is not null )
+			children.Add( new Container
 			{
-				Key = "message",
-				Content = ComputePreview( _item.Message ),
-				Color = theme.Muted,
-				Padding = new Edges( 0, 0, 0, theme.Spacing ),
+				Key = "question",
+				MinWidth = 0,
+				MaxHeight = QuestionHeight,
+				OverflowY = Overflow.Scroll,
+				ScrollbarY = ViewStyle.BuildScrollbar(),
+				Children = [dialog],
 			} );
-			if ( NotificationsContent.BuildActions( _item, OpenLink ) is { } actions )
-				children.Add( actions );
+		else if ( NotificationsContent.BuildActions( _item, OpenLink ) is { } actions )
+		{
+			actions.Padding = new Edges( 0, theme.Spacing * 1.5, theme.Spacing * 1.5, NotificationViews.TextInset + theme.Spacing / 2 );
+			children.Add( actions );
 		}
 
 		return new Container
 		{
 			Key = "banner",
 			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = question is null ? $"{_item.Title}: {_item.Message}" : $"{_item.Title} is waiting for you",
+			AccessibilityName = dialog is null ? $"{_item.Title}: {_item.Message}" : $"{_item.Title} is waiting for you",
 			Width = Length.Percent( 100 ),
-			Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 1.5 ),
-			Gap = theme.Spacing,
+			MinWidth = 0,
 			BackgroundColor = theme.Panel,
-			BorderColor = question is null ? theme.Border : theme.Attention,
+			BorderColor = dialog is null ? theme.Border : theme.Attention,
 			BorderWidth = theme.BorderWidth,
 			BorderRadius = theme.Radius * 2,
 			BoxShadow = new BoxShadow { OffsetY = 6, Blur = 18, Color = Color.Black.WithAlpha( 0.35 ) },
+			Overflow = Overflow.Hidden,
 			FontFamily = ViewStyle.FontFamily,
 			FontSize = theme.FontSize,
 			Color = theme.Text,
@@ -116,36 +115,18 @@ internal sealed class NotificationBannerContent : PanelContent
 		_context.App.OpenLink( uri );
 	} );
 
-	/// <summary>Shortens a message to its first line of prose, cut at <see cref="PreviewLimit"/> characters, without Markdown syntax: fences and table rules are skipped, table cells are joined with " · ".</summary>
-	internal static string ComputePreview( string message )
-	{
-		var line = "";
-		foreach ( var raw in message.Split( '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ) )
-		{
-			if ( raw.StartsWith( "```", StringComparison.Ordinal ) || raw.StartsWith( "~~~", StringComparison.Ordinal ) || raw.Trim( '|', '-', ':', ' ', '*', '_', '=' ).Length == 0 )
-				continue;
-			line = raw.TrimStart( '#', '>', ' ' );
-			if ( line.StartsWith( "- ", StringComparison.Ordinal ) || line.StartsWith( "* ", StringComparison.Ordinal ) )
-				line = line[2..];
-			if ( line.StartsWith( '|' ) )
-				line = string.Join( " · ", line.Trim( '|' ).Split( '|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ) );
-			line = line.Replace( "**", "", StringComparison.Ordinal ).Replace( "`", "", StringComparison.Ordinal );
-			break;
-		}
-		return line.Length > PreviewLimit ? line[..(PreviewLimit - 1)].TrimEnd() + "…" : line;
-	}
-
-	/// <summary>Builds the source's icon and name, which open the notification, and the button that closes the banner.</summary>
+	/// <summary>Builds the header: the icon with its mark, the title and one line of the message, which open the notification, and the button that closes the banner.</summary>
+	/// <param name="isWaiting">Whether the card holds a question, which then takes the message's place and marks the icon as waiting.</param>
 	private Row BuildHeader( bool isWaiting )
 	{
 		var theme = Theme.Current;
-		var name = new List<Blob>
+		var icon = NotificationsContent.BuildSourceIcon( _context.App, _item, panelId => _context.App.Panels.Panels.FirstOrDefault( panel => panel.Id == panelId )?.TypeId );
+		var title = new List<Blob>
 		{
-			NotificationsContent.BuildSourceIcon( _context.App, _item, panelId => _context.App.Panels.Panels.FirstOrDefault( panel => panel.Id == panelId )?.TypeId ),
 			new Text
 			{
 				Content = _item.Title,
-				FontWeight = SourceWeight,
+				FontWeight = NotificationViews.TitleWeight,
 				FlexShrink = 1,
 				MinWidth = 0,
 				TextWrap = TextWrap.NoWrap,
@@ -153,7 +134,18 @@ internal sealed class NotificationBannerContent : PanelContent
 			},
 		};
 		if ( isWaiting )
-			name.Add( new Text { Content = "is waiting for you", Color = theme.Muted, FlexShrink = 0 } );
+			title.Add( new Text { Content = "· waiting", Color = theme.Muted, FlexShrink = 0, TextWrap = TextWrap.NoWrap } );
+		var text = new List<Blob> { new Row { Key = "title", AlignItems = AlignItems.Center, Gap = theme.Spacing / 2, MinWidth = 0, Children = title } };
+		if ( !isWaiting && NotificationViews.ComputePreview( _item.Message ) is { Length: > 0 } preview )
+			text.Add( new Text
+			{
+				Key = "message",
+				Content = preview,
+				Color = theme.Muted,
+				MinWidth = 0,
+				TextWrap = TextWrap.NoWrap,
+				TextTrimming = TextTrimming.Ellipsis,
+			} );
 
 		void Open() => _context.Run( () =>
 		{
@@ -163,14 +155,13 @@ internal sealed class NotificationBannerContent : PanelContent
 		var open = new Button
 		{
 			Key = "open",
+			FlexGrow = 1,
 			FlexShrink = 1,
 			MinWidth = 0,
 			FlexDirection = FlexDirection.Row,
-			AlignItems = AlignItems.Center,
-			Gap = theme.Spacing,
-			Padding = new Edges( 2, theme.Spacing / 2 ),
-			Margin = new Edges( 0, 0, 0, -theme.Spacing / 2 ),
-			BorderRadius = theme.Radius,
+			AlignItems = isWaiting ? AlignItems.Center : AlignItems.FlexStart,
+			Gap = theme.Spacing * 1.25,
+			Padding = new Edges( theme.Spacing * 1.25, theme.Spacing / 2, theme.Spacing * 1.25, theme.Spacing * 1.5 ),
 			Focusable = true,
 			Cursor = Cursor.Pointer,
 			AccessibilityName = $"Open {_item.Title}",
@@ -180,29 +171,22 @@ internal sealed class NotificationBannerContent : PanelContent
 				new( Key.Enter, KeyModifiers.None, Open ),
 				new( Key.Space, KeyModifiers.None, Open ),
 			],
-			HoverStyle = new Style { BackgroundColor = theme.Hover },
 			FocusStyle = new Style { BackgroundColor = theme.Hover },
-			Children = name,
+			Children =
+			[
+				NotificationViews.BuildIcon( icon, isWaiting ? NotificationTone.Attention : _item.Tone, theme.Panel ),
+				new Container { Key = "text", FlexGrow = 1, FlexShrink = 1, MinWidth = 0, Gap = 1, Children = text },
+			],
 		};
 
-		var close = theme.BuildButton( "Close", () => _context.Run( UpdateDismiss ) );
-		close.AccessibilityName = "Close notification";
-		close.Width = theme.ControlHeight;
-		close.Height = theme.ControlHeight;
-		close.Padding = 0;
-		close.FlexShrink = 0;
-		close.BackgroundColor = Color.Transparent;
-		close.BorderWidth = 0;
-		close.HoverStyle = new Style { BackgroundColor = theme.Hover };
-		close.Children = [new Text { Content = CloseGlyph, FontFamily = NotificationViews.IconFont, FontSize = NotificationViews.IconSize, Color = theme.Muted }];
-
+		var close = NotificationViews.BuildIconButton( "Close notification", CloseGlyph, () => _context.Run( UpdateDismiss ) );
+		close.Margin = new Edges( theme.Spacing * 0.75, theme.Spacing * 0.75, 0, 0 );
 		return new Row
 		{
 			Key = "header",
-			AlignItems = AlignItems.Center,
-			Gap = theme.Spacing / 2,
+			AlignItems = AlignItems.FlexStart,
 			MinWidth = 0,
-			Children = [open, new Spacer(), close],
+			Children = [open, close],
 		};
 	}
 

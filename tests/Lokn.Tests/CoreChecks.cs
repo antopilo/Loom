@@ -246,6 +246,9 @@ internal static class CoreChecks
 				Link = new( "https://github.com/owner/repo/pull/1" ),
 				Kind = "github.review",
 				Actions = [new( "Approve", LoknLinks.Create( "github", "approve", "1" ) )],
+				Tone = NotificationTone.Attention,
+				Project = "owner/repo",
+				Details = ["main", "3f2c1a9"],
 			} );
 			Check( posted.SingleOrDefault() == other, "Posting announces the recorded notification once." );
 			Check( feed.Items[0] == other && feed.UnreadCount == 3, "The newest notification is first and new ones are unread." );
@@ -255,8 +258,9 @@ internal static class CoreChecks
 
 			var reloaded = new LoknApplication( notificationsPath: path ).Notifications;
 			Check( reloaded.Items.Select( item => (item.Id, item.IsRead, item.PanelId, item.Url, item.Kind) ).SequenceEqual( feed.Items.Select( item => (item.Id, item.IsRead, item.PanelId, item.Url, item.Kind) ) )
-				&& reloaded.Items[0] is { Url: "https://github.com/owner/repo/pull/1", Kind: "github.review", Actions: [{ Label: "Approve", Link.AbsoluteUri: "lokn://github/approve/1" }] },
-				"The feed is restored in order with its read state, panels, links, kinds and buttons." );
+				&& reloaded.Items[0] is { Url: "https://github.com/owner/repo/pull/1", Kind: "github.review", Actions: [{ Label: "Approve", Link.AbsoluteUri: "lokn://github/approve/1" }],
+					Tone: NotificationTone.Attention, Project: "owner/repo", Details: ["main", "3f2c1a9"] },
+				"The feed is restored in order with its read state, panels, links, kinds, buttons, tones, projects and facts." );
 
 			for ( var index = 0; index < NotificationFeed.Capacity + 5; index++ )
 				reloaded.Post( new( "Chat", $"Update {index}" ) );

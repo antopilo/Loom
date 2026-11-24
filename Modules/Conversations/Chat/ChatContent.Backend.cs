@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Goo;
+using Lokn.Core;
 using Lokn.Modules.Conversations;
 
 namespace Lokn.Modules.Chat;
@@ -56,8 +57,26 @@ public sealed partial class ChatContent
 		session.OutputAppended -= _transcript.ScrollToEnd;
 	}
 
-	/// <summary>Highlights this panel and tells the user the session waits for them.</summary>
-	private void UpdateAttentionRequested( string title, string message ) => context.RequestAttention( title, message );
+	/// <summary>Highlights this panel and tells the user the session waits for them, marking a question as waiting and a finished turn as done, with the chat's project, branch and changes.</summary>
+	private void UpdateAttentionRequested( string title, string message )
+	{
+		var details = new List<string>();
+		if ( _gitWatch?.State is { IsRepository: true } state )
+		{
+			if ( (state.Branch ?? state.Commit) is { } head )
+				details.Add( head );
+			if ( state.Files > 0 )
+				details.Add( $"{Count( state.Files, "file", "files" )} · +{state.Added:N0} −{state.Removed:N0}" );
+		}
+		context.RequestAttention( new PanelAttention( title, message )
+		{
+			Tone = session.PendingDialog is not null ? NotificationTone.Attention
+				: session.Status == "Ready" ? NotificationTone.Success
+				: NotificationTone.None,
+			Project = store.Find( conversationId )?.ProjectId is { } projectId ? store.ProjectStore.Find( projectId )?.Name : null,
+			Details = details,
+		} );
+	}
 
 	/// <summary>Withdraws this panel's request for the user once the agent works on alone.</summary>
 	private void UpdateAttentionCleared() => context.ClearAttention();

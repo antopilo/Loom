@@ -89,7 +89,7 @@ Settings › Modules (`modules.json`) and reloads rebuilt modules itself, but on
 Three things need the user's go-ahead first, because they take over their desktop,
 their running app, or their users' copies of Loom:
 
-- **Window checks.** `-Ui` and the `chat-view`, `terminal-view`, `omp-setup` and `startup` suites open
+- **Window checks.** `-Ui` and the `chat-view`, `terminal-view`, `notifications-view`, `omp-setup` and `startup` suites open
   a real window for a few seconds. Run them only when a change affects rendering or
   input.
 - **Restarting.** `run.ps1 -Restart` closes the user's running Lokn. It asks the

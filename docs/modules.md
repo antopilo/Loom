@@ -363,6 +363,10 @@ panel, when the panel calls `context.ClearAttention()`, or when it closes;
 `App.Panels.WaitingPanelIds` lists the waiting panels. Reading either during a build
 rebuilds the reader when a panel starts or stops waiting.
 
+`context.RequestAttention( new PanelAttention( title, message ) { Tone, Project, Details } )` also tells the feed
+how to mark the entry (`NotificationTone.Success`, `Failure` or `Attention`), which project it belongs to, and
+short facts to show with it, such as a branch or a change count. A chat sets all three.
+
 A request the user did not see at once is also recorded in the notification feed
 behind the titlebar bell, shared by Work and Personal; opening the entry, from the feed,
 a banner or a Windows notification, travels to where the panel belongs. With
@@ -385,6 +389,9 @@ context.App.Notifications.Post( new( "GitHub", "Checks failed on #12" )
 	Kind = "github.checks-failed",                           // picks the icon
 	PanelId = null,                                          // the panel opening it shows
 	Actions = [new( "Rerun", LoknLinks.Create( "github", "rerun", "12" ) )],
+	Tone = NotificationTone.Failure,                         // the mark beside its icon
+	Project = "o/r",                                         // the Notifications page filters by it
+	Details = ["main", "3f2c1a9"],                           // short facts shown with it
 } );
 ```
 
@@ -396,17 +403,18 @@ calls one of the module's own routes. `Items`, `UnreadCount`, `MarkRead`, `MarkA
 `Remove` and `Clear` read and manage the feed on the UI thread; `Posted` reports each new
 entry.
 
-The Notifications module (`Modules/Notifications`) draws the feed panel
-(`notifications.feed`) and adds the bell to `ShellSlots.TitleRight`: the bell owns its
-popover and the banners under it, and hides native surfaces while they show with
-`app.CoverNativeSurfaces( owner, isCovered )`. Without the module there is no bell. It opens the feed with the
-`notifications.open` command or `lokn://notifications/feed`, and declares two extension
-points other modules contribute to:
+The Notifications module (`Modules/Notifications`) draws the Notifications page
+(`notifications.feed`: filters by state, source and project, a search, and a reading pane) and adds the bell to
+`ShellSlots.TitleRight`: the bell owns its popover (All, Waiting and Unread tabs) and the banners under it, and
+hides native surfaces while they show with `app.CoverNativeSurfaces( owner, isCovered )`. Without the module there
+is no bell. It opens the page with the `notifications.open` command or `lokn://notifications/feed`, and declares
+these extension points other modules contribute to:
 
 |Point|Contribution|Effect|
 |---|---|---|
 |`NotificationKind.Point`|`new NotificationKind( kind, glyph ) { Icon, IsUpdate, Summarize }`|The icon of entries whose `Kind` is `kind`, else whose `Source` or source module is: `Icon` is a vector, such as a logo, drawn instead of the glyph. `IsUpdate` folds entries into a summary line, and `Summarize( count, first )` words it, such as "3 checks passed". GitHub ships its mark and wording this way; the feed has no code for any one module.|
 |`NotificationOpener.Point`|`new NotificationOpener( ( app, item ) => … )`|Opens an entry before the default (activate its panel, else follow its link). Conversations uses it to travel to a chat's task.|
+|`NotificationPromptSource.Point`|`new NotificationPromptSource( app => prompts )`|Questions panels wait on. Each `NotificationPrompt.Build( surface )` returns compact answering controls for `banner`, `feed` (the popover) or `page`, without a frame: the view draws the card around them. Conversations offers its chats' questions this way.|
 
 Opening an entry marks it read, then asks the openers in load order. The shell closes a
 banner when the user looks at its panel, when a newer entry from the same panel, or

@@ -198,6 +198,9 @@ public sealed class PanelContext
 	/// <param name="message">What the panel needs from the user.</param>
 	public bool RequestAttention( string title, string message ) => App.Panels.RequestAttention( Id, new( title, message ) );
 
+	/// <summary>Highlights this panel and tells the user it is waiting for them, with how its notification is marked, until they activate it or the panel clears the request.</summary>
+	public bool RequestAttention( PanelAttention attention ) => App.Panels.RequestAttention( Id, attention );
+
 	/// <summary>Withdraws this panel's request for the user once it no longer needs them.</summary>
 	public bool ClearAttention() => App.Panels.ClearAttention( Id );
 }
