@@ -174,8 +174,8 @@ panels that waited for it. Its stores become mirrors, its `ChatSessionService.So
 `RemoteChatSession`s, and a paired host's `LoknHost.Workspace` is an `OfflineWorkspaceHost` (Core; every
 call fails with `IOException`, watches report `lost`, terminals exit with -1) until a connection swaps in
 the host's (`RemoteWorkspaceHost`) and again after it closes, so nothing ever acts on this PC's disk in
-its place; a paired host's projects show their letter icon, since project icons are read only for This PC's
-projects (`ProjectsModule.GetIcon`). Panels of host-bound types (Git, Files, Editor, Terminal, Browser, Window stream) read
+its place. A paired host's projects show their folder's icon too: `ProjectsModule.GetIcon` looks for it through the host's workspace,
+shows the letter icon until it is found, and reads the image over the protocol; This PC's installed s&box does not count for them. Panels of host-bound types (Git, Files, Editor, Terminal, Browser, Window stream) read
 `PanelContext.Workspace` and `PanelContext.Host.BrowserTabs` of the host they were opened on. The
 window stream panel's source on a paired host is that link's `ClientStreamSource`, which follows its
 current connection. A view-only link refuses store changes itself. Prompt attachments on a paired host

@@ -11,20 +11,26 @@ public sealed partial class ProjectsModule
 	/// <summary>Defines the decoded icon size in physical pixels, enough for Home and the sidebar at high display densities.</summary>
 	private const int IconPixels = 64;
 
-	/// <summary>Caches one lazy image provider per project directory; null records a directory with no resolved icon.</summary>
+	/// <summary>Caches one lazy image provider per project directory, keyed by host and directory; null records a directory with no resolved icon.</summary>
 	private readonly Dictionary<string, AsyncImageSource?> _icons = new( StringComparer.OrdinalIgnoreCase );
 
-	/// <summary>Gets the shared lazy icon source for a project, or null when its directory has no supported icon or the project is on a paired host.</summary>
+	/// <summary>Stores the paired hosts' project folders whose icon is being looked for, keyed as in <see cref="_icons"/>.</summary>
+	private readonly HashSet<string> _searching = new( StringComparer.OrdinalIgnoreCase );
+
+	/// <summary>Counts the paired hosts' icons found, so views that asked for one before it was found build again.</summary>
+	private readonly State<int> _iconVersion = new( 0 );
+
+	/// <summary>Gets the shared lazy icon source for a project, or null when its directory has no supported icon.</summary>
 	/// <param name="project">The project.</param>
 	/// <param name="hostId">The host the project is on, or null or <see cref="LoknHost.LocalId"/> for This PC.</param>
 	/// <remarks>
-	/// A paired host's directory names a folder on that host, never on This PC, so its projects show their letter icon. The source is released when
-	/// this module stops, so a view resolves it again on each build.
+	/// A paired host's directory names a folder on that host, so its icon is looked for and read through the host's workspace: null until it is
+	/// found, and the view builds again then. The source is released when this module stops, so a view resolves it again on each build.
 	/// </remarks>
 	public AsyncImageSource? GetIcon( ProjectInfo project, string? hostId )
 	{
 		if ( hostId is not null && hostId != LoknHost.LocalId )
-			return null;
+			return GetRemoteIcon( project, hostId );
 		if ( _icons.TryGetValue( project.Directory, out var known ) )
 			return known;
 
@@ -32,6 +38,52 @@ public sealed partial class ProjectsModule
 		var source = path is null ? null : new AsyncImageSource( cancellation => ProjectIcons.LoadAsync( path, IconPixels, cancellation ) );
 		_icons.Add( project.Directory, source );
 		return source;
+	}
+
+	/// <summary>Gets a paired host's project icon once found, and starts looking for it on the host the first time.</summary>
+	private AsyncImageSource? GetRemoteIcon( ProjectInfo project, string hostId )
+	{
+		_ = _iconVersion.Value;
+		var key = $"{hostId}|{project.Directory}";
+		if ( _icons.TryGetValue( key, out var known ) )
+			return known;
+		if ( _context is { } context && _searching.Add( key ) )
+			_ = FindRemoteIconAsync( context, context.App.Hosts.Get( hostId ), project.Directory, key );
+		return null;
+	}
+
+	/// <summary>Finds a paired host's project icon through its workspace, and records it, or that there is none, on the UI thread.</summary>
+	private async Task FindRemoteIconAsync( ModuleContext context, LoknHost host, string directory, string key )
+	{
+		string? path = null;
+		var isAnswered = true;
+		try
+		{
+			foreach ( var candidate in ProjectIcons.ListCandidates( directory ) )
+			{
+				if ( await host.Workspace.FileExistsAsync( candidate, context.Lifetime ) )
+				{
+					path = candidate;
+					break;
+				}
+			}
+		}
+		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException or InvalidOperationException or OperationCanceledException )
+		{
+			// A host that is not connected yet answers nothing; the next build asks again.
+			isAnswered = false;
+		}
+
+		var found = path;
+		context.Post( () =>
+		{
+			_searching.Remove( key );
+			if ( !isAnswered )
+				return;
+			_icons[key] = found is null ? null : new AsyncImageSource( cancellation => ProjectIcons.LoadRemoteAsync( host.Workspace, found, IconPixels, cancellation ) );
+			if ( found is not null )
+				_iconVersion.Value++;
+		} );
 	}
 
 	/// <summary>Builds a square project icon from its asynchronously loaded source.</summary>
@@ -58,6 +110,7 @@ public sealed partial class ProjectsModule
 		foreach ( var source in _icons.Values )
 			source?.Dispose();
 		_icons.Clear();
+		_searching.Clear();
 	}
 }
 
@@ -97,6 +150,32 @@ internal static class ProjectIcons
 		FindSupportedImage( directory, _explicitStems )
 		?? FindSboxProgramIcon( directory, sboxGameDirectory )
 		?? FindSupportedImage( directory, _conventionalStems );
+
+	/// <summary>Lists the paths a paired host's project icon may be at, in preference order: the explicit override, an s&box checkout's program icon, then
+	/// conventional images. This PC's installed s&box does not count, since the project is on another PC.</summary>
+	internal static IEnumerable<string> ListCandidates( string directory )
+	{
+		IEnumerable<string> Images( IReadOnlyList<string> stems ) => stems.SelectMany( stem => _extensions.Select( extension => Path.Combine( directory, stem + extension ) ) );
+		return [.. Images( _explicitStems ), Path.Combine( directory, _sboxProgramIcon ), Path.Combine( directory, "game", _sboxProgramIcon ), .. Images( _conventionalStems )];
+	}
+
+	/// <summary>Reads a paired host's project icon through its workspace and decodes it from a temporary copy, which the decoders read, then deletes the copy.</summary>
+	internal static async Task<ImageSource> LoadRemoteAsync( IWorkspaceHost workspace, string path, int maximumPixels, CancellationToken cancellation )
+	{
+		var bytes = await workspace.ReadAsync( path, cancellation );
+		var folder = Path.Combine( LoknPaths.TempRoot, "images" );
+		Directory.CreateDirectory( folder );
+		var copy = Path.Combine( folder, Guid.NewGuid().ToString( "N" ) + Path.GetExtension( path ) );
+		await File.WriteAllBytesAsync( copy, bytes, cancellation );
+		try
+		{
+			return await LoadAsync( copy, maximumPixels, cancellation );
+		}
+		finally
+		{
+			File.Delete( copy );
+		}
+	}
 
 	/// <summary>Finds the s&box program icon for an engine checkout or a folder containing an s&box project manifest.</summary>
 	private static string? FindSboxProgramIcon( string directory, string? configured )
