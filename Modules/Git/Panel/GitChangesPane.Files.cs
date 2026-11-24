@@ -172,12 +172,12 @@ internal sealed partial class GitChangesPane
 		var staged = _menuStaged;
 		var first = files[0];
 		var what = files.Count == 1 ? "1 file" : $"{files.Count:N0} files";
-		// Windows' programs and Explorer reach only this PC's files.
+		// Local programs and the file manager reach only this PC's files.
 		var isLocal = _context.Host.IsLocal;
 		var entries = new List<MenuEntry>
 		{
 			new MenuAction( "Open", () => _context.Run( () => OpenFiles( files ) ) ) { AccessKey = Key.O, IsEnabled = isLocal && files.Any( file => file.Status != 'D' ) },
-			new MenuAction( "Show in File Explorer", () => _context.Run( () => ShowInExplorer( first ) ) ) { AccessKey = Key.E, IsEnabled = isLocal },
+			new MenuAction( OperatingSystem.IsWindows() ? "Show in File Explorer" : "Show in File Manager", () => _context.Run( () => ShowInFileManager( first ) ) ) { AccessKey = Key.E, IsEnabled = isLocal },
 			new MenuSeparator(),
 			new MenuAction( staged ? "Unstage" : "Stage", () => _context.Run( () => UpdateStage( files, staged ) ) ) { Shortcut = "Enter" },
 			new MenuAction( "Discard changes…", () => _context.Run( () => BeginDiscard( files ) ) ) { Shortcut = "Delete", IsDestructive = true },
@@ -300,21 +300,21 @@ internal sealed partial class GitChangesPane
 		Process.Start( new ProcessStartInfo( Path.GetFullPath( Path.Combine( root, file.Path ) ) ) { UseShellExecute = true } )?.Dispose();
 	}
 
-	/// <summary>Opens Explorer with the file selected, or its folder (or the repository) when the file no longer exists.</summary>
-	private void ShowInExplorer( GitFileChange file )
+	/// <summary>Reveals a file or opens its folder, falling back to the repository when the folder no longer exists.</summary>
+	private void ShowInFileManager( GitFileChange file )
 	{
 		if ( _loadedRoot is not { } root )
 			return;
 
 		var path = Path.GetFullPath( Path.Combine( root, file.Path ) );
-		if ( File.Exists( path ) && OperatingSystem.IsWindows() )
+		if ( File.Exists( path ) )
 		{
-			Process.Start( "explorer.exe", $"/select,\"{path}\"" )?.Dispose();
+			FileManager.Open( path, selectFile: true );
 			return;
 		}
 
 		var folder = Path.GetDirectoryName( path ) is { } parent && Directory.Exists( parent ) ? parent : root;
-		Process.Start( new ProcessStartInfo( folder ) { UseShellExecute = true } )?.Dispose();
+		FileManager.Open( folder, useShellExecute: true );
 	}
 
 	/// <summary>Asks the user to confirm discarding the files' changes.</summary>

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Goo;
@@ -430,7 +429,7 @@ internal sealed class EditorContent : PanelContent
 			new MenuSeparator(),
 			new MenuAction( wraps ? "✓ Wrap lines" : "Wrap lines", () => Choose( () => _context.App.Settings.Set( EditorModule.WrapLines, SettingsScope.Global, !wraps ) ) ),
 			new MenuSeparator(),
-			new MenuAction( "Show in Explorer", () => Choose( () => ShowInExplorer( Current ) ) ) { IsEnabled = hasPath && _context.Host.IsLocal },
+			new MenuAction( OperatingSystem.IsWindows() ? "Show in Explorer" : "Show in File Manager", () => Choose( () => ShowInFileManager( Current ) ) ) { IsEnabled = hasPath && _context.Host.IsLocal },
 			new MenuAction( "Copy path", () => Choose( () => Copy( Current ) ) ) { IsEnabled = hasPath },
 			new MenuAction( "Copy relative path", () => Choose( () => Copy( Path.GetRelativePath( root!, Current ) ) ) ) { IsEnabled = root is not null },
 		];
@@ -472,16 +471,16 @@ internal sealed class EditorContent : PanelContent
 		clipboard.WriteText( text );
 	}
 
-	/// <summary>Opens Explorer with the file selected.</summary>
-	private void ShowInExplorer( string path )
+	/// <summary>Reveals the file in the local file manager.</summary>
+	private void ShowInFileManager( string path )
 	{
 		try
 		{
-			Process.Start( new ProcessStartInfo( "explorer.exe" ) { ArgumentList = { "/select,", path }, UseShellExecute = false } );
+			FileManager.Open( path, selectFile: true );
 		}
 		catch ( Exception error ) when ( error is System.ComponentModel.Win32Exception or InvalidOperationException )
 		{
-			Fail( $"Could not open Explorer: {error.Message}" );
+			Fail( $"Could not open {(OperatingSystem.IsWindows() ? "Explorer" : "the file manager")}: {error.Message}" );
 		}
 	}
 
