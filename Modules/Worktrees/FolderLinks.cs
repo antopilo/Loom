@@ -37,13 +37,19 @@ internal static partial class FolderLinks
 	/// <summary>Defines the size of a mount point's four name offset and length fields.</summary>
 	private const int MountPointHeaderSize = 8;
 
-	/// <summary>Makes <paramref name="link"/> a junction to the existing directory <paramref name="target"/>.</summary>
+	/// <summary>Makes <paramref name="link"/> a junction to the existing directory <paramref name="target"/> on Windows, or a symbolic link elsewhere.</summary>
 	/// <remarks>Junctions need no administrator rights or developer mode, unlike directory symbolic links.</remarks>
 	internal static void CreateJunction( string link, string target )
 	{
 		target = Path.TrimEndingDirectorySeparator( Path.GetFullPath( target ) );
 		if ( !Directory.Exists( target ) )
 			throw new DirectoryNotFoundException( $"Cannot link to {target}: it does not exist." );
+
+		if ( !OperatingSystem.IsWindows() )
+		{
+			Directory.CreateSymbolicLink( link, target );
+			return;
+		}
 
 		var substitute = Encoding.Unicode.GetBytes( @"\??\" + target );
 		var print = Encoding.Unicode.GetBytes( target );
@@ -78,7 +84,7 @@ internal static partial class FolderLinks
 	internal static bool IsLink( string path )
 	{
 		var info = new DirectoryInfo( path );
-		return info.Exists && info.Attributes.HasFlag( FileAttributes.ReparsePoint );
+		return OperatingSystem.IsWindows() ? info.Exists && info.Attributes.HasFlag( FileAttributes.ReparsePoint ) : info.LinkTarget is not null;
 	}
 
 	/// <summary>Removes every junction and directory symbolic link below a directory, without touching what they point at.</summary>
@@ -95,7 +101,7 @@ internal static partial class FolderLinks
 		{
 			foreach ( var child in new DirectoryInfo( directory ).EnumerateDirectories( "*", new EnumerationOptions { IgnoreInaccessible = true, AttributesToSkip = 0 } ) )
 			{
-				if ( child.Attributes.HasFlag( FileAttributes.ReparsePoint ) )
+				if ( OperatingSystem.IsWindows() ? child.Attributes.HasFlag( FileAttributes.ReparsePoint ) : child.LinkTarget is not null )
 				{
 					var target = child.LinkTarget;
 
@@ -137,7 +143,7 @@ internal static partial class FolderLinks
 			Directory.CreateDirectory( Path.GetDirectoryName( target )! );
 			if ( File.Exists( target ) )
 				File.Delete( target );
-			if ( !CreateHardLink( target, file.FullName, 0 ) )
+			if ( OperatingSystem.IsWindows() ? !CreateHardLink( target, file.FullName, 0 ) : Link( file.FullName, target ) != 0 )
 				throw new IOException( $"Could not link {target} to {file.FullName}: {new Win32Exception( Marshal.GetLastPInvokeError() ).Message}" );
 
 			count++;
@@ -185,4 +191,8 @@ internal static partial class FolderLinks
 	[LibraryImport( "kernel32.dll", EntryPoint = "CreateHardLinkW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16 )]
 	[return: MarshalAs( UnmanagedType.Bool )]
 	private static partial bool CreateHardLink( string link, string existing, nint security );
+
+	/// <summary>Gives an existing file another name on the same Unix file system.</summary>
+	[LibraryImport( "libc", EntryPoint = "link", SetLastError = true, StringMarshalling = StringMarshalling.Utf8 )]
+	private static partial int Link( string existing, string link );
 }
