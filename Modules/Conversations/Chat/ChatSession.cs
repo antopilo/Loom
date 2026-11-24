@@ -61,6 +61,12 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 	/// <summary>Reports whether this session already asked Omp to summarize the chat into a title.</summary>
 	private bool _isTitleRequested;
 
+	/// <summary>Reports whether a renaming request for a chat that already has a generated title is running.</summary>
+	private bool _isRetitling;
+
+	/// <summary>Stores how many user prompts the chat held when it was last titled, or null before this session knows.</summary>
+	private int? _titledAtPrompts;
+
 	/// <summary>Stores the visible backend status or error.</summary>
 	private string _status = "Ready";
 
@@ -655,6 +661,8 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 				_intents.Clear();
 				_dialogs.Clear();
 				_answers.Clear();
+				// The emptied chat counts its prompts from none, so it is named again after a few new ones.
+				_titledAtPrompts = 0;
 				_status = "Cleared";
 				Cleared?.Invoke();
 				MarkChanged();

@@ -17,6 +17,22 @@ public sealed partial class ChatContent
 	/// <summary>Defines the isolated question that names a chat from bounded user prompts.</summary>
 	internal const string TitleQuestion = "Reply with only a title for this conversation as it stands now: at most 4 plain words, no emoji, no category prefix, no quotes, no trailing punctuation.";
 
+	/// <summary>Defines the isolated question that names a chat again for the task it works on now, keeping a title that still fits.</summary>
+	internal const string RetitleQuestion = "Reply with only a title for what this conversation works on now, weighing the latest prompts most: at most 4 plain words, no emoji, "
+		+ "no category prefix, no quotes, no trailing punctuation. If the current title still fits, reply with it unchanged.";
+
+	/// <summary>Defines how many new user prompts a chat takes before it is named again for its current task.</summary>
+	internal const int RetitleEvery = 3;
+
+	/// <summary>Defines how many of the latest user prompts name a chat again.</summary>
+	private const int RetitlePrompts = 3;
+
+	/// <summary>Defines whether chats the user did not name are named again as their task changes.</summary>
+	internal static readonly Setting<bool> AutoRename = new(
+		"conversations.auto-rename", "Rename chats as their task changes",
+		"Every few prompts, give a chat you did not name a title for what it works on now.",
+		true, "Conversations" );
+
 	/// <summary>Subscribes this view to its session's events, or unsubscribes it when the panel closes.</summary>
 	private void UpdateSubscription( bool isSubscribed )
 	{
@@ -257,6 +273,13 @@ public sealed partial class ChatContent
 	{
 		if ( !UpdateTaskCheckStop() )
 			session.Stop();
+	}
+
+	/// <summary>Builds renaming material: the current title, then the latest <see cref="RetitlePrompts"/> user prompts, oldest first, each bounded.</summary>
+	internal static string BuildRetitleMaterial( string title, IReadOnlyList<ConversationMessage> messages )
+	{
+		var latest = messages.Where( message => message.Role == "user" && message.Text.Length > 0 ).TakeLast( RetitlePrompts ).Select( message => TrimTitlePrompt( message.Text ) );
+		return "Current title:\n" + title + "\n\nLatest prompts:\n" + string.Join( "\n\n", latest );
 	}
 
 	/// <summary>Builds title material from the first and latest user prompts, bounded independently so old chats stay cheap.</summary>

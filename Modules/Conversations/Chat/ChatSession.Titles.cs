@@ -9,17 +9,35 @@ namespace Lokn.Modules.Chat;
 /// <summary>Names the chat from its prompts with isolated small-model calls, and asks whether a prompt starts a new task.</summary>
 public sealed partial class ChatSession
 {
-	/// <summary>Asks once per chat, after a turn, for a short title unless the user named it or one was already generated.</summary>
-	/// <remarks>The small-model call receives at most the first and latest user prompts, never the session context, tools or project rules.</remarks>
+	/// <summary>After a turn, names the chat unless the user named it: once from its first prompts, then again every <see cref="RetitleEvery"/> prompts
+	/// while <see cref="AutoRename"/> is on, so the title follows the task the chat works on now.</summary>
+	/// <remarks>The small-model call receives at most a few bounded user prompts and the current title, never the session context, tools or project rules.</remarks>
 	private void UpdateTitleSummary()
 	{
 		var conversation = store.Get( conversationId );
-		if ( _isTitleRequested || conversation.IsTitleChosen || conversation.IsTitleGenerated
-			|| !store.GetMessages( conversationId ).Any( message => message.Role == "user" ) )
+		var prompts = store.GetMessages( conversationId ).Count( message => message.Role == "user" && message.Text.Length > 0 );
+		if ( conversation.IsTitleChosen || prompts == 0 )
 			return;
 
-		_isTitleRequested = true;
-		_ = UpdateTitleRequestAsync();
+		if ( !conversation.IsTitleGenerated )
+		{
+			if ( _isTitleRequested )
+				return;
+
+			_isTitleRequested = true;
+			_titledAtPrompts = prompts;
+			_ = UpdateTitleRequestAsync( TitleQuestion, BuildTitleMaterial( store.GetMessages( conversationId ) ) );
+			return;
+		}
+
+		// A chat titled before this session started counts its prompts from now: the turn that just ended brought a new one.
+		_titledAtPrompts ??= prompts - 1;
+		if ( _isRetitling || prompts - _titledAtPrompts < RetitleEvery || !app.Settings.Get( AutoRename, ComputeScope( conversation.Profile ) ) )
+			return;
+
+		_isRetitling = true;
+		_titledAtPrompts = prompts;
+		_ = UpdateTitleRequestAsync( RetitleQuestion, BuildRetitleMaterial( conversation.Title, store.GetMessages( conversationId ) ) );
 	}
 
 	/// <summary>Takes a session name Omp reports after the user's own <c>/rename</c>: the title typed, or one Omp generated, cleaned.</summary>
@@ -53,24 +71,30 @@ public sealed partial class ChatSession
 			return;
 
 		_isTitleRequested = true;
-		_ = UpdateTitleRequestAsync();
+		_titledAtPrompts = store.GetMessages( conversationId ).Count( message => message.Role == "user" && message.Text.Length > 0 );
+		_ = UpdateTitleRequestAsync( TitleQuestion, BuildTitleMaterial( store.GetMessages( conversationId ) ) );
 	}
 
-	/// <summary>Asks Omp's small-model role for a title from bounded user prompts; a failure keeps the current title.</summary>
-	private async Task UpdateTitleRequestAsync()
+	/// <summary>Asks Omp's small-model role for a title from bounded material; a failure keeps the current title.</summary>
+	/// <param name="question">The isolated question, such as <see cref="ChatContent.TitleQuestion"/>.</param>
+	/// <param name="material">The bounded prompts, and the current title when renaming.</param>
+	private async Task UpdateTitleRequestAsync( string question, string material )
 	{
 		try
 		{
 			var conversation = store.Get( conversationId );
-			var material = BuildTitleMaterial( store.GetMessages( conversationId ) );
 			_auxiliaryCallCount++;
 			MarkChanged();
-			var answer = await backend.AskSmallAsync( conversation.Profile, TitleQuestion, material, Lifetime ).ConfigureAwait( false );
+			var answer = await backend.AskSmallAsync( conversation.Profile, question, material, Lifetime ).ConfigureAwait( false );
 			Post( () => UpdateTitleFromAnswer( answer ) );
 		}
 		catch ( Exception error ) when ( error is not OutOfMemoryException )
 		{
 			// The title is a convenience: the chat keeps its current name.
+		}
+		finally
+		{
+			Post( () => _isRetitling = false );
 		}
 	}
 

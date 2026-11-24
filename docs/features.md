@@ -345,6 +345,9 @@ small-model role for a short title. The isolated call receives only the first an
 latest user prompts, each bounded to 2,000 UTF-16 code units; it receives no session
 context, tools, skills or project rules. After every successful automatic or
 `/compact` compaction, the same bounded call names the chat for its current task.
+With **Rename chats as their task changes** on (Settings › Conversations, on by default), every 3 new prompts the chat
+asks again: the call gets the current title and the latest 3 prompts, bounded the same way, and keeps the title when
+it still fits. `/clear` counts the prompts from none again.
 A title you set yourself, by renaming the task or with `/rename <title>` in the chat,
 is never replaced, not even by a compaction.
 

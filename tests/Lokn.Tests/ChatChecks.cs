@@ -422,6 +422,27 @@ internal static class ChatChecks
 		CoreChecks.Check( app.Panels.Sessions.Any( session => session.Content is ConversationPanel { View: var shown } && shown == reopened ) && store.Get( chat.Id ).Id == chat.Id, "The chat panel and its conversation stay." );
 		CoreChecks.Check( PumpUntil( () => store.Get( chat.Id ).Title == "Fixture small title" ) && store.Get( chat.Id ).IsTitleGenerated,
 			"After its first turn, the chat asks Omp's small-model role for a title from bounded prompts and applies it." );
+		// Every few prompts the chat asks again what it works on now, unless renaming is off.
+		var calls = typeof( ChatSession ).GetField( "_auxiliaryCallCount", flags )!;
+		int Calls() => (int)calls.GetValue( reopened.Session )!;
+		void Prompt( string text )
+		{
+			store.AppendMessage( chat.Id, new ConversationMessage( Guid.NewGuid(), "user", text, DateTimeOffset.UtcNow ) );
+			reopened.Session.UpdateFrame( Parse( """{"type":"agent_end"}""" ) );
+		}
+		var before = Calls();
+		Prompt( "Now make the export async" );
+		Prompt( "Add a progress bar to it" );
+		CoreChecks.Check( Calls() == before, "A chat with a generated title is not named again before a few new prompts." );
+		Prompt( "And cancel it on close" );
+		CoreChecks.Check( PumpUntil( () => Calls() == before + 1 ) && store.Get( chat.Id ).IsTitleGenerated,
+			"After a few new prompts, the chat asks the small model again for a title for what it works on now." );
+		app.Settings.Set( ChatContent.AutoRename, SettingsScope.Global, false );
+		Prompt( "One" );
+		Prompt( "Two" );
+		Prompt( "Three" );
+		CoreChecks.Check( Calls() == before + 1, "With Rename chats as their task changes off, the chat keeps its title." );
+		app.Settings.Set( ChatContent.AutoRename, SettingsScope.Global, true );
 		var sentField = typeof( ChatSession ).GetField( "_sentCommand", flags )!;
 		sentField.SetValue( reopened.Session, "/rename 🪟 PANEL: Mine" );
 		reopened.Session.UpdateFrame( Parse( """{"type":"session_info_update","title":"🪟 PANEL: Mine","sessionId":"fixture"}""" ) );

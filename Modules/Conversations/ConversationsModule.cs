@@ -81,6 +81,7 @@ public sealed partial class ConversationsModule(
 	{
 		builder
 			.Setting( ChatContent.NewTaskCheck )
+			.Setting( ChatContent.AutoRename )
 			.Setting( ArchiveAfterDays )
 			.Setting( KeepChats )
 			// The shell holds an app update back while This PC's agents work, here or in the daemon this store mirrors.
