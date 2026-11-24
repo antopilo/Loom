@@ -18,9 +18,12 @@ internal sealed record ShellProfile( string Name, string CommandLine )
 		get; init;
 	}
 
-	/// <summary>Finds the shells installed on this machine, PowerShell first.</summary>
+	/// <summary>Finds installed shells, with PowerShell first on Windows and the login shell first on Unix.</summary>
 	internal static IReadOnlyList<ShellProfile> Detect()
 	{
+		if ( !OperatingSystem.IsWindows() )
+			return DetectUnix();
+
 		var system = Environment.GetFolderPath( Environment.SpecialFolder.System );
 		// Each shell's program as another PC finds it: by name on its search path, and Git Bash, which has no name of its own there, in Git's default folder.
 		var candidates = new (string Name, string? Path, string Arguments, string Portable)[]
@@ -48,6 +51,33 @@ internal sealed record ShellProfile( string Name, string CommandLine )
 			return new( commandLine.Trim(), commandLine.Trim() );
 
 		return isLocal ? Detect().FirstOrDefault() ?? new( "Command Prompt", "cmd.exe" ) : HostDefault;
+	}
+
+	/// <summary>Gets the local login shell, or the POSIX shell when it is not set.</summary>
+	private static string UnixShell => Environment.GetEnvironmentVariable( "SHELL" ) is { Length: > 0 } shell ? shell : "/bin/sh";
+
+	/// <summary>Lists the default shell and the installed shells named in <c>/etc/shells</c>.</summary>
+	private static IReadOnlyList<ShellProfile> DetectUnix()
+	{
+		string[] paths;
+		try
+		{
+			paths = File.ReadAllLines( "/etc/shells" );
+		}
+		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException )
+		{
+			paths = [];
+		}
+
+		return paths.Select( path => path.Trim() ).Where( path => path.StartsWith( '/' ) && File.Exists( path ) )
+			.Prepend( UnixShell ).Select( CreateUnixProfile ).DistinctBy( profile => profile.Name ).ToArray();
+	}
+
+	/// <summary>Quotes an exact executable path for the local POSIX shell.</summary>
+	private static ShellProfile CreateUnixProfile( string path )
+	{
+		var name = Path.GetFileName( path );
+		return new( name, "'" + path.Replace( "'", "'\\''", StringComparison.Ordinal ) + "'" ) { PortableCommandLine = name };
 	}
 
 	/// <summary>Gets the profile that starts this shell on a paired host: a detected shell by its program's name there (<see cref="PortableCommandLine"/>),

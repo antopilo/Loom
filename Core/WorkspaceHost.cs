@@ -332,22 +332,27 @@ public sealed class LocalWorkspaceHost : IWorkspaceHost
 		}
 	}
 
-	/// <summary>Starts the program in a Windows pseudoconsole, its arguments joined into one command line.</summary>
+	/// <summary>Starts the program in a Windows pseudoconsole, its arguments joined into one command line, or elsewhere in a Linux pseudoterminal.</summary>
 	public IWorkspacePty OpenPty( string file, IReadOnlyList<string> arguments, string? directory, int columns, int rows, IReadOnlyDictionary<string, string>? environment, Action<string> output, Action<int> exited ) =>
-		LocalWorkspacePty.Start( BuildCommandLine( file, arguments ), directory, columns, rows, environment, output, exited );
+		OperatingSystem.IsWindows()
+			? LocalWorkspacePty.Start( BuildCommandLine( file, arguments ), directory, columns, rows, environment, output, exited )
+			: LinuxWorkspacePty.Start( file, arguments, directory, columns, rows, environment, output, exited );
 
 	/// <summary>Starts a command line in a Windows pseudoconsole exactly as written, such as a shell setting, whose program may read its own command line
-	/// by rules that splitting it into arguments and joining them again would not keep, as <c>cmd /k</c> does.</summary>
-	/// <param name="commandLine">The program and its arguments, as <c>CreateProcess</c> takes them.</param>
+	/// by rules that splitting it into arguments and joining them again would not keep, as <c>cmd /k</c> does. Elsewhere <c>/bin/sh</c> runs it in a Linux
+	/// pseudoterminal.</summary>
+	/// <param name="commandLine">The program and its arguments, as <c>CreateProcess</c> or <c>/bin/sh</c> takes them.</param>
 	/// <param name="directory">The starting folder, or null for this process's own.</param>
 	/// <param name="columns">The initial width in cells.</param>
 	/// <param name="rows">The initial height in cells.</param>
 	/// <param name="environment">Variables set on top of this process's own, or null.</param>
 	/// <param name="output">Receives decoded terminal output on a background thread.</param>
 	/// <param name="exited">Receives the exit code on a background thread after the last output; -1 when it is unknown.</param>
-	/// <exception cref="System.ComponentModel.Win32Exception">The pseudoconsole or the program could not be created.</exception>
+	/// <exception cref="System.ComponentModel.Win32Exception">The pseudoterminal or the program could not be created.</exception>
 	public IWorkspacePty OpenPty( string commandLine, string? directory, int columns, int rows, IReadOnlyDictionary<string, string>? environment, Action<string> output, Action<int> exited ) =>
-		LocalWorkspacePty.Start( commandLine, directory, columns, rows, environment, output, exited );
+		OperatingSystem.IsWindows()
+			? LocalWorkspacePty.Start( commandLine, directory, columns, rows, environment, output, exited )
+			: LinuxWorkspacePty.Start( "/bin/sh", ["-c", commandLine], directory, columns, rows, environment, output, exited );
 
 	/// <summary>Joins a program and its arguments into a Windows command line that splits back into the same arguments.</summary>
 	internal static string BuildCommandLine( string file, IReadOnlyList<string> arguments )
