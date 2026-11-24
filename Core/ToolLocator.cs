@@ -70,6 +70,9 @@ public static class ToolLocator
 	/// <param name="cancellationToken">Stops the install.</param>
 	public static async Task InstallWingetAsync( string id, IProgress<string> progress, CancellationToken cancellationToken )
 	{
+		if ( !OperatingSystem.IsWindows() )
+			throw new PlatformNotSupportedException( "winget is available only on Windows." );
+
 		var winget = Find( "winget", Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.LocalApplicationData ), "Microsoft", "WindowsApps", "winget.exe" ) )
 			?? throw new InvalidOperationException( "winget is not available. Install App Installer from the Microsoft Store, then try again." );
 		await RunAsync( winget, ["install", "--id", id, "--exact", "--silent", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"], progress, cancellationToken ).ConfigureAwait( false );
@@ -82,6 +85,9 @@ public static class ToolLocator
 	/// <param name="cancellationToken">Stops the script.</param>
 	public static async Task RunPowerShellAsync( string script, IProgress<string> progress, CancellationToken cancellationToken )
 	{
+		if ( !OperatingSystem.IsWindows() )
+			throw new PlatformNotSupportedException( "Windows PowerShell is available only on Windows." );
+
 		var powershell = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.System ), "WindowsPowerShell", "v1.0", "powershell.exe" );
 		await RunAsync( powershell, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], progress, cancellationToken ).ConfigureAwait( false );
 		RefreshPath();

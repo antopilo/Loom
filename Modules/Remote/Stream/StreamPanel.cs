@@ -23,9 +23,11 @@ public static class StreamPanel
 
 	/// <summary>Registers the panel, bound to the host it opens on, and its palette command (<c>Open Window stream</c>).</summary>
 	/// <param name="builder">The registering module's builder.</param>
-	/// <param name="source">Returns the source for a new panel, its host's windows, or null when that host is not connected, which shows a notice instead.</param>
+	/// <param name="source">Returns the source for a new panel, or null when its host cannot stream windows.</param>
 	public static void Register( ModuleBuilder builder, Func<PanelContext, IStreamSource?> source ) =>
-		builder.Panel( Id, Title, context => source( context ) is { } found ? new StreamContent( context, found, initial: ReadInput( context ) ) : new NotConnectedContent(), "\uE7F4", onHost: true );
+		builder.Panel( Id, Title, context => source( context ) is { } found
+			? new StreamContent( context, found, initial: ReadInput( context ) )
+			: new UnavailableContent( context.Host.IsLocal && !OperatingSystem.IsWindows() ), "\uE7F4", onHost: true );
 
 	/// <summary>Shows a host's window streamed for an agent that works with it: brings the stream panel of that window on that host forward, or opens one
 	/// beside the agent's panel that streams it at once. The active pane, and so the chat composer's focus, stays where it was.</summary>
@@ -68,8 +70,8 @@ public static class StreamPanel
 		return context.RestoredState is { ValueKind: JsonValueKind.Object } state ? state.Deserialize<StreamPanelInput>( StreamService.Wire ) : null;
 	}
 
-	/// <summary>Tells the user the stream needs a connected host.</summary>
-	private sealed class NotConnectedContent : PanelContent
+	/// <summary>Explains why the panel cannot stream windows.</summary>
+	private sealed class UnavailableContent( bool isLocalUnsupported ) : PanelContent
 	{
 		/// <summary>Builds the notice.</summary>
 		public override Blob Build()
@@ -84,7 +86,7 @@ public static class StreamPanel
 				Gap = theme.Spacing,
 				Children =
 				[
-					new Text { Content = "Not connected", FontSize = 18, },
+					new Text { Content = isLocalUnsupported ? "Local capture needs Windows" : "Not connected", FontSize = 18, },
 					new Text { Content = "Connect to a host in Remote access, then open the window stream again.", Color = theme.Muted, },
 				],
 			};

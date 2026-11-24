@@ -95,7 +95,8 @@ internal sealed partial class AccessContent
 		yield return BuildSection( "Sharing", theme );
 		yield return BuildLevels( level, theme );
 		yield return BuildParagraph( Levels.First( item => item.Level == level ).Text, theme.Muted );
-		yield return BuildGroup( theme, [BuildAgentWindows( theme )] );
+		if ( OperatingSystem.IsWindows() )
+			yield return BuildGroup( theme, [BuildAgentWindows( theme )] );
 
 		if ( _pendingNetwork is not null || _module.Switching is not null )
 		{

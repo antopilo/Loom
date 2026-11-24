@@ -133,22 +133,23 @@ internal sealed class OmpSetupContent : PanelContent
 	{
 		var theme = Theme.Current;
 		var detection = _detection.Value;
+		var isWindows = OperatingSystem.IsWindows();
 		var children = new List<Blob>();
 		if ( ReferenceEquals( detection, Pending ) )
 			children.Add( BuildLine( null, "Looking for Omp…", "", [] ) );
 		else if ( detection.Install is { } install )
 		{
 			children.Add( BuildLine( theme.Success, $"Omp {install.Version}", $"{install.Source} · {install.Path}",
-				[BuildAction( "Use another omp.exe", () => _isEditingExecutable.Value = !_isEditingExecutable.Value )] ) );
+				[BuildAction( isWindows ? "Use another omp.exe" : "Use another omp", () => _isEditingExecutable.Value = !_isEditingExecutable.Value )] ) );
 		}
 		else
 		{
 			var actions = new List<Blob>();
 			if ( _isInstalling.Value )
 				actions.Add( new Text { Content = _installLine.Value.Length == 0 ? "Installing Omp…" : _installLine.Value, Color = theme.Accent, FontSize = SmallSize } );
-			else
+			else if ( isWindows )
 				actions.Add( BuildAction( "Install Omp", () => _ = UpdateInstallAsync() ) );
-			actions.Add( BuildAction( "Choose omp.exe", () => _isEditingExecutable.Value = true ) );
+			actions.Add( BuildAction( isWindows ? "Choose omp.exe" : "Choose omp", () => _isEditingExecutable.Value = true ) );
 			// A broken path in settings hides an install Lokn could use instead.
 			if ( _context.App.Settings.HasValue( OmpModule.Executable, SettingsScope.Global ) && OmpService.ResolveExecutable( OmpService.DefaultExecutable ) is not null )
 				actions.Insert( 0, BuildAction( "Use detected Omp", () => UpdateExecutable( null ) ) );
@@ -161,7 +162,7 @@ internal sealed class OmpSetupContent : PanelContent
 			{
 				Key = "executable",
 				Value = _context.App.Settings.Get( OmpModule.Executable, SettingsScope.Global ),
-				Placeholder = @"C:\path\to\omp.exe",
+				Placeholder = isWindows ? @"C:\path\to\omp.exe" : "/path/to/omp",
 				AccessibilityName = "Omp executable",
 				Height = theme.ControlHeight + theme.Spacing,
 				Padding = theme.Spacing,

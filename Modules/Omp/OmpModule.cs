@@ -84,7 +84,7 @@ public sealed class OmpModule : ILoknModule, IAgentService
 				Order = 20,
 				CheckAsync = CheckInstallAsync,
 				FixLabel = "Install",
-				FixAsync = ( progress, cancellationToken ) => Service.InstallAsync( progress, cancellationToken ),
+				FixAsync = OperatingSystem.IsWindows() ? ( progress, cancellationToken ) => Service.InstallAsync( progress, cancellationToken ) : null,
 			} )
 			.Contribute( SetupItem.Point, new SetupItem
 			{

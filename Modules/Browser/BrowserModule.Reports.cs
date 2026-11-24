@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Goo;
 using Lokn.Core;
@@ -33,12 +34,17 @@ public sealed partial class BrowserModule
 		}
 	}
 
-	/// <summary>Shows a listed report in a browser on This PC, beside a panel when one is given.</summary>
+	/// <summary>Opens a listed report in Loom's browser on Windows or in the system browser elsewhere.</summary>
 	/// <param name="app">The application.</param>
 	/// <param name="report">The report.</param>
 	/// <param name="sourcePanelId">The panel to show it beside, or null to show it in view.</param>
-	public void ShowReport( LoknApplication app, BrowserReport report, Guid? sourcePanelId = null ) =>
-		ShowBeside( app, app.Hosts.Local, new Uri( report.Path ).AbsoluteUri, sourcePanelId, replace: null );
+	public void ShowReport( LoknApplication app, BrowserReport report, Guid? sourcePanelId = null )
+	{
+		if ( OperatingSystem.IsWindows() )
+			ShowBeside( app, app.Hosts.Local, new Uri( report.Path ).AbsoluteUri, sourcePanelId, replace: null );
+		else
+			Process.Start( new ProcessStartInfo( new Uri( report.Path ).AbsoluteUri ) { UseShellExecute = true } )?.Dispose();
+	}
 
 	/// <summary>Adds a report an agent's tool call saved to the list, with the chat that made the call.</summary>
 	internal void RecordReport( string path, string? title, AgentToolContext context )
