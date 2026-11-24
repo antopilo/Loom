@@ -201,7 +201,7 @@ internal sealed class OmpAgentHubContent : PanelContent
 			MinHeight = 0,
 			Padding = theme.Spacing,
 			OverflowX = Overflow.Hidden,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
 			BorderColor = theme.Border,
 		};
@@ -301,7 +301,7 @@ internal sealed class OmpAgentHubContent : PanelContent
 				MinHeight = 0,
 				Padding = theme.Spacing,
 				OverflowX = Overflow.Hidden,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 				BorderWidth = theme.BorderWidth,
 				BorderColor = theme.Border,
 				BorderRadius = theme.Radius,

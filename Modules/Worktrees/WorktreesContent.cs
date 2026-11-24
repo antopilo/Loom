@@ -187,7 +187,7 @@ internal sealed partial class WorktreesContent : PanelContent
 			MinHeight = 0,
 			Padding = ContentPadding,
 			OverflowX = Overflow.Hidden,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 		};
 	}
 

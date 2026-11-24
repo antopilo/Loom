@@ -54,7 +54,7 @@ internal sealed class WelcomeContent( PanelContext context ) : PanelContent
 			MinWidth = 0,
 			MinHeight = 0,
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Children =
 			[
 				new Text

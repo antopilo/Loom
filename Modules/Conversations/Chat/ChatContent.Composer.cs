@@ -363,7 +363,7 @@ public sealed partial class ChatContent
 			Padding = theme.Spacing * 1.5,
 			Gap = theme.Spacing,
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			BackgroundColor = theme.Raised,
 			BorderColor = theme.Border,
 			BorderWidth = theme.BorderWidth,

@@ -110,7 +110,7 @@ internal sealed class GetStartedContent : PanelContent
 					MinHeight = 0,
 					Padding = ContentPadding,
 					OverflowY = Overflow.Scroll,
-					ScrollbarY = ViewStyle.BuildScrollbar(),
+					ScrollbarY = ViewStyle.GetScrollbar(),
 					AlignItems = AlignItems.Center,
 					Children =
 					[

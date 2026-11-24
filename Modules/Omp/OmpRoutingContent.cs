@@ -113,7 +113,7 @@ internal sealed class OmpRoutingContent : PanelContent
 			FontFamily = theme.FontFamily,
 			FontSize = theme.FontSize,
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Children = children,
 		};
 	}

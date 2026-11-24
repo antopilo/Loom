@@ -65,7 +65,7 @@ internal sealed partial class GitContent
 				MinWidth = 0,
 				MinHeight = 0,
 				OverflowX = Overflow.Hidden,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 			};
 		var hasDetails = _selectedId is not null;
 		children.Add( new Container

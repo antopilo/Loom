@@ -66,23 +66,36 @@ public static class ViewStyle
 		return font;
 	}
 
-	/// <summary>Builds a visible vertical scrollbar in the current theme; call it per build because Goo owns a mounted descriptor.</summary>
-	public static Scrollbar BuildScrollbar()
+	/// <summary>Stores the shared scrollbar of <see cref="_scrollbarTheme"/>.</summary>
+	private static Scrollbar? _scrollbar;
+
+	/// <summary>Stores the theme <see cref="_scrollbar"/> was built in.</summary>
+	private static Theme? _scrollbarTheme;
+
+	/// <summary>Gets the theme's shared scrollbar for either axis. Goo freezes it once mounted, so do not change it.</summary>
+	/// <remarks>Goo restarts a scrollbar hidden, with no fade, whenever a build passes a different instance, so every scroll region shares this one.</remarks>
+	public static Scrollbar GetScrollbar()
 	{
 		var theme = Theme.Current;
-		return new Scrollbar
+		if ( _scrollbar is not null && ReferenceEquals( theme, _scrollbarTheme ) )
+			return _scrollbar;
+
+		_scrollbarTheme = theme;
+		return _scrollbar = new Scrollbar
 		{
 			Thickness = TrackWidth,
 			HitThickness = TrackWidth + 4,
 			Thumb = new Container
 			{
 				Width = ThumbWidth,
+				Height = ThumbWidth,
 				BorderRadius = ThumbWidth / 2.0,
 				BackgroundColor = theme.Muted,
 				Opacity = 0.5,
 				HoverStyle = new Style
 				{
 					Width = TrackWidth,
+					Height = TrackWidth,
 					BorderRadius = TrackWidth / 2.0,
 					Opacity = 0.8,
 				},

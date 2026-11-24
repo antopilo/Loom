@@ -103,7 +103,7 @@ public sealed class OmpUsageContent : PanelContent
 				MinHeight = 0,
 				Gap = theme.Spacing * 1.5,
 				OverflowY = Overflow.Scroll,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 				Children = [.. report.Accounts.Select( account => BuildAccount( account, now ) )],
 			} );
 		}

@@ -198,8 +198,8 @@ internal sealed class EditorContent : PanelContent
 			Key = "editor:" + Current,
 			Controller = file.Editor,
 			Layers = [file.Refresh()],
-			ScrollbarY = BuildScrollbar(),
-			ScrollbarX = BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
+			ScrollbarX = ViewStyle.GetScrollbar(),
 			AccessibilityName = name,
 			AccessibilityRole = AccessibilityRole.TextEditor,
 			FontFamily = CodeFont,
@@ -771,26 +771,6 @@ internal sealed class EditorContent : PanelContent
 				}
 			}
 		} );
-	}
-
-	/// <summary>Builds a slim scrollbar that widens under the pointer, like the chat's.</summary>
-	private static Scrollbar BuildScrollbar()
-	{
-		var theme = Theme.Current;
-		return new Scrollbar
-		{
-			Thickness = 10,
-			HitThickness = 14,
-			Thumb = new Container
-			{
-				Width = 6,
-				Height = 6,
-				BorderRadius = 3,
-				BackgroundColor = theme.Muted,
-				Opacity = 0.5,
-				HoverStyle = new Style { Width = 10, Height = 10, BorderRadius = 5, Opacity = 0.8 },
-			},
-		};
 	}
 
 	/// <summary>Shows an error in the header.</summary>

@@ -96,7 +96,7 @@ internal sealed class GitHubContent : PanelContent
 		MinHeight = 0,
 		Padding = ContentPadding,
 		OverflowX = Overflow.Hidden,
-		ScrollbarY = ViewStyle.BuildScrollbar(),
+		ScrollbarY = ViewStyle.GetScrollbar(),
 	};
 
 	/// <summary>Lists the status, then sign-in, or the Updates, Pull Requests, Review requests and Workflow runs sections with their items or empty notes.</summary>

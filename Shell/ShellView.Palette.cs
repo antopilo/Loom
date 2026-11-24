@@ -303,7 +303,7 @@ internal sealed partial class ShellView
 			MinHeight = 0,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
 			OverflowX = Overflow.Hidden,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 		};
 	}
 

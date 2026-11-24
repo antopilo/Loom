@@ -229,7 +229,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 							MinHeight = 0,
 							Padding = new Edges( 0, EdgeGutter, ContentPadding, ContentPadding ),
 							OverflowY = Overflow.Scroll,
-							ScrollbarY = ViewStyle.BuildScrollbar(),
+							ScrollbarY = ViewStyle.GetScrollbar(),
 							AlignItems = AlignItems.Center,
 							Children =
 							[
@@ -439,7 +439,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			MinHeight = 0,
 			Padding = new Edges( 0, ViewStyle.TrackWidth, 0, 0 ),
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Children = [new Container { Gap = NavItemGap, Children = items }],
 		} );
 

@@ -66,7 +66,7 @@ public sealed class ConfirmDialog : GuardedCell<ConfirmDialogInput>
 			} );
 		}
 		if ( items.Count > 0 )
-			card.Add( new Container { Key = "items", MinHeight = 0, OverflowY = Overflow.Scroll, ScrollbarY = ViewStyle.BuildScrollbar(), Children = items } );
+			card.Add( new Container { Key = "items", MinHeight = 0, OverflowY = Overflow.Scroll, ScrollbarY = ViewStyle.GetScrollbar(), Children = items } );
 		if ( input.Error is { Length: > 0 } error )
 			card.Add( new Text { Key = "error", Content = error, Color = theme.Error, Selectable = true } );
 

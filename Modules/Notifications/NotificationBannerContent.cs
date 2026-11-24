@@ -70,7 +70,7 @@ internal sealed class NotificationBannerContent : PanelContent
 				MinWidth = 0,
 				MaxHeight = QuestionHeight,
 				OverflowY = Overflow.Scroll,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 				Children = [dialog],
 			} );
 		else if ( NotificationsContent.BuildActions( _item, OpenLink ) is { } actions )

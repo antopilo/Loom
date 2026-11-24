@@ -172,7 +172,7 @@ internal sealed partial class GitContent
 			FlexShrink = 0,
 			MaxHeight = Length.Percent( ReviewPercent ),
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Padding = theme.Spacing,
 			Gap = theme.Spacing / 2,
 			BackgroundColor = theme.Accent.WithAlpha( 0.08 ),

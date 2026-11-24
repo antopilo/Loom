@@ -109,7 +109,7 @@ internal sealed class WorkspacesContent : PanelContent
 				MinHeight = 0,
 				Padding = new Edges( TileGap, TileGap, 0, TileGap ),
 				OverflowX = Overflow.Hidden,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 				AccessibilityName = "Workspaces",
 			},
 		};

@@ -269,7 +269,7 @@ public sealed partial class SidebarRows( PanelContext context )
 		MinHeight = 0,
 		Padding = new Edges( 0, ContentPadding, ContentPadding, ContentPadding ),
 		OverflowX = Overflow.Hidden,
-		ScrollbarY = ViewStyle.BuildScrollbar(),
+		ScrollbarY = ViewStyle.GetScrollbar(),
 	};
 
 	/// <summary>Builds a row highlighted edge to edge while selected, under the pointer or showing its menu or + grid, with its actions inside the highlight; right-clicking it opens its menu at the pointer.</summary>

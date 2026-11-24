@@ -82,7 +82,7 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 					MinHeight = 0,
 					AlignSelf = AlignSelf.Stretch,
 					OverflowY = Overflow.Scroll,
-					ScrollbarY = ViewStyle.BuildScrollbar(),
+					ScrollbarY = ViewStyle.GetScrollbar(),
 					Children =
 					[
 						new Column

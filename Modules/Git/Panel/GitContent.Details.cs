@@ -202,7 +202,7 @@ internal sealed partial class GitContent
 		MinHeight = 0,
 		Padding = new Edges( Theme.Current.Spacing, Theme.Current.Spacing * 2 ),
 		OverflowX = Overflow.Hidden,
-		ScrollbarY = ViewStyle.BuildScrollbar(),
+		ScrollbarY = ViewStyle.GetScrollbar(),
 	};
 
 	/// <summary>Lists the Commit tab's rows: the information, then the files with the expanded ones' lines.</summary>
@@ -302,7 +302,7 @@ internal sealed partial class GitContent
 					FlexShrink = 0,
 					MinHeight = 0,
 					OverflowX = Overflow.Hidden,
-					ScrollbarY = ViewStyle.BuildScrollbar(),
+					ScrollbarY = ViewStyle.GetScrollbar(),
 					Padding = theme.Spacing / 2,
 					BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
 					BorderColor = theme.Border,

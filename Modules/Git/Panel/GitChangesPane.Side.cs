@@ -149,7 +149,7 @@ internal sealed partial class GitChangesPane
 					MinHeight = 0,
 					Padding = new Edges( 0, theme.Spacing / 2 ),
 					OverflowX = Overflow.Hidden,
-					ScrollbarY = ViewStyle.BuildScrollbar(),
+					ScrollbarY = ViewStyle.GetScrollbar(),
 				} );
 			children.Add( BuildSideCommitBox() );
 		}

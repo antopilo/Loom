@@ -444,7 +444,7 @@ internal sealed partial class GitFileView
 			MinHeight = 0,
 			Padding = new Edges( 0, 0, Theme.Current.Spacing * 2, 0 ),
 			OverflowX = Overflow.Hidden,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 		};
 	}
 

@@ -78,7 +78,7 @@ internal sealed partial class GitContent
 				MinHeight = 0,
 				Padding = new Edges( 0, theme.Spacing, theme.Spacing * 2, theme.Spacing ),
 				OverflowX = Overflow.Hidden,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 			} ) ),
 		];
 		return new Container

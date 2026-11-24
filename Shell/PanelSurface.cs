@@ -34,7 +34,7 @@ internal sealed class PanelSurface( PanelSession session ) : Cell
 			MinWidth = 0,
 			MinHeight = 0,
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Padding = ErrorPadding,
 			Gap = Theme.Current.Spacing,
 			Children =

@@ -389,7 +389,7 @@ public static partial class MarkdownView
 			Gap = CodeGap,
 			MaxHeight = CodeHeight,
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			BackgroundColor = framed ? Theme.Current.Raised : Color.Transparent,
 			BorderRadius = Theme.Current.Radius,
 			Children = children,

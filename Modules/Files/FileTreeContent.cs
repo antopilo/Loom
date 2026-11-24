@@ -179,7 +179,7 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 					MinHeight = 0,
 					OverflowX = Overflow.Hidden,
 					Padding = new Edges( theme.Spacing / 2, theme.Spacing / 2 ),
-					ScrollbarY = ViewStyle.BuildScrollbar(),
+					ScrollbarY = ViewStyle.GetScrollbar(),
 				};
 		}
 

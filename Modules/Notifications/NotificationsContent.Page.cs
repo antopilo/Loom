@@ -213,7 +213,7 @@ internal sealed partial class NotificationsContent
 			BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
 			BorderColor = theme.Divider,
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Children = children,
 		};
 	}
@@ -353,7 +353,7 @@ internal sealed partial class NotificationsContent
 			MinHeight = 0,
 			Padding = new Edges( 0, 0, theme.Spacing * 1.5, 0 ),
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Children = list,
 		} );
 		return new Container
@@ -522,7 +522,7 @@ internal sealed partial class NotificationsContent
 					FlexGrow = 1,
 					MinHeight = 0,
 					OverflowY = Overflow.Scroll,
-					ScrollbarY = ViewStyle.BuildScrollbar(),
+					ScrollbarY = ViewStyle.GetScrollbar(),
 					Children =
 					[
 						new Container

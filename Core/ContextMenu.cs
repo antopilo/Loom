@@ -130,7 +130,7 @@ public sealed class ContextMenu : GuardedCell<ContextMenuInput>
 			FlexGrow = 1,
 			MinHeight = 0,
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Padding = Inset,
 			BackgroundColor = theme.Raised,
 			BorderColor = theme.Border,

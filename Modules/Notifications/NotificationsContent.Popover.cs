@@ -75,7 +75,7 @@ internal sealed partial class NotificationsContent
 					MinHeight = 0,
 					Padding = new Edges( theme.Spacing / 2, 0 ),
 					OverflowY = Overflow.Scroll,
-					ScrollbarY = ViewStyle.BuildScrollbar(),
+					ScrollbarY = ViewStyle.GetScrollbar(),
 					Children = list,
 				},
 				new Row

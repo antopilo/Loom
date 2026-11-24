@@ -139,7 +139,7 @@ public sealed partial class ChatContent : PanelContent
 				MinHeight = 0,
 				Padding = new Edges( ContentPadding, ContentPadding, ReadFloatingHeight(), ContentPadding ),
 				OverflowX = Overflow.Hidden,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 			};
 		var stack = new List<Blob>();
 		// A question that was answered stays first while its exit plays; the next pending one shows after it.
@@ -154,7 +154,7 @@ public sealed partial class ChatContent : PanelContent
 			column.FlexShrink = 1;
 			column.MaxHeight = DialogHeight;
 			column.OverflowY = Overflow.Scroll;
-			column.ScrollbarY = ViewStyle.BuildScrollbar();
+			column.ScrollbarY = ViewStyle.GetScrollbar();
 			stack.Add( column );
 		}
 		stack.Add( BuildComposer( conversation, BuildTodoPin( todo, isBeside: false ) ) );
@@ -235,7 +235,7 @@ public sealed partial class ChatContent : PanelContent
 			AlignItems = AlignItems.Center,
 			Padding = new Edges( ContentPadding, ContentPadding, ReadFloatingHeight(), ContentPadding ),
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Children = children,
 		};
 	}

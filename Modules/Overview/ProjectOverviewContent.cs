@@ -223,7 +223,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 		MinHeight = 0,
 		Padding = new Edges( 0, ViewStyle.TrackWidth, 28, 0 ),
 		OverflowX = Overflow.Hidden,
-		ScrollbarY = ViewStyle.BuildScrollbar(),
+		ScrollbarY = ViewStyle.GetScrollbar(),
 	};
 
 	/// <summary>Builds one row of a list with the gap below it.</summary>
