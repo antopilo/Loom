@@ -528,7 +528,8 @@ internal static class ChatChecks
 		panel.Session.UpdateFrame( Parse( """{"type":"tool_execution_end","toolCallId":"w-t2","toolName":"bash","result":{"content":[]}}""" ) );
 		panel.Session.UpdateFrame( Parse( """{"type":"message_update","messageId":"w2","message":{"role":"assistant","content":[{"type":"text","text":"Done"}]}}""" ) );
 		CoreChecks.Check( panel.ComputeWorkingLabel() == "Writing", "Streaming prose shows as writing." );
-		CoreChecks.Check( WorkingIndicator.FormatElapsed( TimeSpan.FromSeconds( 9.7 ) ) == "9s" && WorkingIndicator.FormatElapsed( TimeSpan.FromSeconds( 125 ) ) == "2m 05s", "Elapsed time reads in seconds, then minutes." );
+		CoreChecks.Check( WorkingIndicator.FormatElapsed( TimeSpan.FromSeconds( 9.7 ) ) == "9s" && WorkingIndicator.FormatElapsed( TimeSpan.FromSeconds( 125 ) ) == "2m 05s"
+			&& WorkingIndicator.FormatElapsed( TimeSpan.FromSeconds( 4580 ) ) == "1h 16m 20s", "Elapsed time reads in seconds, then minutes, then hours." );
 		app.Unload( "attention" );
 	}
 
