@@ -56,22 +56,10 @@ internal sealed record ShellProfile( string Name, string CommandLine )
 	/// <summary>Gets the local login shell, or the POSIX shell when it is not set.</summary>
 	private static string UnixShell => Environment.GetEnvironmentVariable( "SHELL" ) is { Length: > 0 } shell ? shell : "/bin/sh";
 
-	/// <summary>Lists the default shell and the installed shells named in <c>/etc/shells</c>.</summary>
-	private static IReadOnlyList<ShellProfile> DetectUnix()
-	{
-		string[] paths;
-		try
-		{
-			paths = File.ReadAllLines( "/etc/shells" );
-		}
-		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException )
-		{
-			paths = [];
-		}
-
-		return paths.Select( path => path.Trim() ).Where( path => path.StartsWith( '/' ) && File.Exists( path ) )
+	/// <summary>Lists the login shell, then the common interactive shells found on the search path.</summary>
+	private static IReadOnlyList<ShellProfile> DetectUnix() =>
+		new[] { "bash", "zsh", "fish", "nu", "sh" }.Select( name => ToolLocator.Find( name ) ).OfType<string>()
 			.Prepend( UnixShell ).Select( CreateUnixProfile ).DistinctBy( profile => profile.Name ).ToArray();
-	}
 
 	/// <summary>Quotes an exact executable path for the local POSIX shell.</summary>
 	private static ShellProfile CreateUnixProfile( string path )
