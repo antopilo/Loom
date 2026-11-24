@@ -52,7 +52,7 @@ internal sealed class TabsContent( PanelContext context, ConversationsModule mod
 		{
 			if ( projects.TryGetValue( group.Key, out var project ) )
 			{
-				var icon = module.Projects.GetIcon( project, host.Id ) is { } source ? ProjectsModule.BuildIcon( source, project.Name, ProjectIconSize ) : null;
+				var icon = module.Projects.BuildProjectIcon( project, host.Id, ProjectIconSize );
 				children.Add( _tabs.BuildGroup( group, ConversationsModule.FormatTitle( project.Name, host ), icon, group.Key == current, selected,
 					() => module.OpenProject( app, host, project ),
 					conversation => module.SelectConversation( app, host.Ref( conversation ) ),

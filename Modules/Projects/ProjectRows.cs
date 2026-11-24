@@ -17,6 +17,19 @@ namespace Lokn.Modules.Projects;
 /// <param name="host">The host the projects' folders are on, or null for This PC.</param>
 public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, ProjectStore store, LoknHost? host = null )
 {
+	/// <summary>Lists the emoji the icon picker suggests; any other can be typed or pasted.</summary>
+	private static readonly string[] IconSuggestions =
+	[
+		"🚀", "🛠️", "🧪", "🎮", "🎨", "📦", "🌐", "📱",
+		"🤖", "📚", "🔒", "⚡", "🧩", "🌿", "🔥", "🦊",
+	];
+
+	/// <summary>Defines each suggested emoji's button size in logical pixels.</summary>
+	private const int IconChoiceSize = 30;
+
+	/// <summary>Tracks the project whose icon picker is open, or <see cref="Guid.Empty"/>.</summary>
+	private readonly State<Guid> _choosingIcon = new( Guid.Empty );
+
 	/// <summary>Builds the New project action, which opens the folder chooser and adds the chosen folder as a project.</summary>
 	/// <param name="created">Runs with the project once its folder is chosen, the new one or the one that already had the folder, or null.</param>
 	public Button BuildNewProjectAction( Action<ProjectInfo>? created = null ) =>
@@ -53,16 +66,102 @@ public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, Proj
 				store.Update( current.Id, current.Name, directory );
 		} );
 
+	/// <summary>Opens a project's icon picker under its heading, or closes it when it is open.</summary>
+	public void BeginChooseIcon( ProjectInfo project ) => _choosingIcon.Value = _choosingIcon.Value == project.Id ? Guid.Empty : project.Id;
+
+	/// <summary>Builds a project's icon picker while it is open: suggested emoji, a field for any other, Remove icon while it has one, and Done; null otherwise.</summary>
+	public Blob? BuildIconPicker( ProjectInfo project )
+	{
+		if ( _choosingIcon.Value != project.Id )
+			return null;
+
+		var theme = Theme.Current;
+		void Choose( string? icon ) => context.Run( () =>
+		{
+			if ( store.Find( project.Id ) is not null )
+				store.SetIcon( project.Id, icon );
+			_choosingIcon.Value = Guid.Empty;
+		} );
+
+		var suggestions = IconSuggestions.Select( emoji => (Blob)new Button
+		{
+			Key = "icon:" + emoji,
+			Width = IconChoiceSize,
+			Height = IconChoiceSize,
+			AlignItems = AlignItems.Center,
+			JustifyContent = JustifyContent.Center,
+			BorderRadius = theme.Radius,
+			Focusable = true,
+			Cursor = Cursor.Pointer,
+			AccessibilityName = "Use " + emoji,
+			BackgroundColor = emoji == project.Icon ? theme.Hover : Color.Transparent,
+			HoverStyle = new Style { BackgroundColor = theme.Hover },
+			FocusStyle = new Style { BackgroundColor = theme.Hover },
+			OnClick = () => Choose( emoji ),
+			KeyBindings = [new( Key.Enter, KeyModifiers.None, () => Choose( emoji ) )],
+			Children = [new Text { Content = emoji, FontFamily = ViewStyle.FontFamily, FontSize = theme.FontSize + 3 }],
+		} ).ToList();
+		var actions = new List<Blob>();
+		if ( project.Icon is not null )
+			actions.Add( sidebar.BuildAction( "Remove icon", () => Choose( null ) ) );
+		actions.Add( new Container { FlexGrow = 1 } );
+		actions.Add( sidebar.BuildAction( "Done", () => _choosingIcon.Value = Guid.Empty ) );
+		return new Container
+		{
+			Key = "icon-picker",
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = $"{project.Name} icon",
+			Gap = theme.Spacing,
+			Padding = theme.Spacing,
+			BackgroundColor = theme.Raised,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = theme.Radius * 2,
+			Children =
+			[
+				new Text { Content = $"{project.Name} icon", FontSize = theme.FontSize - 1, Color = theme.Muted, FontFamily = ViewStyle.FontFamily },
+				new Row { Key = "icon-suggestions", FlexWrap = FlexWrap.Wrap, Gap = 2, Children = suggestions },
+				new TextEntry
+				{
+					Key = "icon-entry",
+					AutoFocus = true,
+					Placeholder = "Type or paste any emoji (Win + .)",
+					AccessibilityName = $"{project.Name} emoji",
+					Height = theme.ControlHeight,
+					Padding = new Edges( 0, theme.Spacing ),
+					BackgroundColor = theme.Panel,
+					BorderRadius = theme.Radius,
+					FontFamily = ViewStyle.FontFamily,
+					// The first character is the icon, so a pasted phrase or an emoji with a trailing space still works.
+					OnChange = value =>
+					{
+						if ( ComputeIcon( value ) is { Length: > 0 } icon )
+							Choose( icon );
+					},
+					KeyBindings = [new( Key.Escape, KeyModifiers.None, () => context.Run( () => _choosingIcon.Value = Guid.Empty ) )],
+				},
+				new Row { Key = "icon-actions", Gap = theme.Spacing, Children = actions },
+			],
+		};
+	}
+
+	/// <summary>Gets the first user-perceived character of typed text, so one emoji with its modifiers stays whole; empty for blank text.</summary>
+	internal static string ComputeIcon( string text )
+	{
+		var trimmed = text.Trim();
+		return trimmed.Length == 0 ? "" : System.Globalization.StringInfo.GetNextTextElement( trimmed );
+	}
+
 	/// <summary>Builds a project's bold heading with its icon and disclosure chevron, or its name editor while it is renamed: clicking the heading folds or
 	/// unfolds its rows, or, given <paramref name="open"/>, only the chevron does and clicking the name opens the project.</summary>
 	/// <param name="project">The project.</param>
-	/// <param name="icon">The project's icon from <see cref="ProjectsModule.GetIcon"/>, or null for none.</param>
+	/// <param name="icon">The project's icon from <see cref="ProjectsModule.BuildProjectIcon"/> at <see cref="SidebarRows.GroupIconSize"/>, or null for none.</param>
 	/// <param name="isCollapsed">Whether its rows are folded.</param>
 	/// <param name="accessibilityName">The heading's accessible name.</param>
 	/// <param name="trailing">Marks after the name, such as an activity dot.</param>
 	/// <param name="open">Runs when the name is clicked, such as opening the project's overview, or null to fold on a click anywhere.</param>
 	/// <param name="badge">A muted count after the name, such as its chats, or null for none; shown with <paramref name="open"/> only.</param>
-	public Blob BuildHeading( ProjectInfo project, AsyncImageSource? icon, bool isCollapsed, string accessibilityName, IEnumerable<Blob>? trailing = null,
+	public Blob BuildHeading( ProjectInfo project, Blob? icon, bool isCollapsed, string accessibilityName, IEnumerable<Blob>? trailing = null,
 		Action? open = null, string? badge = null )
 	{
 		if ( sidebar.IsRenaming( project.Id ) )
@@ -74,15 +173,14 @@ public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, Proj
 			} );
 		}
 
-		var image = icon is null ? null : ProjectsModule.BuildIcon( icon, project.Name, SidebarRows.GroupIconSize );
 		if ( open is not null )
 		{
-			var (row, name) = sidebar.BuildLinkedGroupHeading( project.Id, project.Name, image, isCollapsed, accessibilityName, open, badge, trailing );
+			var (row, name) = sidebar.BuildLinkedGroupHeading( project.Id, project.Name, icon, isCollapsed, accessibilityName, open, badge, trailing );
 			AddRename( name, project, keepKeys: true );
 			return row;
 		}
 
-		var heading = sidebar.BuildGroupHeading( project.Id, project.Name, image, isCollapsed, accessibilityName, trailing );
+		var heading = sidebar.BuildGroupHeading( project.Id, project.Name, icon, isCollapsed, accessibilityName, trailing );
 		AddRename( heading, project, keepKeys: false );
 		return heading;
 	}

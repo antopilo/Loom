@@ -133,6 +133,8 @@ public sealed partial class SidebarRows( PanelContext context )
 			new Text
 			{
 				Content = name,
+				// The name is the user's, so emoji in it fall back to the emoji face.
+				FontFamily = ViewStyle.FontFamily,
 				FontWeight = GroupWeight,
 				MinWidth = 0,
 				FlexShrink = 1,
@@ -202,6 +204,7 @@ public sealed partial class SidebarRows( PanelContext context )
 			new Text
 			{
 				Content = name,
+				FontFamily = ViewStyle.FontFamily,
 				FontWeight = GroupWeight,
 				MinWidth = 0,
 				FlexShrink = 1,
@@ -337,6 +340,7 @@ public sealed partial class SidebarRows( PanelContext context )
 		Height = Theme.Current.ControlHeight,
 		Padding = new Edges( 0, Theme.Current.Spacing - Theme.Current.BorderWidth ),
 		FontSize = Theme.Current.FontSize,
+		FontFamily = ViewStyle.FontFamily,
 		Color = Theme.Current.Text,
 		BackgroundColor = Theme.Current.Panel,
 		BorderColor = Theme.Current.Accent,

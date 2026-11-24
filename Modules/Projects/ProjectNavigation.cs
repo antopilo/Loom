@@ -82,7 +82,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 	{
 		var isCollapsed = _sidebar.IsCollapsed( project.Id );
 		var isOpen = module.FindCurrentProject( context.App ) == project.Id;
-		var heading = Projects.BuildHeading( project, module.GetIcon( project, LoknHost.LocalId ), isCollapsed,
+		var heading = Projects.BuildHeading( project, module.BuildProjectIcon( project, LoknHost.LocalId, SidebarRows.GroupIconSize ), isCollapsed,
 			$"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}{(isOpen ? ", open" : "")}" );
 		// Row actions stay out of sight until the pointer is on the row, or its menu or + grid is open.
 		var isRevealed = _sidebar.IsRevealed( project.Id );
@@ -100,15 +100,21 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 			children.Add( starters );
 		if ( _sidebar.IsMenuOpen( project.Id ) )
 		{
-			children.Add( _sidebar.BuildMenu( project.Id, $"{project.Name} options",
-			[
+			var entries = new List<MenuEntry>
+			{
 				new MenuAction( "New task", () => context.Run( () => module.NewTask( context.App, project ) ) ) { AccessKey = Key.T },
 				new MenuAction( "Rename", () => context.Run( () => Projects.BeginRename( project ) ) ) { AccessKey = Key.R },
 				new MenuAction( "Change folder…", () => context.Run( () => Projects.BeginChangeFolder( project ) ) ) { AccessKey = Key.F },
-				new MenuSeparator(),
-				new MenuAction( "Remove project", () => context.Run( () => module.Store.Delete( project.Id ) ) ) { AccessKey = Key.D, IsDestructive = true },
-			] ) );
+			};
+			// A folder's own icon image wins, so an icon is chosen only for a project without one.
+			if ( !module.HasImageIcon( project, LoknHost.LocalId ) )
+				entries.Add( new MenuAction( project.Icon is null ? "Set icon…" : "Change icon…", () => context.Run( () => Projects.BeginChooseIcon( project ) ) ) { AccessKey = Key.I } );
+			entries.Add( new MenuSeparator() );
+			entries.Add( new MenuAction( "Remove project", () => context.Run( () => module.Store.Delete( project.Id ) ) ) { AccessKey = Key.D, IsDestructive = true } );
+			children.Add( _sidebar.BuildMenu( project.Id, $"{project.Name} options", entries ) );
 		}
+		if ( Projects.BuildIconPicker( project ) is { } picker )
+			children.Add( picker );
 
 		if ( !isCollapsed && workspaces is not null )
 		{
@@ -142,7 +148,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 	/// <summary>Builds a project's group: its icon and name, which open the project, its shown tasks, and the + that starts a task in it.</summary>
 	private Row BuildGroup( WorkspacesModule workspaces, RecentTabGroup group, ProjectInfo project )
 	{
-		var icon = module.GetIcon( project, LoknHost.LocalId ) is { } source ? ProjectsModule.BuildIcon( source, project.Name, TabIconSize ) : null;
+		var icon = module.BuildProjectIcon( project, LoknHost.LocalId, TabIconSize );
 		return _tabs.BuildTasks( workspaces, group, project.Name, icon,
 			() => module.OpenProject( context.App, project ),
 			task => module.OpenTask( context.App, project, task ),

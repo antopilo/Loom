@@ -169,6 +169,7 @@ public sealed class RecentTabs( PanelContext context )
 			new Text
 			{
 				Content = title,
+				FontFamily = ViewStyle.FontFamily,
 				FontWeight = SidebarRows.GroupWeight,
 				Color = isCurrentGroup ? theme.Text : theme.Muted,
 				MinWidth = 0,

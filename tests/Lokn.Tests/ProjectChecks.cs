@@ -153,9 +153,46 @@ internal static class ProjectChecks
 			&& rows.Any( row => row is Text { Content: "Tasks" } ) && taskList.Build() is Container { Children: [] },
 			"The project sidebar lists each project with its tasks and then the tasks outside projects, and the Workspaces list steps aside." );
 
+		// A project without an icon image shows the emoji the user chose, which survives a restart, reaches a mirror, and goes away when removed.
+		CoreChecks.Check( !module.HasImageIcon( project, LoknHost.LocalId ) && module.BuildProjectIcon( project, LoknHost.LocalId, 16 ) is null,
+			"A project whose folder has no icon image and no chosen emoji has no icon." );
+		var mirror = new ProjectStore();
+		mirror.Load( module.Store.Projects( app.Settings.ActiveProfile ) );
+		module.Store.Mutated += mirror.Apply;
+		module.Store.SetIcon( project.Id, " 🦊 " );
+		var shown = module.Store.Get( project.Id );
+		CoreChecks.Check( shown.Icon == "🦊" && mirror.Get( project.Id ).Icon == "🦊"
+			&& new ProjectStore( Path.Combine( directory, "navigation-projects.json" ) ).Get( project.Id ).Icon == "🦊"
+			&& module.BuildProjectIcon( shown, LoknHost.LocalId, 16 ) is Container { Children: [Text { Content: "🦊" }] }
+			&& Descendants( sidebar.Build() ).OfType<Text>().Any( text => text.Content == "🦊" ),
+			"A chosen emoji is saved, survives a restart, reaches a mirror, and shows as the project's icon in the sidebar." );
+		CoreChecks.Check( ProjectRows.ComputeIcon( "👩🏽‍💻 and more" ) == "👩🏽‍💻" && ProjectRows.ComputeIcon( "  " ) == "",
+			"The icon field keeps one whole emoji, modifiers and joiners included, from what is typed or pasted." );
+		module.Store.SetIcon( project.Id, "" );
+		CoreChecks.Check( module.Store.Get( project.Id ).Icon is null && mirror.Get( project.Id ).Icon is null && module.BuildProjectIcon( module.Store.Get( project.Id ), LoknHost.LocalId, 16 ) is null,
+			"Removing the icon clears it here and in the mirror." );
+		module.Store.Mutated -= mirror.Apply;
+
 		app.Load( new FixtureModule( "conversations", _ => { } ) );
 		CoreChecks.Check( sidebar.Build() is Container { Children: [] } && tabs.Build() is Container { Children: [] },
 			"With Conversations loaded, the project list steps aside." );
 		app.Shutdown();
+	}
+
+	/// <summary>Walks a view's blobs, including content inside a profile slide.</summary>
+	private static IEnumerable<Blob> Descendants( Blob blob )
+	{
+		yield return blob;
+		if ( blob.GetType().GetProperty( "Children" )?.GetValue( blob ) is IEnumerable<Blob> children )
+		{
+			foreach ( var child in children.SelectMany( Descendants ) )
+				yield return child;
+		}
+		var fields = blob.GetType().GetFields( System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public );
+		foreach ( var slide in fields.Select( field => field.GetValue( blob ) ).OfType<ProfileSlideInput>() )
+		{
+			foreach ( var child in Descendants( slide.Content ) )
+				yield return child;
+		}
 	}
 }

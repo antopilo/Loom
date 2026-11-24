@@ -15,6 +15,9 @@ Project cards and sidebar headings pick their icons automatically. Put
 icon. Without that override, an s&box project (`.sbproj`) or engine checkout uses
 the s&box program icon from its engine installation. Other projects use conventional
 `icon`, `logo`, and `favicon` images in the root, then `assets`, `public`, and `docs`.
+A project with none of these can show an emoji instead: **Set icon…** in its sidebar menu opens a picker of suggested emoji
+and a field for any other (`ProjectInfo.Icon`, kept in `projects.json` and sent to paired hosts with the `SetIcon` store operation).
+An icon image in the folder wins over the emoji. Project names and chat titles show emoji in the emoji face.
 **Ctrl+Shift+H** comes back to Home. The wordmark holds still when
 Windows asks for reduced motion.
 

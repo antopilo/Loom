@@ -123,7 +123,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var isFlat = groups.All( group => group.IsMain );
 		var listed = conversations.Where( conversation => !IsToolTask( conversation ) ).ToArray();
 		var hasOverview = context.App.Modules.Any( loaded => loaded.Id == OverviewModuleId );
-		var icon = module.Projects.GetIcon( project, host.Id );
+		var icon = module.Projects.BuildProjectIcon( project, host.Id, SidebarRows.GroupIconSize );
 		var indent = SidebarRows.ComputeChildIndent( icon is not null );
 		var heading = Projects.BuildHeading( project, icon, isCollapsed,
 			hasOverview ? $"{project.Name}, open overview{(isTidying ? ", tidying" : "")}" : $"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}",
@@ -156,10 +156,15 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			entries.Add( new MenuAction( "Tidy chats", () => context.Run( () => BeginTidy( project ) ) ) { AccessKey = Key.Y } );
 			entries.Add( new MenuAction( "Rename", () => context.Run( () => Projects.BeginRename( project ) ) ) { AccessKey = Key.R } );
 			entries.Add( new MenuAction( "Change folder…", () => context.Run( () => Projects.BeginChangeFolder( project ) ) ) { AccessKey = Key.F } );
+			// A folder's own icon image wins, so an icon is chosen only for a project without one.
+			if ( !module.Projects.HasImageIcon( project, host.Id ) )
+				entries.Add( new MenuAction( project.Icon is null ? "Set icon…" : "Change icon…", () => context.Run( () => Projects.BeginChooseIcon( project ) ) ) { AccessKey = Key.I } );
 			entries.Add( new MenuSeparator() );
 			entries.Add( new MenuAction( "Remove project", () => context.Run( () => host.Projects.Delete( project.Id ) ) ) { AccessKey = Key.D, IsDestructive = true } );
 			children.Add( _sidebar.BuildMenu( project.Id, $"{project.Name} options", entries ) );
 		}
+		if ( Projects.BuildIconPicker( project ) is { } picker )
+			children.Add( picker );
 		if ( worktreeActions is not null && IsCreatingWorktree( project.Id ) )
 			children.Add( BuildNewWorktree( project, worktreeActions ) );
 		if ( _tidyPlan.Value.ProjectId == project.Id )
@@ -339,7 +344,8 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 				: conversation.IsPinned ? $"{conversation.Title}, pinned" : null );
 			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order );
 			// A long title stays on one line and ends with an ellipsis rather than growing the row; a generated title replacing the first line rolls in.
-			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) )];
+			// Emoji the user typed in it fall back to the emoji face.
+			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily } )];
 			main = button;
 		}
 

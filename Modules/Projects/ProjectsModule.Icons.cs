@@ -40,6 +40,18 @@ public sealed partial class ProjectsModule
 	/// <param name="size">The icon's width and height in logical pixels.</param>
 	public static Image BuildIcon( ImageSourceProvider source, string projectName, double size ) => ProjectIcons.Build( source, projectName, size );
 
+	/// <summary>Builds a project's icon: its folder's image, else the emoji the user chose for it; null when it has neither.</summary>
+	/// <param name="project">The project.</param>
+	/// <param name="hostId">The host the project is on, or null or <see cref="LoknHost.LocalId"/> for This PC.</param>
+	/// <param name="size">The icon's width and height in logical pixels.</param>
+	public Blob? BuildProjectIcon( ProjectInfo project, string? hostId, double size ) =>
+		GetIcon( project, hostId ) is { } source ? BuildIcon( source, project.Name, size )
+		: project.Icon is { Length: > 0 } emoji ? ProjectIcons.BuildEmoji( emoji, project.Name, size )
+		: null;
+
+	/// <summary>Reports whether a project's folder gives it an icon image, which takes the place of a chosen emoji.</summary>
+	public bool HasImageIcon( ProjectInfo project, string? hostId ) => GetIcon( project, hostId ) is not null;
+
 	/// <summary>Releases every decoded or pending project icon when the module stops.</summary>
 	private void ReleaseIcons()
 	{
@@ -188,5 +200,29 @@ internal static class ProjectIcons
 		FlexShrink = 0,
 		BorderRadius = Theme.Current.Radius,
 		AccessibilityName = $"{projectName} icon",
+	};
+
+	/// <summary>Defines a chosen emoji's font size as a share of the icon's size, so its ink fills about as much as an image does.</summary>
+	private const double EmojiScale = 0.8;
+
+	/// <summary>Builds a project's chosen emoji centered in a square of the icon's size.</summary>
+	internal static Container BuildEmoji( string emoji, string projectName, double size ) => new()
+	{
+		Width = size,
+		Height = size,
+		FlexShrink = 0,
+		AlignItems = AlignItems.Center,
+		JustifyContent = JustifyContent.Center,
+		AccessibilityName = $"{projectName} icon",
+		Children =
+		[
+			new Text
+			{
+				Content = emoji,
+				FontFamily = ViewStyle.FontFamily,
+				FontSize = size * EmojiScale,
+				TextWrap = TextWrap.NoWrap,
+			},
+		],
 	};
 }

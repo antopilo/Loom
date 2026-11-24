@@ -132,6 +132,9 @@ public sealed partial class ProjectStore
 				case nameof( Update ):
 					Update( op.Require<Guid>( "id" ), op.Require<string>( "name" ), op.Require<string>( "directory" ) );
 					break;
+				case nameof( SetIcon ):
+					SetIcon( op.Require<Guid>( "id" ), op.Read<string>( "icon" ) );
+					break;
 				case nameof( Delete ):
 					Delete( op.Require<Guid>( "id" ) );
 					break;

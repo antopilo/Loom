@@ -6,7 +6,12 @@ using Lokn.Core;
 namespace Lokn.Modules.Projects;
 
 /// <summary>Describes a project and its working directory within one account profile.</summary>
-public sealed record ProjectInfo( Guid Id, SettingsProfile Profile, string Name, string Directory );
+/// <param name="Id">The project's stable identifier.</param>
+/// <param name="Profile">The account profile it belongs to.</param>
+/// <param name="Name">Its display name.</param>
+/// <param name="Directory">Its working directory.</param>
+/// <param name="Icon">The emoji the user chose as its icon, shown while its folder has no icon image; null for none.</param>
+public sealed record ProjectInfo( Guid Id, SettingsProfile Profile, string Name, string Directory, string? Icon = null );
 
 /// <summary>Owns the projects of every profile on the UI thread and keeps them in one small file.</summary>
 /// <remarks>
@@ -165,6 +170,20 @@ public sealed partial class ProjectStore
 		_projects[id] = updated;
 		MarkChanged();
 		MarkMutated( nameof( Update ), new { id, name, directory } );
+	}
+
+	/// <summary>Sets the emoji a project shows while its folder has no icon image, or removes it with null or an empty one.</summary>
+	public void SetIcon( Guid id, string? icon )
+	{
+		var project = Get( id );
+		var chosen = string.IsNullOrWhiteSpace( icon ) ? null : icon.Trim();
+		// The host's echo of a mirror's own change finds it applied already.
+		if ( project.Icon == chosen )
+			return;
+
+		_projects[id] = project with { Icon = chosen };
+		MarkChanged();
+		MarkMutated( nameof( SetIcon ), new { id, icon = chosen } );
 	}
 
 	/// <summary>Deletes a project and raises <see cref="Deleted"/>; what belonged to it, such as its chats, is kept by its owners.</summary>

@@ -113,7 +113,7 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 			.Take( CardLimit )
 			.Select( entry => (Blob)BuildCard( entry.Key, entry.Title, entry.Project is null ? entry.Detail : FormatDirectory( entry.Detail ),
 				FormatUse( entry, now ), $"Open {entry.Title}", () => context.Run( () => module.Open( context.App, entry ) ),
-				entry.Project is { } project ? module.Projects.GetIcon( project, host.Id ) : null ) )
+				entry.Project is { } project ? module.Projects.BuildProjectIcon( project, host.Id, ProjectIconSize ) : null ) )
 			.Append( BuildCard( "open-folder", "Open folder…", host.IsLocal ? "Add a project" : $"Add a project on {host.Name}", "", "Open a folder as a project",
 				() => context.Run( () => ChooseFolder( context, module, host, report ) ), icon: null, isQuiet: true ) )
 			.ToList();
@@ -139,7 +139,7 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 	}
 
 	/// <summary>Builds one quiet card with an optional project icon, a name, a detail line, and a footnote.</summary>
-	private static Button BuildCard( string key, string title, string detail, string footnote, string name, Action open, ImageSourceProvider? icon, bool isQuiet = false )
+	private static Button BuildCard( string key, string title, string detail, string footnote, string name, Action open, Blob? icon, bool isQuiet = false )
 	{
 		var theme = Theme.Current;
 		var heading = new Row
@@ -149,10 +149,11 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 			MinWidth = 0,
 			Children =
 			[
-				.. icon is null ? Array.Empty<Blob>() : [ProjectsModule.BuildIcon( icon, title, ProjectIconSize )],
+				.. icon is null ? Array.Empty<Blob>() : [icon],
 				new Text
 				{
 					Content = title,
+					FontFamily = ViewStyle.FontFamily,
 					FontSize = NameSize,
 					FontWeight = 600,
 					Color = isQuiet ? theme.Muted : theme.Text,

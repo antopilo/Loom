@@ -190,7 +190,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 	private Blob BuildHeader( ChatHost host, ProjectInfo project )
 	{
 		var theme = Theme.Current;
-		var icon = _context.App.GetModule<ProjectsModule>().GetIcon( project, host.Id );
+		var icon = _context.App.GetModule<ProjectsModule>().BuildProjectIcon( project, host.Id, 34 );
 		var folder = host.IsLocal ? FormatDirectory( project.Directory ) : $"{project.Directory}  ·  {host.Name}";
 		if ( _branch.Value.Length > 0 )
 			folder += $"  ·  \u2387 {_branch.Value}";
@@ -202,7 +202,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 			MinWidth = 0,
 			Children =
 			[
-				.. icon is null ? Array.Empty<Blob>() : [ProjectsModule.BuildIcon( icon, project.Name, 34 )],
+				.. icon is null ? Array.Empty<Blob>() : [icon],
 				new Column
 				{
 					MinWidth = 0,
@@ -210,7 +210,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 					Gap = 2,
 					Children =
 					[
-						new Text { Key = "name", Content = project.Name, FontSize = 22, FontWeight = 600, TextMaxLines = 1 },
+						new Text { Key = "name", Content = project.Name, FontFamily = ViewStyle.FontFamily, FontSize = 22, FontWeight = 600, TextMaxLines = 1 },
 						new Text { Key = "folder", Content = folder, FontSize = DetailSize + 1, Color = theme.Muted, TextMaxLines = 1 },
 					],
 				},
