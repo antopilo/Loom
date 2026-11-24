@@ -14,7 +14,7 @@ public sealed partial class SidebarRows
 	private const string HeadingFamily = "Lokn Sidebar Heading";
 
 	/// <summary>Defines how much larger a group heading is than the sidebar's text, in logical pixels.</summary>
-	public const int HeadingSizeStep = 5;
+	public const int HeadingSizeStep = 2;
 
 	/// <summary>Retains the registered faces for as long as the module is loaded.</summary>
 	private static readonly FontSource[] Fonts =
