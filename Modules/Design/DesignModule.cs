@@ -271,20 +271,23 @@ public sealed partial class DesignModule : ILoknModule
 		}
 	}
 
-	/// <summary>Shows a design's studio: in the tab that already shows it, else in a new tab beside the chat.</summary>
+	/// <summary>Shows a design's studio: in a tab a panel shows on screen, else in a new tab beside the chat, since a tab without a visible panel stays out of sight.</summary>
 	private static async Task<AgentToolResult> ShowStudioAsync( AgentToolRegistry tools, DesignStore store, string address, Guid? caller, CancellationToken cancellation, Guid? conversation, string? host )
 	{
-		var tab = await FindStudioTabAsync( tools, store, caller, cancellation, conversation, host );
+		var tab = await FindStudioTabAsync( tools, store, caller, cancellation, conversation, host, isOnScreen: true );
 		var arguments = tab is null ? JsonSerializer.SerializeToElement( new { url = address, newTab = true } ) : JsonSerializer.SerializeToElement( new { tab, url = address } );
 		return await tools.InvokeAsync( "browser_navigate", arguments, caller, cancellation, conversation: conversation, host: host );
 	}
 
 	/// <summary>Finds the short id of a browser tab that shows a design's studio or one of its snapshot pages, or null.</summary>
-	private static async Task<string?> FindStudioTabAsync( AgentToolRegistry tools, DesignStore store, Guid? caller, CancellationToken cancellation, Guid? conversation, string? host )
+	/// <param name="isOnScreen">Whether only a tab that a panel shows on screen counts.</param>
+	private static async Task<string?> FindStudioTabAsync( AgentToolRegistry tools, DesignStore store, Guid? caller, CancellationToken cancellation, Guid? conversation, string? host,
+		bool isOnScreen = false )
 	{
 		var listed = await tools.InvokeAsync( "browser_tabs", JsonSerializer.SerializeToElement( new { } ), caller, cancellation, conversation: conversation, host: host );
 		return listed.IsError ? null
-			: StudioTabPattern().Matches( listed.Text ).FirstOrDefault( found => found.Groups["url"].Value.Contains( $"/d/{store.Token}/", StringComparison.Ordinal ) )?.Groups[1].Value;
+			: StudioTabPattern().Matches( listed.Text ).FirstOrDefault( found => found.Groups["url"].Value.Contains( $"/d/{store.Token}/", StringComparison.Ordinal )
+				&& ( !isOnScreen || found.Groups["rest"].Value.Contains( "(on screen", StringComparison.Ordinal ) ) )?.Groups[1].Value;
 	}
 
 	/// <summary>Reads the screen a call names: a viewport's width and height, or an exact width with a desktop height.</summary>
@@ -419,7 +422,7 @@ public sealed partial class DesignModule : ILoknModule
 	[GeneratedRegex( @"\(tab ([0-9a-f]{8})\)" )]
 	private static partial Regex TabPattern();
 
-	/// <summary>Matches a tab in <c>browser_tabs</c>'s answer: its short id and its address.</summary>
-	[GeneratedRegex( @"tab ([0-9a-f]{8}) "".*?"" (?<url>https?://\S+?)(?=,| \[|\s|$)" )]
+	/// <summary>Matches a tab in <c>browser_tabs</c>'s answer: its short id, its address, and the rest of its line, which says where it shows.</summary>
+	[GeneratedRegex( @"tab ([0-9a-f]{8}) "".*?"" (?<url>https?://\S+?)(?=,| \[|\s|$)(?<rest>[^\r\n]*)" )]
 	private static partial Regex StudioTabPattern();
 }
