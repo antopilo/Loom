@@ -140,7 +140,8 @@ public sealed partial class SidebarRows( PanelContext context )
 			{
 				Content = name,
 				// The name is the user's, so emoji in it fall back to the emoji face.
-				FontFamily = ViewStyle.FontFamily,
+				FontFamily = HeadingFontFamily,
+				FontSize = Theme.Current.FontSize + HeadingSizeStep,
 				FontWeight = GroupWeight,
 				MinWidth = 0,
 				FlexShrink = 1,
@@ -153,11 +154,12 @@ public sealed partial class SidebarRows( PanelContext context )
 		return heading;
 	}
 
-	/// <summary>Builds a group's heading whose name opens the group, such as a project's overview: a chevron button that folds or unfolds it, the icon,
-	/// then the bold name with an optional muted count, which opens it.</summary>
+	/// <summary>Builds a group's heading whose name opens the group, such as a project's overview: the icon, then the name in the heading face with an
+	/// optional muted count, which opens it. The chevron that folds or unfolds the group hangs in the sidebar's left margin, outside the row, so the name
+	/// starts at the row's edge; it shows while the row is hovered or focused, and always while the group is folded.</summary>
 	/// <param name="id">The group, whose folding <see cref="IsCollapsed"/> reports.</param>
 	/// <param name="name">The group's name.</param>
-	/// <param name="icon">The icon before the name, or null for none, which leaves no empty column, so the name starts after the chevron.</param>
+	/// <param name="icon">The icon before the name, or null for none, which leaves no empty column.</param>
 	/// <param name="isCollapsed">Whether the chevron shows the group folded.</param>
 	/// <param name="accessibilityName">The name's accessible name, such as "Lokn, open overview".</param>
 	/// <param name="open">Runs when the name is clicked.</param>
@@ -168,19 +170,27 @@ public sealed partial class SidebarRows( PanelContext context )
 		IEnumerable<Blob>? trailing = null )
 	{
 		var theme = Theme.Current;
+		var isShown = isCollapsed || IsRevealed( id );
 		var chevron = new Button
 		{
 			Key = "chevron",
-			Width = ChevronColumn,
+			Position = PositionType.Absolute,
+			Left = -ContentPadding,
+			Top = 0,
+			Width = ContentPadding,
 			Height = theme.ControlHeight,
-			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
 			BorderRadius = theme.Radius,
 			Cursor = Cursor.Pointer,
 			Focusable = true,
 			AccessibilityName = isCollapsed ? $"Expand {name}" : $"Collapse {name}",
-			HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( ActionHoverAlpha ) },
+			// See-through rather than removed while hidden, so it keeps its place and the keyboard still reaches it.
+			Opacity = isShown ? 1 : 0,
+			TransitionMs = RevealMs,
+			TransitionProperties = [TransitionProperty.Opacity],
+			HoverStyle = new Style { Opacity = 1 },
+			FocusStyle = new Style { Opacity = 1 },
 			OnClick = () => context.Run( () => ToggleCollapsed( id ) ),
 			KeyBindings =
 			[
@@ -210,7 +220,8 @@ public sealed partial class SidebarRows( PanelContext context )
 			new Text
 			{
 				Content = name,
-				FontFamily = ViewStyle.FontFamily,
+				FontFamily = HeadingFontFamily,
+				FontSize = theme.FontSize + HeadingSizeStep,
 				FontWeight = GroupWeight,
 				MinWidth = 0,
 				FlexShrink = 1,
@@ -273,6 +284,7 @@ public sealed partial class SidebarRows( PanelContext context )
 		Padding = ContentPadding,
 		OverflowY = Overflow.Scroll,
 		OverflowX = Overflow.Hidden,
+		FontFamily = BodyFontFamily,
 		Children = [content],
 	};
 
@@ -391,7 +403,7 @@ public sealed partial class SidebarRows( PanelContext context )
 		Height = Theme.Current.ControlHeight,
 		Padding = new Edges( 0, Theme.Current.Spacing - Theme.Current.BorderWidth ),
 		FontSize = Theme.Current.FontSize,
-		FontFamily = ViewStyle.FontFamily,
+		FontFamily = BodyFontFamily,
 		Color = Theme.Current.Text,
 		BackgroundColor = Theme.Current.Panel,
 		BorderColor = Theme.Current.Accent,

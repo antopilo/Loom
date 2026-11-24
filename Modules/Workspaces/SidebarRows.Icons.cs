@@ -34,7 +34,7 @@ public sealed partial class SidebarRows
 	public const string TaskGlyph = "\uECA5";
 
 	/// <summary>Defines how long a row's hidden actions take to fade in or out, in milliseconds.</summary>
-	private const int RevealMs = 120;
+	public const int RevealMs = 120;
 
 	/// <summary>Defines how strongly a row action lightens the row highlight it sits on.</summary>
 	private const double ActionHoverAlpha = 0.08;

@@ -102,8 +102,8 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		return _sidebar.BuildViewport( "Conversation history", children );
 	}
 
-	/// <summary>Builds a project's heading (chevron, icon, name that opens its overview, chat count, then its tools, pull requests and menu in fixed
-	/// columns), then its chats, flat or under a label per worktree once its repository has a linked worktree or its chats work in several; its menu
+	/// <summary>Builds a project's heading (its chevron in the left margin, icon, name that opens its overview, then its tools, pull requests and menu
+	/// floating over the row's end on hover), then its chats, flat or under a label per worktree once its repository has a linked worktree or its chats work in several; its menu
 	/// creates and manages worktrees while Worktrees is loaded, for This PC's projects only.</summary>
 	private Container BuildProject( ProjectInfo project, IReadOnlyList<ConversationInfo> conversations, IReadOnlyList<ConversationInfo> archived )
 	{
@@ -122,8 +122,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			hasOverview ? $"{project.Name}, open overview{(isTidying ? ", tidying" : "")}" : $"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}",
 			isTidying ? [Cell.Mount<Color, ActivityOrb>( "tidying", Theme.Current.Accent )] : null,
 			// Without the overview, the name folds the project like its chevron, so the heading keeps its layout either way.
-			hasOverview ? () => OpenOverview( host, project ) : () => _sidebar.ToggleCollapsed( project.Id ),
-			listed.Length.ToString( System.Globalization.CultureInfo.CurrentCulture ) );
+			hasOverview ? () => OpenOverview( host, project ) : () => _sidebar.ToggleCollapsed( project.Id ) );
 		// A folded project still shows whether one of its chats works or waits.
 		var mark = isCollapsed ? BuildStateMark( listed.Select( conversation => host.Ref( conversation.Id ) ).ToArray() ) : null;
 		var tools = isFlat && host.IsLocal ? BuildTools( project, project.Directory, conversations ) : null;
@@ -338,7 +337,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order );
 			// A long title stays on one line and ends with an ellipsis rather than growing the row; a generated title replacing the first line rolls in.
 			// Emoji the user typed in it fall back to the emoji face.
-			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily } )];
+			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = SidebarRows.BodyFontFamily } )];
 			main = button;
 		}
 

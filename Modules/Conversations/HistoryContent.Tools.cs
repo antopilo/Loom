@@ -36,6 +36,9 @@ internal sealed partial class HistoryContent
 	/// <summary>Defines the width of the state column, wide enough for the working thread, in logical pixels.</summary>
 	private const int StateWidth = 24;
 
+	/// <summary>Defines the fade in front of a row's floating buttons, which hides the end of a long title under them, in logical pixels.</summary>
+	private const int FadeWidth = 16;
+
 	/// <summary>Holds whether each repository folder has a GitHub remote, read once per folder.</summary>
 	private readonly Dictionary<string, bool> _isGitHub = new( StringComparer.OrdinalIgnoreCase );
 
@@ -139,59 +142,65 @@ internal sealed partial class HistoryContent
 		return known;
 	}
 
-	/// <summary>Builds a heading's right side in fixed columns: its tools, its pull requests, then its state or … column; an empty tools or pull
-	/// requests column takes no width, so the name keeps the space.</summary>
+	/// <summary>Builds a heading's right side: its state mark at rest, and its tools, pull requests and … button floating over the row's right end while it is
+	/// revealed. The buttons take no width, so the name keeps the whole row and nothing in it moves when they appear.</summary>
 	/// <param name="id">The row, whose menu the … button opens.</param>
 	/// <param name="menuName">The menu's accessible name, such as "Lokn options".</param>
 	/// <param name="tools">The folder's tools, or null for none.</param>
 	/// <param name="pullRequests">The pull requests icon, or null for none.</param>
 	/// <param name="mark">The state mark, such as the working thread of a folded project, or null for none.</param>
-	private Row BuildEndColumns( Guid id, string menuName, Blob? tools, Blob? pullRequests, Blob? mark ) => new()
-	{
-		Key = "end",
-		FlexShrink = 0,
-		AlignItems = AlignItems.Center,
-		Gap = ToolGap * 2,
-		Children =
-		[
-			new Row
-			{
-				Key = "tools-column",
-				Width = tools is null ? 0 : ToolSize * ToolTitles.Length + ToolGap * (ToolTitles.Length - 1),
-				JustifyContent = JustifyContent.FlexEnd,
-				Children = tools is null ? [] : [tools],
-			},
-			new Container { Key = "pr-column", Width = pullRequests is null ? 0 : ToolSize, Children = pullRequests is null ? [] : [pullRequests] },
-			BuildStateColumn( id, menuName, mark ),
-		],
-	};
+	private Container BuildEndColumns( Guid id, string menuName, Blob? tools, Blob? pullRequests, Blob? mark ) =>
+		BuildStateColumn( id, menuName, mark, [.. tools is null ? Array.Empty<Blob>() : [tools], .. pullRequests is null ? Array.Empty<Blob>() : [pullRequests]] );
 
-	/// <summary>Builds a row's state column: its state mark at rest, and its … button over it, shown while the pointer is on the row or its menu is open and
-	/// otherwise see-through yet focusable, so the keyboard still reaches the menu. Without a mark at rest it takes no width, so the title uses the space.</summary>
-	private Container BuildStateColumn( Guid id, string menuName, Blob? mark )
+	/// <summary>Builds a row's state column: its state mark at rest, which keeps its width, and the row's buttons ending with … floating over the row's right
+	/// end, on the hover color with a short fade, while the pointer is on the row or its menu is open. Hidden buttons stay see-through yet focusable, so the
+	/// keyboard still reaches them; they never take width, so the title keeps its place.</summary>
+	/// <param name="id">The row, whose menu the … button opens.</param>
+	/// <param name="menuName">The menu's accessible name.</param>
+	/// <param name="mark">The state mark at rest, or null for none.</param>
+	/// <param name="buttons">Buttons before …, such as a folder's tools.</param>
+	private Container BuildStateColumn( Guid id, string menuName, Blob? mark, IReadOnlyList<Blob>? buttons = null )
 	{
+		var theme = Theme.Current;
 		var isRevealed = _sidebar.IsHovered( id ) || _sidebar.IsMenuOpen( id );
 		var more = _sidebar.BuildMoreButton( id, menuName, isRevealed );
 		more.Width = StateWidth;
 		more.Height = ToolSize;
-		more.Position = PositionType.Absolute;
-		more.Right = 0;
-		more.Top = 0;
-		var children = new List<Blob>();
-		if ( !isRevealed && mark is not null )
-			children.Add( mark );
-		children.Add( more );
+		// Each button fades on its own, as the sidebar's icon buttons do; hidden ones stay focusable, and their focus or hover shows them.
+		foreach ( var button in (buttons ?? []).SelectMany( Flatten ).OfType<Button>() )
+			button.Opacity = isRevealed ? 1 : 0;
+		var overlay = new Row
+		{
+			Key = "buttons",
+			Position = PositionType.Absolute,
+			Right = 0,
+			Top = 0,
+			Height = ToolSize,
+			AlignItems = AlignItems.Center,
+			Gap = ToolGap,
+			Padding = new Edges( 0, 0, 0, FadeWidth ),
+			BackgroundGradient = isRevealed ? new LinearGradient( 90, [theme.Hover.WithAlpha( 0 ), theme.Hover, theme.Hover, theme.Hover] ) : null,
+			Children = [.. buttons ?? [], more],
+		};
 		return new Container
 		{
 			Key = "state",
-			Width = isRevealed || mark is not null ? StateWidth : 0,
+			Width = mark is not null ? StateWidth : 0,
 			Height = ToolSize,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
-			Children = children,
+			Children = mark is not null && !isRevealed ? [mark, overlay] : [overlay],
 		};
 	}
+
+	/// <summary>Lists a blob and every container blob below it, so the tools inside their row fade with the other buttons; a button's own content is not walked.</summary>
+	private static IEnumerable<Blob> Flatten( Blob blob ) => blob switch
+	{
+		Container { Children: { } children } => [blob, .. children.SelectMany( Flatten )],
+		Row { Children: { } children } => [blob, .. children.SelectMany( Flatten )],
+		_ => [blob],
+	};
 
 	/// <summary>Builds the state of a folded list: the working thread while one of its chats works, else the waiting dot while one waits; null otherwise.</summary>
 	private Blob? BuildStateMark( IReadOnlyList<ChatRef> chats )
