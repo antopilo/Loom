@@ -3,6 +3,19 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.16
+
+- **A project hub that shows what matters.** A project's overview page now starts with a prompt bar: type and press
+  Enter to start a chat in the project, or Ctrl+Enter for a task. Below it, **Needs you** lists the chats that wait
+  for you or work, and **Recent** only the last three. On the right are its designs and reports, and the newest
+  pull request comments, reviews, checks and merges of its GitHub repository.
+- **Search in Settings.** Settings has a list of its sections on the left and a search field that finds any setting
+  by its name or description.
+- **What's new after an update.** After Loom updates, a page shows what changed in the new version.
+- **See windows before you stream them.** The window list of a stream shows a small picture and the icon of each
+  window.
+- **Less memory in the background.** Loom gives back memory while its window is not in front.
+
 ## 0.4.15
 
 - **A new Notifications page.** Filter by what waits for you, what is unread, where it came from (Chats, GitHub,
