@@ -44,6 +44,12 @@ Work and Personal each remember their own current session and selected conversat
 switching profile returns to where that profile was, or Home the first time. **Alt+1**
 switches to Work and **Alt+2** to Personal; the sidebar swipes in from that profile's side.
 
+The sidebar writes project names in Fraunces and everything else in SN Pro (both under the SIL
+Open Font License, in `Modules/Workspaces/Fonts`). A project's fold arrow sits in the left margin
+and shows while you point at the project, and always while it is folded. A row's small buttons
+(a project's tools and pull requests, and **…**) appear over the row's right end while you point
+at it; they take no space otherwise, so titles keep the full width and nothing moves.
+
 ### Project overview
 
 Hover a project's heading in the sidebar and click its overview button (four squares), or
