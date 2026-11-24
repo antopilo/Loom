@@ -168,6 +168,9 @@ public sealed record Theme
 				{
 					Content = label,
 					FontSize = FontSize,
+					TextWrap = TextWrap.NoWrap,
+					TextTrimming = TextTrimming.Ellipsis,
+					MinWidth = 0,
 				},
 			],
 		};

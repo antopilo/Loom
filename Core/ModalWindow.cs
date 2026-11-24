@@ -44,6 +44,9 @@ public sealed class ModalWindow : GuardedCell<ModalWindowInput>
 	/// <summary>Defines how much rounder the window is than the theme's controls, in logical pixels.</summary>
 	private const int ExtraRadius = 4;
 
+	/// <summary>Gets or sets the space kept clear above the window in logical pixels; the shell sets it to its title bar height.</summary>
+	internal static double TitleBarClearance { get; set; }
+
 	/// <summary>Defines the Segoe Fluent Cancel glyph of the close button.</summary>
 	private const string CloseGlyph = "\uE711";
 
@@ -125,7 +128,7 @@ public sealed class ModalWindow : GuardedCell<ModalWindowInput>
 			Height = Length.Percent( 100 ),
 			AlignItems = AlignItems.Center,
 			JustifyContent = input.Top is null ? JustifyContent.Center : JustifyContent.FlexStart,
-			Padding = new Edges( input.Top ?? 0, 0, 0, 0 ),
+			Padding = new Edges( Math.Max( input.Top ?? 0, TitleBarClearance ), 0, 0, 0 ),
 			Scrim = Color.Black.WithAlpha( ScrimOpacity * (_appear?.Value ?? 1) ),
 			FocusScope = new FocusScopeOptions { Modal = true, InitialFocus = input.InitialFocus },
 			AccessibilityRole = AccessibilityRole.Dialog,

@@ -25,7 +25,11 @@ internal sealed partial class ShellView : Cell
 	private const int StatusHeight = 26;
 
 	/// <summary>Creates a shell for an explicitly composed application.</summary>
-	internal ShellView( LoknApplication app ) => _app = app;
+	internal ShellView( LoknApplication app )
+	{
+		_app = app;
+		ModalWindow.TitleBarClearance = TitleBar.BarHeight;
+	}
 
 	/// <summary>Whether mounting gives the window the executable's icon and the input guard. Only check windows turn it off: both borrow the native
 	/// handle through Goo's dialog owner lease, and a lease taken once the window pumps leaves Goo's simulated pointer input dead for the window.</summary>

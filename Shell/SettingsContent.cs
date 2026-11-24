@@ -437,6 +437,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			Key = "modules",
 			FlexGrow = 1,
 			MinHeight = 0,
+			Padding = new Edges( 0, ViewStyle.TrackWidth, 0, 0 ),
 			OverflowY = Overflow.Scroll,
 			ScrollbarY = ViewStyle.BuildScrollbar(),
 			Children = [new Container { Gap = NavItemGap, Children = items }],

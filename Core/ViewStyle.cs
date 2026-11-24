@@ -11,7 +11,7 @@ public static class ViewStyle
 	public const int SmallSize = 12;
 
 	/// <summary>Defines the scrollbar track width in logical pixels.</summary>
-	internal const int TrackWidth = 10;
+	public const int TrackWidth = 10;
 
 	/// <summary>Defines the longest code line rendered, in UTF-16 code units. Shaping and wrapping one line of tens of thousands of characters, such as an embedded file, stalls layout for minutes.</summary>
 	internal const int MaxCodeLineLength = 2000;

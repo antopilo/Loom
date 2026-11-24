@@ -81,11 +81,19 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 					MinWidth = 0,
 					MinHeight = 0,
 					AlignSelf = AlignSelf.Stretch,
-					AlignItems = AlignItems.Center,
-					Gap = Theme.Current.Spacing * 2,
 					OverflowY = Overflow.Scroll,
 					ScrollbarY = ViewStyle.BuildScrollbar(),
-					Children = content,
+					Children =
+					[
+						new Column
+						{
+							MinHeight = Length.Percent( 100 ),
+							FlexShrink = 0,
+							AlignItems = AlignItems.Center,
+							Gap = Theme.Current.Spacing * 2,
+							Children = content,
+						},
+					],
 				},
 				BuildPrompt(),
 				BuildDetail( "Enter starts a chat  ·  Ctrl+Shift+H comes back here", "home-hint" ),

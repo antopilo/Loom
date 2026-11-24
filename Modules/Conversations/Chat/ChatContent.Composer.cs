@@ -219,6 +219,7 @@ public sealed partial class ChatContent
 			{
 				Key = "conversation-model-rail",
 				AlignItems = AlignItems.Center,
+				FlexWrap = FlexWrap.Wrap,
 				Gap = Theme.Current.Spacing,
 				Padding = new Edges( 0, Theme.Current.Spacing ),
 				Children = rail,
@@ -436,8 +437,7 @@ public sealed partial class ChatContent
 		button.Height = Length.Auto;
 		button.MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing;
 		button.Padding = new Edges( 0, Theme.Current.Spacing / 2 );
-		button.MinWidth = 0;
-		button.FlexShrink = 1;
+		button.FlexShrink = 0;
 		button.Color = Theme.Current.Muted;
 		button.Children =
 		[

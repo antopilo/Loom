@@ -221,7 +221,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 		FlexBasis = flexBasis,
 		MinWidth = 0,
 		MinHeight = 0,
-		Padding = new Edges( 0, 0, 28, 0 ),
+		Padding = new Edges( 0, ViewStyle.TrackWidth, 28, 0 ),
 		OverflowX = Overflow.Hidden,
 		ScrollbarY = ViewStyle.BuildScrollbar(),
 	};
@@ -286,7 +286,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 			Key = "prompt",
 			Value = _prompt.Value,
 			Controlled = true,
-			Placeholder = $"Ask anything about {project.Name}…   Enter: chat   Ctrl+Enter: task",
+			Placeholder = "Ask anything…   Enter: chat   Ctrl+Enter: task",
 			AccessibilityName = $"Start a chat in {project.Name}",
 			Width = Length.Percent( 100 ),
 			Height = height,
@@ -675,7 +675,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 			[
 				SidebarRows.BuildIcon( glyph ),
 				new Text { Content = title, MinWidth = 0, FlexShrink = 1, FlexGrow = 1, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
-				new Text { Content = detail, FontSize = DetailSize, Color = detailColor, TextMaxLines = 1, FlexShrink = 0 },
+				new Text { Content = detail, FontSize = DetailSize, Color = detailColor, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
 			],
 		};
 	}
@@ -692,7 +692,9 @@ internal sealed class ProjectOverviewContent : PanelContent
 		return new Button
 		{
 			Key = key,
-			Width = CardWidth,
+			FlexGrow = 1,
+			FlexBasis = CardWidth,
+			MinWidth = 0,
 			MinHeight = 88,
 			Padding = new Edges( 12, 14 ),
 			Gap = 3,
@@ -722,9 +724,9 @@ internal sealed class ProjectOverviewContent : PanelContent
 						new Text { Content = title, FontWeight = 600, MinWidth = 0, FlexShrink = 1, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis, Color = open is null ? theme.Muted : theme.Text },
 					],
 				},
-				new Text { Content = detail, FontSize = DetailSize, Color = theme.Muted, MinWidth = 0, TextMaxLines = 1 },
+				new Text { Content = detail, FontSize = DetailSize, Color = theme.Muted, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
 				new Spacer(),
-				new Text { Content = footnote, FontSize = DetailSize, Color = theme.Inactive, MinWidth = 0, TextMaxLines = 1 },
+				new Text { Content = footnote, FontSize = DetailSize, Color = theme.Inactive, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
 			],
 		};
 	}

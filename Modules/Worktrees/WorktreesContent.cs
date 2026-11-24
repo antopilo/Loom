@@ -23,6 +23,12 @@ internal sealed partial class WorktreesContent : PanelContent
 	/// <summary>Defines the text entry height in logical pixels.</summary>
 	private const int FieldHeight = 34;
 
+	/// <summary>Defines the width each new worktree field starts from before the form wraps it onto its own line.</summary>
+	private const int CreateFieldBasis = 320;
+
+	/// <summary>Defines the narrowest a row's text gets before the row wraps its actions onto the next line.</summary>
+	private const int RowTextMinWidth = 120;
+
 	/// <summary>Defines the path and detail text size in logical pixels.</summary>
 	private const int DetailSize = 12;
 
@@ -235,6 +241,7 @@ internal sealed partial class WorktreesContent : PanelContent
 		{
 			var button = Theme.Current.BuildButton( name, () => _context.Run( () => UpdateRepository( directory ) ), isIdle );
 			button.BackgroundColor = IsSamePath( directory, _repository.Value ) ? Theme.Current.Hover : Theme.Current.Raised;
+			button.MaxWidth = Length.Percent( 100 );
 			buttons.Add( button );
 		}
 
@@ -280,6 +287,12 @@ internal sealed partial class WorktreesContent : PanelContent
 	/// <summary>Builds the new worktree form: branch, start point and folders.</summary>
 	private Blob BuildCreate( RepositoryView view )
 	{
+		var branchField = BuildField( "worktree-branch", _branch, "Branch, existing or new", "Worktree branch", UpdateCreateTyped );
+		branchField.FlexBasis = CreateFieldBasis;
+		var startField = BuildField( "worktree-start", _startPoint, "Start point (default: current commit)", "New branch start point", UpdateCreateTyped );
+		startField.FlexBasis = CreateFieldBasis;
+		var create = Theme.Current.BuildButton( "Create worktree", () => _context.Run( UpdateCreateTyped ), !_isBusy.Value );
+		create.FlexShrink = 0;
 		return new Container
 		{
 			Gap = Theme.Current.Spacing,
@@ -289,14 +302,10 @@ internal sealed partial class WorktreesContent : PanelContent
 				{
 					Gap = Theme.Current.Spacing,
 					AlignItems = AlignItems.Center,
-					Children =
-					[
-						BuildField( "worktree-branch", _branch, "Branch: an existing local or remote branch, or a new name", "Worktree branch", UpdateCreateTyped ),
-						BuildField( "worktree-start", _startPoint, "Start point for a new branch (default: current commit)", "New branch start point", UpdateCreateTyped ),
-						Theme.Current.BuildButton( "Create worktree", () => _context.Run( UpdateCreateTyped ), !_isBusy.Value ),
-					],
+					FlexWrap = FlexWrap.Wrap,
+					Children = [branchField, startField, create],
 				},
-				BuildField( "worktree-folders", _folders, "Folders to check out, comma-separated (empty: everything)", "Worktree folders", UpdateCreateTyped ),
+				BuildField( "worktree-folders", _folders, "Folders, comma-separated (empty: all)", "Worktree folders", UpdateCreateTyped ),
 				BuildDetail( view.Setup.SharedFolders.Length > 0 || view.Setup.SharesNative
 					? $"New worktrees share {string.Join( ", ", [.. view.Setup.SharedFolders, .. view.Setup.SharesNative ? [$"{view.Setup.NativeOutput} when native sources match"] : Array.Empty<string>()] )}."
 					: "New worktrees share nothing but git's history. Open Setup to share caches and native builds." ),
@@ -354,6 +363,8 @@ internal sealed partial class WorktreesContent : PanelContent
 			{
 				Content = size,
 				Color = Theme.Current.Muted,
+				TextWrap = TextWrap.NoWrap,
+				FlexShrink = 0,
 			},
 		};
 		if ( details?.Native?.Action is { } action and not NativeAction.None )
@@ -365,11 +376,14 @@ internal sealed partial class WorktreesContent : PanelContent
 				_ => "Stop sharing native",
 			};
 			var button = Theme.Current.BuildButton( label, () => _context.Run( () => UpdateNative( worktree.Path, action ) ), !_isBusy.Value );
+			button.FlexShrink = 0;
 			button.AccessibilityName = $"{label} {title}";
 			actions.Add( button );
 		}
 
-		actions.Add( Theme.Current.BuildButton( "Open folder", () => _context.Run( () => UpdateOpen( worktree.Path ) ), !worktree.IsPrunable ) );
+		var open = Theme.Current.BuildButton( "Open folder", () => _context.Run( () => UpdateOpen( worktree.Path ) ), !worktree.IsPrunable );
+		open.FlexShrink = 0;
+		actions.Add( open );
 		if ( !worktree.IsMain )
 			actions.Add( BuildConfirming( worktree.Path, "Remove", title, () => UpdateRemove( worktree.Path ) ) );
 
@@ -379,6 +393,7 @@ internal sealed partial class WorktreesContent : PanelContent
 			Padding = Theme.Current.Spacing,
 			Gap = Theme.Current.Spacing,
 			AlignItems = AlignItems.Center,
+			FlexWrap = FlexWrap.Wrap,
 			BackgroundColor = Theme.Current.Raised,
 			BorderRadius = Theme.Current.Radius,
 			Children =
@@ -386,7 +401,7 @@ internal sealed partial class WorktreesContent : PanelContent
 				new Container
 				{
 					FlexGrow = 1,
-					MinWidth = 0,
+					MinWidth = RowTextMinWidth,
 					Children = lines,
 				},
 				.. actions,
@@ -442,6 +457,7 @@ internal sealed partial class WorktreesContent : PanelContent
 		{
 			var create = Theme.Current.BuildButton( "Create worktree", () => _context.Run( () => UpdateCreate( branch.LocalName, "" ) ), !_isBusy.Value );
 			create.AccessibilityName = $"Create worktree {branch.Name}";
+			create.FlexShrink = 0;
 			actions.Add( create );
 			if ( !branch.IsRemote )
 				actions.Add( BuildConfirming( branch.Reference, "Delete", branch.Name, () => UpdateDeleteBranch( branch ) ) );
@@ -453,6 +469,7 @@ internal sealed partial class WorktreesContent : PanelContent
 			Padding = Theme.Current.Spacing,
 			Gap = Theme.Current.Spacing,
 			AlignItems = AlignItems.Center,
+			FlexWrap = FlexWrap.Wrap,
 			BackgroundColor = Theme.Current.Raised,
 			BorderRadius = Theme.Current.Radius,
 			Children =
@@ -460,7 +477,7 @@ internal sealed partial class WorktreesContent : PanelContent
 				new Container
 				{
 					FlexGrow = 1,
-					MinWidth = 0,
+					MinWidth = RowTextMinWidth,
 					Children =
 					[
 						new Text
@@ -491,6 +508,7 @@ internal sealed partial class WorktreesContent : PanelContent
 		var text = isConfirming ? $"Confirm {label.ToLowerInvariant()}" : label;
 		var button = Theme.Current.BuildButton( text, () => _context.Run( action ), !_isBusy.Value );
 		button.AccessibilityName = $"{text} {subject}";
+		button.FlexShrink = 0;
 		if ( isConfirming )
 			button.Color = Theme.Current.Accent;
 
@@ -508,7 +526,7 @@ internal sealed partial class WorktreesContent : PanelContent
 			Disabled = _isBusy.Value,
 			Placeholder = placeholder,
 			AccessibilityName = name,
-			Height = FieldHeight,
+			MinHeight = FieldHeight,
 			FlexGrow = 1,
 			MinWidth = 0,
 			Padding = new Edges( 0, Theme.Current.Spacing ),
