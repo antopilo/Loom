@@ -341,9 +341,13 @@ public sealed partial class DesignModule : ILoknModule
 	}
 
 	/// <summary>Starts the server when no tool did yet, and gives it the current theme.</summary>
+	/// <remarks>
+	/// The process that runs this PC's chats owns the studios' port, since their comments and the agent's state go through its chat sessions: the daemon,
+	/// or the window while no daemon holds its chats (its store is not a mirror). The server rechecks this every second.
+	/// </remarks>
 	private DesignServer StartServer()
 	{
-		_server ??= new DesignServer();
+		_server ??= new DesignServer( () => _context is { } context && (context.App.IsHost || _host is { Store.IsMirror: false }) );
 		_server.ThemeCss = FormatTheme( Theme.Current );
 		return _server;
 	}

@@ -18,12 +18,13 @@ internal static class DesignChecks
 			CheckStore( root );
 			CheckDetection( root );
 			await CheckServerAsync( root );
+			await CheckOwnershipAsync( root );
 		}
 		finally
 		{
 			Directory.Delete( root, recursive: true );
 		}
-		Console.WriteLine( "PASS design names, variants, files kept inside the design, comments and their resolution, zip exports of one variant, designs named by tool calls, and the studio server's pages, files, comments, change events, linked chat, comments sent to it, and refusal of other hosts and origins." );
+		Console.WriteLine( "PASS design names, variants, files kept inside the design, comments and their resolution, zip exports of one variant, designs named by tool calls, and the studio server's pages, files, comments, change events, linked chat, comments sent to it, refusal of other hosts and origins, and the shared port handed from the window to the daemon." );
 	}
 
 	/// <summary>Verifies names, variants, file resolution, comments and exports.</summary>
@@ -74,7 +75,7 @@ internal static class DesignChecks
 	{
 		var store = new DesignStore( "server", DesignStore.GetFolder( root, "server" ) );
 		Write( store.Folder, "a/index.html", "<p>a</p>" );
-		using var server = new DesignServer { ThemeCss = "--accent: rgba(1, 2, 3, 1);" };
+		using var server = new DesignServer( () => true, FindFreePort() ) { ThemeCss = "--accent: rgba(1, 2, 3, 1);" };
 		var address = server.Serve( store );
 		CoreChecks.Check( address == $"http://localhost:{server.Port}/d/{store.Token}/", "The studio address names the design's token on localhost." );
 
@@ -147,6 +148,47 @@ internal static class DesignChecks
 			"Sending comments gives the chat each one's id, file, element and text, and how to resolve them." );
 		store.SetResolved( [id], true );
 		CoreChecks.Check( (await PostAsync( client, server, address + "api/send", "{}" )).StatusCode == HttpStatusCode.BadRequest && sent.Count == 1, "Resolved comments are not sent." );
+	}
+
+	/// <summary>Verifies the port handover: the process that should own the port serves every studio on it, gives it up, and the other takes it over; a foreign
+	/// program on the port makes the server name a free port instead.</summary>
+	private static async Task CheckOwnershipAsync( string root )
+	{
+		var store = new DesignStore( "shared", DesignStore.GetFolder( root, "shared" ) );
+		Write( store.Folder, "index.html", "<p>shared</p>" );
+		var port = FindFreePort();
+		var windowOwns = true;
+		using var window = new DesignServer( () => windowOwns, port );
+		using var daemon = new DesignServer( () => !windowOwns, port ) { Resolve = token => token == store.Token ? store : null };
+		window.Resolve = daemon.Resolve;
+		using var client = new HttpClient();
+		var address = daemon.Serve( store );
+		CoreChecks.Check( window.IsListening && !daemon.IsListening && address == window.GetStudioAddress( store ) && address.Contains( $":{port}/", StringComparison.Ordinal )
+			&& await client.GetStringAsync( address + "f/index.html" ) == "<p>shared</p>",
+			"Both processes name the shared port, and its owner serves a design the other opened." );
+
+		windowOwns = false;
+		window.UpdateOwnership();
+		daemon.UpdateOwnership();
+		CoreChecks.Check( !window.IsListening && daemon.IsListening && await client.GetStringAsync( address + "f/index.html" ) == "<p>shared</p>",
+			"Once the daemon runs the chats, the window gives the port up and the daemon takes it, so the same studio address keeps working." );
+
+		using var foreignPort = new System.Net.Sockets.TcpListener( IPAddress.Loopback, FindFreePort() );
+		foreignPort.Start();
+		var taken = ((IPEndPoint)foreignPort.LocalEndpoint).Port;
+		using var alone = new DesignServer( () => true, taken );
+		CoreChecks.Check( alone.IsListening && alone.Port != taken && (await client.GetAsync( alone.Serve( store ) + "f/index.html" )).IsSuccessStatusCode,
+			"When a program other than Loom holds the port, the server serves its studios on a free port." );
+	}
+
+	/// <summary>Gets a loopback port that is free now, so checks never meet the user's Loom on the real port.</summary>
+	private static int FindFreePort()
+	{
+		var listener = new System.Net.Sockets.TcpListener( IPAddress.Loopback, 0 );
+		listener.Start();
+		var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+		listener.Stop();
+		return port;
 	}
 
 	/// <summary>Verifies which designs a tool call's arguments name.</summary>

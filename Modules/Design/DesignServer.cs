@@ -11,11 +11,26 @@ namespace Lokn.Modules.Design;
 /// The server binds 127.0.0.1 only. A paired PC's browser reaches it through its localhost forwarding (docs/remote.md), so the same address works
 /// in every window. Each design lives under <c>/d/&lt;token&gt;/</c>; a token is known only after a tool opened its design in this process.
 /// Requests must name a loopback host, and changes must come from the server's own origin, so other web pages cannot use it.
+/// <para>
+/// Every address names <see cref="PreferredPort"/>, so studio tabs survive restarts. Of the Loom processes on this PC, the one that runs the chats
+/// owns it (<see cref="WantsPort"/>): the daemon while it runs, else the window. A server checks every second: it gives the port up when it should not
+/// own it, and takes it once it is free when it should, so the window hands it to the daemon it starts and takes it back when the daemon stops. Only when
+/// a program other than Loom holds the port does a server listen on a free port and name that one.
+/// </para>
 /// </remarks>
 internal sealed class DesignServer : IDisposable
 {
-	/// <summary>Defines the port the server tries first, so addresses of open tabs usually survive a restart.</summary>
+	/// <summary>Defines the port every studio address names, so addresses of open tabs survive a restart.</summary>
 	internal const int PreferredPort = 47831;
+
+	/// <summary>Defines the path a design server answers with <see cref="ProbeAnswer"/>, so another Loom's server tells itself apart from a foreign program.</summary>
+	private const string ProbePath = "/lokn-design";
+
+	/// <summary>Defines what <see cref="ProbePath"/> answers.</summary>
+	private const string ProbeAnswer = "lokn-design";
+
+	/// <summary>Defines how often the server checks whether it should own the port, in milliseconds.</summary>
+	private const int OwnershipCheckMs = 1000;
 
 	/// <summary>Defines the largest request head or body read, in bytes.</summary>
 	private const int MaxRequestBytes = 64 * 1024;
@@ -26,8 +41,17 @@ internal sealed class DesignServer : IDisposable
 	/// <summary>Defines how often an idle event stream sends a comment so proxies keep it, in milliseconds.</summary>
 	private const int KeepAliveMs = 20_000;
 
-	/// <summary>Stores the listener.</summary>
-	private readonly TcpListener _listener;
+	/// <summary>Guards the listener while ownership changes.</summary>
+	private readonly Lock _listenerLock = new();
+
+	/// <summary>Stores the listener, or null while another Loom owns the port.</summary>
+	private TcpListener? _listener;
+
+	/// <summary>Stores the stop of the current listener's accept loop.</summary>
+	private CancellationTokenSource? _listening;
+
+	/// <summary>Stores the free port listened on while a foreign program holds <see cref="PreferredPort"/>, or zero.</summary>
+	private volatile int _fallbackPort;
 
 	/// <summary>Stores the designs by token.</summary>
 	private readonly ConcurrentDictionary<string, ServedDesign> _designs = new( StringComparer.Ordinal );
@@ -44,27 +68,37 @@ internal sealed class DesignServer : IDisposable
 	/// <summary>Stores the CSS variables the studio uses for Loom's theme.</summary>
 	private volatile string _themeCss = "";
 
-	/// <summary>Starts the server on the preferred port, or on any free port when it is taken.</summary>
-	internal DesignServer()
+	/// <summary>Starts the server, which owns the port at once when it should and it is free, and checks ownership every second from then on.</summary>
+	/// <param name="wantsPort">Reports whether this process should own the port: it runs the chats. Called on a background thread.</param>
+	/// <param name="port">The port every address names; <see cref="PreferredPort"/> except in checks, which must not meet the user's Loom.</param>
+	internal DesignServer( Func<bool> wantsPort, int port = PreferredPort )
 	{
 		_studio = ReadResource( "Studio.html" );
 		_shot = ReadResource( "Shot.html" );
-		try
-		{
-			_listener = new TcpListener( IPAddress.Loopback, PreferredPort );
-			_listener.Start();
-		}
-		catch ( SocketException )
-		{
-			_listener = new TcpListener( IPAddress.Loopback, 0 );
-			_listener.Start();
-		}
-		Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
-		_ = AcceptAsync();
+		WantsPort = wantsPort;
+		_port = port;
+		UpdateOwnership();
+		_ = WatchOwnershipAsync();
 	}
 
-	/// <summary>Gets the port the server listens on.</summary>
-	internal int Port { get; }
+	/// <summary>Stores the port every address names unless a foreign program holds it.</summary>
+	private readonly int _port;
+
+	/// <summary>Gets whether this process should own the port.</summary>
+	internal Func<bool> WantsPort { get; }
+
+	/// <summary>Gets the port studio addresses name: the shared one, unless a foreign program holds it.</summary>
+	internal int Port => _fallbackPort is > 0 and var port ? port : _port;
+
+	/// <summary>Gets whether this server listens, as the port's owner or on a fallback port.</summary>
+	internal bool IsListening
+	{
+		get
+		{
+			lock ( _listenerLock )
+				return _listener is not null;
+		}
+	}
 
 	/// <summary>Sets the theme the studio shows, as CSS custom property declarations.</summary>
 	internal string ThemeCss
@@ -110,42 +144,163 @@ internal sealed class DesignServer : IDisposable
 	public void Dispose()
 	{
 		_stop.Cancel();
-		_listener.Stop();
+		StopListening();
 		foreach ( var design in _designs.Values )
 			design.Dispose();
 		_designs.Clear();
 		_stop.Dispose();
 	}
 
-	/// <summary>Accepts connections until the server stops.</summary>
-	private async Task AcceptAsync()
+	/// <summary>Checks ownership every second until the server stops.</summary>
+	private async Task WatchOwnershipAsync()
 	{
 		while ( !_stop.IsCancellationRequested )
+		{
+			try
+			{
+				await Task.Delay( OwnershipCheckMs, _stop.Token ).ConfigureAwait( false );
+			}
+			catch ( OperationCanceledException )
+			{
+				return;
+			}
+			UpdateOwnership();
+		}
+	}
+
+	/// <summary>Gives the port up when this process should not own it, and takes it when it should and it is free; listens on a free port instead while a
+	/// foreign program holds it.</summary>
+	internal void UpdateOwnership()
+	{
+		bool wants;
+		try
+		{
+			wants = WantsPort();
+		}
+		catch ( Exception error ) when ( error is not OutOfMemoryException )
+		{
+			return;
+		}
+
+		lock ( _listenerLock )
+		{
+			if ( _stop.IsCancellationRequested )
+				return;
+
+			var isOwner = _listener is not null && _fallbackPort == 0;
+			if ( isOwner && !wants )
+			{
+				StopListeningLocked();
+				return;
+			}
+			if ( isOwner || !wants )
+				return;
+
+			if ( TryListen( _port ) )
+			{
+				// A foreign program let the port go: studios name it again.
+				_fallbackPort = 0;
+				return;
+			}
+			if ( _listener is not null || IsLoknListening() )
+				return;
+
+			// A program other than Loom holds the port, so this server takes any free one.
+			if ( TryListen( 0 ) )
+				_fallbackPort = ((IPEndPoint)_listener!.LocalEndpoint).Port;
+		}
+	}
+
+	/// <summary>Starts listening on a port, replacing a fallback listener; false when the port is taken.</summary>
+	private bool TryListen( int port )
+	{
+		var listener = new TcpListener( IPAddress.Loopback, port );
+		try
+		{
+			listener.Start();
+		}
+		catch ( SocketException )
+		{
+			return false;
+		}
+
+		StopListeningLocked();
+		_listener = listener;
+		_listening = CancellationTokenSource.CreateLinkedTokenSource( _stop.Token );
+		_ = AcceptAsync( listener, _listening.Token );
+		return true;
+	}
+
+	/// <summary>Stops listening, so open studios' event streams end and reconnect to the port's next owner.</summary>
+	private void StopListening()
+	{
+		lock ( _listenerLock )
+			StopListeningLocked();
+	}
+
+	/// <summary>Stops the current listener and its accept loop; the caller holds <see cref="_listenerLock"/>.</summary>
+	private void StopListeningLocked()
+	{
+		_listening?.Cancel();
+		_listening?.Dispose();
+		_listening = null;
+		_listener?.Stop();
+		_listener = null;
+		foreach ( var design in _designs.Values )
+			design.Signal();
+	}
+
+	/// <summary>Reports whether another Loom's design server answers on the preferred port.</summary>
+	private bool IsLoknListening()
+	{
+		try
+		{
+			using var client = new TcpClient();
+			if ( !client.ConnectAsync( IPAddress.Loopback, _port ).Wait( 500 ) )
+				return false;
+			var stream = client.GetStream();
+			stream.ReadTimeout = 500;
+			stream.Write( Encoding.ASCII.GetBytes( $"GET {ProbePath} HTTP/1.1\r\nHost: localhost:{_port}\r\nConnection: close\r\n\r\n" ) );
+			using var reader = new StreamReader( stream, Encoding.ASCII );
+			return reader.ReadToEnd().Contains( ProbeAnswer, StringComparison.Ordinal );
+		}
+		catch ( Exception error ) when ( error is IOException or SocketException or AggregateException or ObjectDisposedException )
+		{
+			return false;
+		}
+	}
+
+	/// <summary>Accepts connections until the listener stops.</summary>
+	private async Task AcceptAsync( TcpListener listener, CancellationToken cancellation )
+	{
+		while ( !cancellation.IsCancellationRequested )
 		{
 			TcpClient client;
 			try
 			{
-				client = await _listener.AcceptTcpClientAsync( _stop.Token );
+				client = await listener.AcceptTcpClientAsync( cancellation );
 			}
-			catch ( Exception error ) when ( error is OperationCanceledException or ObjectDisposedException or SocketException )
+			catch ( Exception error ) when ( error is OperationCanceledException or ObjectDisposedException or SocketException or InvalidOperationException )
 			{
 				return;
 			}
-			_ = HandleAsync( client );
+			_ = HandleAsync( client, cancellation );
 		}
 	}
 
-	/// <summary>Answers one request and closes the connection, except an event stream, which stays open.</summary>
-	private async Task HandleAsync( TcpClient client )
+	/// <summary>Answers one request and closes the connection, except an event stream, which stays open until its listener stops.</summary>
+	/// <param name="client">The connection.</param>
+	/// <param name="cancellation">Stops when the listener stops, as when this process gives the port up, so open studios reconnect to its next owner.</param>
+	private async Task HandleAsync( TcpClient client, CancellationToken cancellation )
 	{
 		using var _ = client;
 		try
 		{
 			var stream = client.GetStream();
-			var request = await ReadRequestAsync( stream, _stop.Token );
+			var request = await ReadRequestAsync( stream, cancellation );
 			if ( request is null )
 				return;
-			await RouteAsync( request, stream );
+			await RouteAsync( request, stream, cancellation );
 		}
 		catch ( Exception error ) when ( error is IOException or SocketException or OperationCanceledException or ObjectDisposedException )
 		{
@@ -153,8 +308,13 @@ internal sealed class DesignServer : IDisposable
 	}
 
 	/// <summary>Answers a request.</summary>
-	private async Task RouteAsync( HttpRequest request, NetworkStream stream )
+	private async Task RouteAsync( HttpRequest request, NetworkStream stream, CancellationToken cancellation )
 	{
+		if ( request.Path == ProbePath )
+		{
+			await WriteTextAsync( stream, 200, ProbeAnswer );
+			return;
+		}
 		if ( !IsLoopbackHost( request.Headers.GetValueOrDefault( "host" ) ) )
 		{
 			await WriteTextAsync( stream, 421, "This server answers only localhost addresses." );
@@ -223,7 +383,7 @@ internal sealed class DesignServer : IDisposable
 					chat = chat is null ? null : new { title = chat.Title, busy = chat.IsBusy } } );
 				return;
 			case "api/events":
-				await StreamEventsAsync( stream, design );
+				await StreamEventsAsync( stream, design, cancellation );
 				return;
 			case "api/export":
 				var variant = arguments.GetValueOrDefault( "v" ) ?? "";
@@ -246,7 +406,7 @@ internal sealed class DesignServer : IDisposable
 
 		if ( rest.StartsWith( "f/", StringComparison.Ordinal ) && store.ResolveFile( rest[2..] ) is { } found )
 		{
-			await WriteAsync( stream, 200, GetContentType( found ), await File.ReadAllBytesAsync( found, _stop.Token ), [("Cache-Control", "no-store")] );
+			await WriteAsync( stream, 200, GetContentType( found ), await File.ReadAllBytesAsync( found, cancellation ), [("Cache-Control", "no-store")] );
 			return;
 		}
 		await WriteTextAsync( stream, 404, "Not found." );
@@ -306,22 +466,22 @@ internal sealed class DesignServer : IDisposable
 		: [];
 
 	/// <summary>Sends <c>change</c> events while the design's files change, until the studio leaves or the server stops.</summary>
-	private async Task StreamEventsAsync( NetworkStream stream, ServedDesign design )
+	private async Task StreamEventsAsync( NetworkStream stream, ServedDesign design, CancellationToken cancellation )
 	{
-		await stream.WriteAsync( Encoding.ASCII.GetBytes( "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n: open\n\n" ), _stop.Token );
+		await stream.WriteAsync( Encoding.ASCII.GetBytes( "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n: open\n\n" ), cancellation );
 		var version = design.Version;
-		while ( !_stop.IsCancellationRequested )
+		while ( !cancellation.IsCancellationRequested )
 		{
 			var changed = design.WaitAsync( version );
-			var finished = await Task.WhenAny( changed, Task.Delay( KeepAliveMs, _stop.Token ) );
+			var finished = await Task.WhenAny( changed, Task.Delay( KeepAliveMs, cancellation ) );
 			if ( finished == changed )
 			{
 				version = design.Version;
-				await stream.WriteAsync( Encoding.ASCII.GetBytes( $"event: change\ndata: {{\"files\":{(design.FilesChanged ? "true" : "false")}}}\n\n" ), _stop.Token );
+				await stream.WriteAsync( Encoding.ASCII.GetBytes( $"event: change\ndata: {{\"files\":{(design.FilesChanged ? "true" : "false")}}}\n\n" ), cancellation );
 			}
 			else
 			{
-				await stream.WriteAsync( ": alive\n\n"u8.ToArray(), _stop.Token );
+				await stream.WriteAsync( ": alive\n\n"u8.ToArray(), cancellation );
 			}
 		}
 	}

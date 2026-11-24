@@ -23,8 +23,16 @@ public sealed partial class DesignModule
 	/// <summary>Gets the file the remembered designs are kept in, in the data folder.</summary>
 	private static string KnownPath => LoknPaths.Combine( "designs.json" );
 
-	/// <summary>Reads the remembered designs; none when the file is missing or does not parse.</summary>
+	/// <summary>Reads the remembered designs, merged with those already in memory, keeping each design's latest use; the window and the daemon share the file.</summary>
 	private void LoadKnown()
+	{
+		var read = ReadKnownFile();
+		lock ( _knownLock )
+			Merge( read );
+	}
+
+	/// <summary>Reads the file's remembered designs by token; none when the file is missing or does not parse.</summary>
+	private static Dictionary<string, KnownDesign> ReadKnownFile()
 	{
 		List<KnownDesign> list = [];
 		try
@@ -35,16 +43,30 @@ public sealed partial class DesignModule
 		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException or JsonException )
 		{
 		}
-		lock ( _knownLock )
-			_known = list.Where( item => item.Name.Length > 0 && Path.IsPathFullyQualified( item.Folder ) ).ToDictionary( item => new DesignStore( item.Name, item.Folder ).Token, StringComparer.Ordinal );
+		return list.Where( item => item.Name.Length > 0 && Path.IsPathFullyQualified( item.Folder ) )
+			.GroupBy( item => new DesignStore( item.Name, item.Folder ).Token, StringComparer.Ordinal )
+			.ToDictionary( group => group.Key, group => group.MaxBy( item => item.Used )!, StringComparer.Ordinal );
+	}
+
+	/// <summary>Adds read designs to those in memory, keeping each design's latest use; the caller holds <see cref="_knownLock"/>.</summary>
+	private void Merge( Dictionary<string, KnownDesign> read )
+	{
+		foreach ( var (token, item) in read )
+		{
+			if ( !_known.TryGetValue( token, out var held ) || held.Used < item.Used )
+				_known[token] = item;
+		}
 	}
 
 	/// <summary>Remembers a served design and, when one is known, the chat working on it; on the UI thread.</summary>
+	/// <remarks>The file is read first, so designs the other Loom process remembered since are kept.</remarks>
 	private void Remember( DesignStore store, Guid? conversation )
 	{
+		var read = ReadKnownFile();
 		List<KnownDesign> list;
 		lock ( _knownLock )
 		{
+			Merge( read );
 			var previous = _known.GetValueOrDefault( store.Token );
 			var item = new KnownDesign( store.Name, store.Folder, conversation ?? previous?.Conversation, DateTimeOffset.UtcNow );
 			if ( previous is not null && previous.Conversation == item.Conversation && DateTimeOffset.UtcNow - previous.Used < TimeSpan.FromMinutes( 10 ) )
@@ -57,7 +79,7 @@ public sealed partial class DesignModule
 		try
 		{
 			Directory.CreateDirectory( Path.GetDirectoryName( KnownPath )! );
-			var temporary = KnownPath + ".tmp";
+			var temporary = KnownPath + "." + Environment.ProcessId + ".tmp";
 			File.WriteAllText( temporary, JsonSerializer.Serialize( list, KnownJson ) );
 			File.Move( temporary, KnownPath, overwrite: true );
 		}
@@ -67,11 +89,18 @@ public sealed partial class DesignModule
 	}
 
 	/// <summary>Finds a remembered design by token for the server, and links it to its chat on the UI thread; null when unknown or its folder is gone.</summary>
+	/// <remarks>A token not in memory reads the file again: the other Loom process may have opened the design, and this one owns the port now.</remarks>
 	private DesignStore? ResolveKnown( string token )
 	{
 		KnownDesign? known;
 		lock ( _knownLock )
 			known = _known.GetValueOrDefault( token );
+		if ( known is null )
+		{
+			LoadKnown();
+			lock ( _knownLock )
+				known = _known.GetValueOrDefault( token );
+		}
 		if ( known is null || !Directory.Exists( known.Folder ) )
 			return null;
 

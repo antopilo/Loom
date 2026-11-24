@@ -280,12 +280,14 @@ uses: a few hundred tokens. `design_snapshot` takes the first screen by default,
 element with `selector`, or the whole page with `fullPage`; `browser_screenshot` also
 takes a `selector` to capture one element.
 
-Loom serves the studio on `localhost` (port 47831, or another free port) of the PC
-whose chat it is. With the daemon, the daemon serves it. For a paired host's chat, the host
-serves it, and this PC's browser reaches it through the localhost forwarding. The
+Loom serves the studio on `localhost` port 47831 of the PC whose chat it is, and every studio address names that port, so
+studio tabs keep working when Loom or its daemon restarts. Of this PC's Loom processes, the one that runs the chats owns the
+port: the daemon while it runs, else the window. Each checks every second, so the window hands the port to the daemon it
+starts and takes it back when the daemon stops, and the owner serves any design either process opened (both read
+`designs.json`). Only when another program holds 47831 does Loom serve on a free port instead. For a paired host's chat,
+the host serves it, and this PC's browser reaches it through the localhost forwarding. The
 server answers only `localhost` addresses, and only the studio can change comments. A
-studio left open from an earlier session waits, and shows its design again once an agent
-opens it or writes in it.
+studio left open from an earlier session shows its design again at once, and waits only for a design no Loom knows yet.
 
 ## Terminal
 
