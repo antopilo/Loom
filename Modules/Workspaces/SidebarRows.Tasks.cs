@@ -106,7 +106,7 @@ public sealed partial class SidebarRows
 			task.IsPinned || isHovered || isMenuOpen );
 		var children = new List<Blob>
 		{
-			BuildHoverRow( task.Id, isSelected,
+			BuildHoverRow( task.Id,
 			[
 				main,
 				pin,

@@ -189,7 +189,7 @@ internal sealed partial class HistoryContent
 	private Row BuildWorktreeHeading( ProjectInfo project, WorktreeGroup group, Guid id, string name )
 	{
 		var theme = Theme.Current;
-		var row = _sidebar.BuildHoverRow( id, isSelected: false,
+		var row = _sidebar.BuildHoverRow( id,
 		[
 			new Row
 			{

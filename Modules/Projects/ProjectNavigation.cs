@@ -66,15 +66,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 		if ( shown == 0 )
 			children.Add( SidebarRows.BuildEmpty( "Add a project to give its folder a workspace of its own." ) );
 
-		return new Container
-		{
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = "Projects",
-			Padding = SidebarRows.ContentPadding,
-			Gap = 2,
-			OverflowY = Overflow.Scroll,
-			Children = children,
-		};
+		return _sidebar.BuildViewport( "Projects", children, workspaces?.CurrentTask );
 	}
 
 	/// <summary>Builds a project's bold heading with its actions and menu, then its tasks at the same indent.</summary>
@@ -89,7 +81,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 		void NewTask( string name ) => module.NewTask( context.App, project, name: name );
 		var children = new List<Blob>
 		{
-			_sidebar.BuildHoverRow( project.Id, isSelected: false,
+			_sidebar.BuildHoverRow( project.Id,
 			[
 				heading,
 				_sidebar.BuildAddButton( project.Id, $"New task in {project.Name}", () => NewTask( WorkspacesModule.NewTaskName ), isRevealed ),

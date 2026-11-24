@@ -31,6 +31,9 @@ public sealed partial class SidebarRows( PanelContext context )
 	/// <param name="hasIcon">Whether the heading shows an icon.</param>
 	public static int ComputeChildIndent( bool hasIcon ) => hasIcon ? ChildIndent : ChildIndent - GroupIconSize - Theme.Current.Spacing / 2;
 
+	/// <summary>Defines the fallback selection movement duration when the shell setting is unavailable, in milliseconds.</summary>
+	private const int DefaultMoveDuration = 140;
+
 	/// <summary>Tracks collapsed groups.</summary>
 	private readonly State<HashSet<Guid>> _collapsed = new( [] );
 
@@ -42,6 +45,9 @@ public sealed partial class SidebarRows( PanelContext context )
 
 	/// <summary>Targets each row, so a right-click menu opens at the pointer on it.</summary>
 	private readonly Dictionary<Guid, ElementHandle> _rows = [];
+
+	/// <summary>Targets the sidebar content whose selected row the moving highlight follows.</summary>
+	private readonly ElementHandle _surface = new();
 
 	/// <summary>Targets each row's … button, so its menu opens below it.</summary>
 	private readonly Dictionary<Guid, ElementHandle> _moreButtons = [];
@@ -224,6 +230,52 @@ public sealed partial class SidebarRows( PanelContext context )
 		return (heading, label);
 	}
 
+	/// <summary>Builds the scrollable sidebar around rows whose selection rectangle shares their content layer.</summary>
+	/// <param name="accessibilityName">The sidebar's accessible group name.</param>
+	/// <param name="children">The actions, groups and rows in display order.</param>
+	/// <param name="selectedId">The active row, or null when no visible row is active.</param>
+	public Container BuildViewport( string accessibilityName, List<Blob> children, Guid? selectedId ) =>
+		CreateViewport( accessibilityName, BuildSelectionContent( children, selectedId ) );
+
+	/// <summary>Builds the scrollable sidebar around content that already owns its selection layer.</summary>
+	/// <param name="accessibilityName">The sidebar's accessible group name.</param>
+	/// <param name="children">The sidebar content in display order.</param>
+	public Container BuildViewport( string accessibilityName, List<Blob> children ) =>
+		CreateViewport( accessibilityName, new Container { Key = "content", MinHeight = 0, Gap = 2, Children = children } );
+
+	/// <summary>Builds rows and their moving selection rectangle in one layer, so an outer profile animation moves them together.</summary>
+	/// <param name="children">The groups and rows in display order.</param>
+	/// <param name="selectedId">The active row, or null when no visible row is active.</param>
+	public Container BuildSelectionContent( List<Blob> children, Guid? selectedId )
+	{
+		var target = selectedId is { } id && _rows.TryGetValue( id, out var row ) ? row : null;
+		var duration = context.App.Settings.Definitions.FirstOrDefault( definition => definition.Id == "shell.move-duration" ) is { } motion
+			&& context.App.Settings.GetValue( motion ) is int configured ? configured : DefaultMoveDuration;
+		return new Container
+		{
+			Key = "content",
+			Handle = _surface,
+			MinHeight = 0,
+			Gap = 2,
+			Children =
+			[
+				Cell.Mount<SidebarSelectionInput, SidebarSelection>( "selection", new( _surface, target, duration ) ),
+				.. children,
+			],
+		};
+	}
+
+	/// <summary>Builds the common padded and clipped sidebar viewport around its content layer.</summary>
+	private static Container CreateViewport( string accessibilityName, Container content ) => new()
+	{
+		AccessibilityRole = AccessibilityRole.Group,
+		AccessibilityName = accessibilityName,
+		Padding = ContentPadding,
+		OverflowY = Overflow.Scroll,
+		OverflowX = Overflow.Hidden,
+		Children = [content],
+	};
+
 	/// <summary>Builds a group's container: its heading row and rows, set visibly apart from what comes before.</summary>
 	public static Container BuildGroup( Guid id, List<Blob> children ) => new()
 	{
@@ -234,17 +286,16 @@ public sealed partial class SidebarRows( PanelContext context )
 		Children = children,
 	};
 
-	/// <summary>Builds a row highlighted edge to edge while selected, under the pointer or showing its menu or + grid, with its actions inside the highlight; right-clicking it opens its menu at the pointer.</summary>
+	/// <summary>Builds a row highlighted edge to edge under the pointer or while showing its menu or + grid, with its actions inside the highlight; right-clicking it opens its menu at the pointer.</summary>
 	/// <param name="id">The row.</param>
-	/// <param name="isSelected">Whether the row is highlighted as the open item.</param>
 	/// <param name="children">The row's content and actions.</param>
 	/// <param name="order">The row's place among rows the user reorders by dragging, which then drop on it; null for a row that stays put.</param>
-	public Row BuildHoverRow( Guid id, bool isSelected, List<Blob> children, RowOrder? order = null ) => new()
+	public Row BuildHoverRow( Guid id, List<Blob> children, RowOrder? order = null ) => new()
 	{
 		Handle = _rows.TryGetValue( id, out var known ) ? known : _rows[id] = new ElementHandle(),
 		AlignItems = AlignItems.Center,
 		BorderRadius = Theme.Current.Radius,
-		BackgroundColor = isSelected || _hovered.Value == id || _menu.Value == id || _starters.Value == id ? Theme.Current.Hover : Color.Transparent,
+		BackgroundColor = _hovered.Value == id || _menu.Value == id || _starters.Value == id ? Theme.Current.Hover : Color.Transparent,
 		DropTarget = order is null ? null : BuildRowDrop( id, order ),
 		OnPointerEnter = _ => UpdateHovered( id ),
 		OnPointerLeave = _ =>
@@ -369,5 +420,117 @@ public sealed partial class SidebarRows( PanelContext context )
 	{
 		if ( _hovered.Value != id )
 			_hovered.Value = id;
+	}
+}
+
+/// <summary>Supplies the sidebar content and selected row that its moving selection rectangle follows.</summary>
+/// <param name="Surface">The content that owns the absolute selection rectangle.</param>
+/// <param name="Target">The selected row, or null when none is visible.</param>
+/// <param name="Duration">The movement duration in milliseconds.</param>
+internal sealed record SidebarSelectionInput( ElementHandle Surface, ElementHandle? Target, int Duration );
+
+/// <summary>Describes the selected row in sidebar-content coordinates.</summary>
+/// <param name="Left">The selected row's left edge.</param>
+/// <param name="Top">The selected row's top edge.</param>
+/// <param name="Width">The selected row's width.</param>
+/// <param name="Height">The selected row's height.</param>
+internal readonly record struct SidebarSelectionBounds( double Left, double Top, double Width, double Height );
+
+/// <summary>Draws one rectangle behind the selected sidebar row and moves it when that row changes.</summary>
+internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
+{
+	/// <summary>Stores the selected row's latest bounds and rebuilds when placement changes them.</summary>
+	private readonly State<SidebarSelectionBounds?> _bounds = new( null );
+
+	/// <summary>Stores the followed sidebar content while mounted.</summary>
+	private ElementHandle? _surface;
+
+	/// <summary>Stores the followed selected row while mounted.</summary>
+	private ElementHandle? _target;
+
+	/// <summary>Tracks whether geometry subscriptions are active.</summary>
+	private bool _mounted;
+
+	/// <summary>Follows a replacement selected row.</summary>
+	protected override void InputChanged( SidebarSelectionInput input )
+	{
+		if ( _mounted )
+			Follow( input );
+	}
+
+	/// <summary>Starts following the sidebar and selected row once their handles can mount.</summary>
+	protected override void Mounted()
+	{
+		_mounted = true;
+		Follow( Input );
+	}
+
+	/// <summary>Stops following sidebar geometry.</summary>
+	protected override void Unmounting()
+	{
+		_mounted = false;
+		Unfollow();
+	}
+
+	/// <summary>Builds the selected row's rectangle, or an empty keyed declaration until its geometry exists.</summary>
+	protected override Blob BuildView( SidebarSelectionInput input )
+	{
+		if ( _bounds.Value is not { } bounds )
+			return new Container { Key = "empty-selection", Position = PositionType.Absolute, Width = 0, Height = 0, HitTestSelf = false };
+
+		return new Container
+		{
+			Key = "selection",
+			Position = PositionType.Absolute,
+			Left = bounds.Left,
+			Top = bounds.Top,
+			Width = bounds.Width,
+			Height = bounds.Height,
+			BorderRadius = Theme.Current.Radius,
+			BackgroundColor = Theme.Current.Hover,
+			HitTestSelf = false,
+			LayoutTransition = input.Duration > 0 ? new( input.Duration, Easing.EaseOut ) : null,
+		};
+	}
+
+	/// <summary>Subscribes to the current content and selected row, then reads their geometry.</summary>
+	private void Follow( SidebarSelectionInput input )
+	{
+		Unfollow();
+		_surface = input.Surface;
+		_target = input.Target;
+		_surface.MetricsChanged += UpdateMetrics;
+		if ( _target is not null )
+			_target.MetricsChanged += UpdateMetrics;
+		UpdateBounds();
+	}
+
+	/// <summary>Releases current geometry subscriptions.</summary>
+	private void Unfollow()
+	{
+		if ( _surface is not null )
+			_surface.MetricsChanged -= UpdateMetrics;
+		if ( _target is not null )
+			_target.MetricsChanged -= UpdateMetrics;
+		_surface = null;
+		_target = null;
+	}
+
+	/// <summary>Updates the selection bounds after either followed element moves.</summary>
+	private void UpdateMetrics( ElementMetrics _ ) => UpdateBounds();
+
+	/// <summary>Stores the selected row's bounds relative to the sidebar content.</summary>
+	private void UpdateBounds()
+	{
+		SidebarSelectionBounds? bounds = null;
+		if ( _surface is { IsMounted: true } surface && _target is { IsMounted: true } target )
+		{
+			var surfaceBox = surface.BorderBox;
+			var targetBox = target.BorderBox;
+			bounds = new( targetBox.X - surfaceBox.X, targetBox.Y - surfaceBox.Y, targetBox.Width, targetBox.Height );
+		}
+
+		if ( _bounds.Value != bounds )
+			_bounds.Value = bounds;
 	}
 }

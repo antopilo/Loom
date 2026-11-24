@@ -408,7 +408,7 @@ internal static class ConversationChecks
 		// The profile's rows sit inside the profile slide's mounted input.
 		static IEnumerable<Blob> Expand( Blob row ) => row.GetType().GetFields( System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public )
 			.Select( field => field.GetValue( row ) ).OfType<ProfileSlideInput>().FirstOrDefault() is { Content: Container { Children: var inner } } ? inner : [row];
-		List<Blob> ReadScratch() => sidebar.Build() is Container { Children: var rows }
+		List<Blob> ReadScratch() => sidebar.Build() is Container { Children: [Container { Key: "content", Children: var rows }] }
 			? [.. rows.SelectMany( Expand ).SkipWhile( row => row is not Text { Content: ConversationsModule.ChatsTitle } ).Skip( 1 )]
 			: [];
 		var folded = ReadScratch();

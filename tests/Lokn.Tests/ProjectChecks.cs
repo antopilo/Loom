@@ -148,7 +148,7 @@ internal static class ProjectChecks
 		// The project's group holds its heading row and its one task at the same level; the tasks outside projects follow under Tasks.
 		var task = workspaces.Tasks( ProjectsModule.SessionKey( project.Id ) ).Single();
 		var taskList = app.Slots.Get( ShellSlots.Sidebar ).Single( item => item.ModuleId == "workspaces" ).Content;
-		CoreChecks.Check( sidebar.Build() is Container { Children: var rows }
+		CoreChecks.Check( sidebar.Build() is Container { Children: [Container { Key: "content", Children: var rows }] }
 			&& rows.OfType<Container>().SingleOrDefault( row => row.Key == project.Id.ToString() ) is { Children: [Row, Container { Key: var taskKey }] } && taskKey == task.Id.ToString()
 			&& rows.Any( row => row is Text { Content: "Tasks" } ) && taskList.Build() is Container { Children: [] },
 			"The project sidebar lists each project with its tasks and then the tasks outside projects, and the Workspaces list steps aside." );

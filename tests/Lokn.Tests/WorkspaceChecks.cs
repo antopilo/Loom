@@ -111,7 +111,7 @@ internal static class WorkspaceChecks
 		var main = module.CurrentTask;
 		var notes = module.NewTask( app, WorkspacesModule.HomeSession, WorkspacesModule.HomeTitle, app.Panels.HideAll );
 		var sidebar = app.Slots.Get( ShellSlots.Sidebar ).Single( item => item.ModuleId == "workspaces" ).Content;
-		CoreChecks.Check( sidebar.Build() is Container { Children: var rows } && rows.Any( row => row is Text { Content: "Tasks" } ) && rows.Count( row => row is Container { Key: { } key } && (key == main.ToString() || key == notes.ToString()) ) == 2,
+		CoreChecks.Check( sidebar.Build() is Container { Children: [Container { Key: "content", Children: var rows }] } && rows.Any( row => row is Text { Content: "Tasks" } ) && rows.Count( row => row is Container { Key: { } key } && (key == main.ToString() || key == notes.ToString()) ) == 2,
 			"Without Projects, the sidebar lists the tasks outside projects under Tasks." );
 
 		module.OpenSession( app, "project:a", "Alpha", app.Panels.HideAll );

@@ -48,15 +48,8 @@ internal sealed class WorkspaceNavigation( PanelContext context, WorkspacesModul
 		if ( _sidebar.AddHomeTasks( module, children ) == 0 )
 			children.Add( SidebarRows.BuildEmpty( "Start a task to organize your work." ) );
 
-		return new Container
-		{
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = "Tasks",
-			Padding = SidebarRows.ContentPadding,
-			Gap = 2,
-			OverflowY = Overflow.Scroll,
-			Children = children,
-		};
+		return _sidebar.BuildViewport( "Tasks", children,
+			module.CurrentSession == WorkspacesModule.HomeSession ? module.CurrentTask : null );
 	}
 
 	/// <summary>Builds the tab strip: the Tasks group, then the + that starts a task outside projects; nothing while Projects shows them.</summary>

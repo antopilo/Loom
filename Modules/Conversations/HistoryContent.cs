@@ -92,21 +92,14 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		if ( shown == 0 && ungrouped.Length == 0 )
 			rows.Add( SidebarRows.BuildEmpty( host.IsSynced ? "Start a chat or add a project to organize your work." : $"Waiting for {host.Name}'s chats…" ) );
 
-		children.Add( Cell.Mount<ProfileSlideInput, ProfileSlide>( "profile-rows", new( profile, new Container { MinHeight = 0, Gap = 2, Children = rows } ) ) );
+		var selected = module.GetSelected( context.App );
+		var selectedId = selected is { } active && active.HostId == host.Id ? active.ConversationId : (Guid?)null;
+		var profileRows = _sidebar.BuildSelectionContent( rows, selectedId );
+		children.Add( Cell.Mount<ProfileSlideInput, ProfileSlide>( "profile-rows", new( profile, profileRows ) ) );
 		if ( HostFolderPrompt.Build( context ) is { } prompt )
 			children.Add( prompt );
 		ReleaseWorktreeWatches();
-		return new Container
-		{
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = "Conversation history",
-			Padding = SidebarRows.ContentPadding,
-			Gap = 2,
-			OverflowY = Overflow.Scroll,
-			// The swipe stays inside the sidebar rather than painting over the workspace.
-			OverflowX = Overflow.Hidden,
-			Children = children,
-		};
+		return _sidebar.BuildViewport( "Conversation history", children );
 	}
 
 	/// <summary>Builds a project's heading (chevron, icon, name that opens its overview, chat count, then its tools, pull requests and menu in fixed
@@ -135,7 +128,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var mark = isCollapsed ? BuildStateMark( listed.Select( conversation => host.Ref( conversation.Id ) ).ToArray() ) : null;
 		var tools = isFlat && host.IsLocal ? BuildTools( project, project.Directory, conversations ) : null;
 		var pullRequests = host.IsLocal ? BuildPullRequests( project, conversations ) : null;
-		var row = _sidebar.BuildHoverRow( project.Id, isSelected: false,
+		var row = _sidebar.BuildHoverRow( project.Id,
 		[
 			heading,
 			BuildEndColumns( project.Id, $"{project.Name} options", tools, pullRequests, mark ),
@@ -223,7 +216,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 	private void AddScratch( ConversationInfo[] ungrouped, ConversationInfo[] archived, List<Blob> children )
 	{
 		var title = ConversationsModule.ChatsTitle;
-		children.Add( archived.Length == 0 ? (Blob)SidebarRows.BuildSectionHeading( title ) : _sidebar.BuildHoverRow( ScratchMenuId, isSelected: false,
+		children.Add( archived.Length == 0 ? (Blob)SidebarRows.BuildSectionHeading( title ) : _sidebar.BuildHoverRow( ScratchMenuId,
 		[
 			SidebarRows.BuildSectionHeading( title ),
 			new Container { FlexGrow = 1 },
@@ -350,7 +343,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		}
 
 		var mark = isWorking ? BuildWorkingMark() : isWaiting ? BuildWaitingDot() : conversation.IsPinned ? BuildPinMark() : null;
-		var row = _sidebar.BuildHoverRow( conversation.Id, module.GetSelected( context.App ) == chat,
+		var row = _sidebar.BuildHoverRow( conversation.Id,
 		[
 			main,
 			BuildStateColumn( conversation.Id, $"{conversation.Title} options", mark ),

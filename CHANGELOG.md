@@ -12,6 +12,7 @@ version being packed. Write for users: what changed for them, not how.
 - **Project icons.** Projects without an icon image can use an emoji, and paired hosts' projects show their icons.
 - **Design studio** opens in a new tab when no panel shows it, and **agent browser pages** open in the window that
   shows the chat.
+- **Animated sidebar selection.** One highlight now slides between active chats and tasks, like the Settings page selection.
 
 ## 0.4.17
 
