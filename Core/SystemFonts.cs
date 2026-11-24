@@ -26,7 +26,7 @@ public static partial class SystemFonts
 		["segoeuii.ttf"] = "Segoe UI,sans-serif",
 		["seguisbi.ttf"] = "Segoe UI,sans-serif",
 		["segoeuiz.ttf"] = "Segoe UI,sans-serif",
-		["seguisym.ttf"] = "Segoe UI Symbol,sans-serif",
+		["seguisym.ttf"] = "Segoe UI Symbol,DejaVu Sans,sans-serif",
 		["seguiemj.ttf"] = "Segoe UI Emoji,emoji",
 		["SegoeIcons.ttf"] = SegoeIconsFamily,
 		["consola.ttf"] = "Consolas,monospace",

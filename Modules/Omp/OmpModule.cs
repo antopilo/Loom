@@ -8,7 +8,7 @@ public sealed class OmpModule : ILoknModule, IAgentService
 {
 	/// <summary>Defines the Omp executable path, inherited independently by both profiles.</summary>
 	public static readonly Setting<string> Executable = new(
-		"omp.executable", "Omp executable", "Path to omp.exe, or its name on PATH.",
+		"omp.executable", "Omp executable", OperatingSystem.IsWindows() ? "Path to omp.exe, or its name on PATH." : "Path to omp, or its name on PATH.",
 		OmpService.DefaultExecutable, "Omp", value => !string.IsNullOrWhiteSpace( value ) );
 
 	/// <summary>Defines the named Omp credential profile; blank selects work or personal automatically.</summary>

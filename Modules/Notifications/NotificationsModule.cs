@@ -29,9 +29,10 @@ public sealed class NotificationsModule : ILoknModule
 	/// <summary>Declares the kind and opener points and registers the alert settings, the feed panel, the titlebar bell, the open command and the feed route.</summary>
 	public void Register( ModuleBuilder builder )
 	{
+		builder.Setting( NotificationSettings.Sound );
+		if ( OperatingSystem.IsWindows() )
+			builder.Setting( NotificationSettings.Desktop );
 		builder
-			.Setting( NotificationSettings.Sound )
-			.Setting( NotificationSettings.Desktop )
 			.ExtensionPoint<NotificationKind>( "kinds" )
 			.ExtensionPoint<NotificationOpener>( "openers" )
 			.ExtensionPoint<NotificationPromptSource>( "prompts" )
