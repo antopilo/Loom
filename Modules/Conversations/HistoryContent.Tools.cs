@@ -139,7 +139,8 @@ internal sealed partial class HistoryContent
 		return known;
 	}
 
-	/// <summary>Builds a heading's right side in fixed columns: its tools, its pull requests, then its state or … column.</summary>
+	/// <summary>Builds a heading's right side in fixed columns: its tools, its pull requests, then its state or … column; an empty tools or pull
+	/// requests column takes no width, so the name keeps the space.</summary>
 	/// <param name="id">The row, whose menu the … button opens.</param>
 	/// <param name="menuName">The menu's accessible name, such as "Lokn options".</param>
 	/// <param name="tools">The folder's tools, or null for none.</param>
@@ -156,17 +157,17 @@ internal sealed partial class HistoryContent
 			new Row
 			{
 				Key = "tools-column",
-				Width = ToolSize * ToolTitles.Length + ToolGap * (ToolTitles.Length - 1),
+				Width = tools is null ? 0 : ToolSize * ToolTitles.Length + ToolGap * (ToolTitles.Length - 1),
 				JustifyContent = JustifyContent.FlexEnd,
 				Children = tools is null ? [] : [tools],
 			},
-			new Container { Key = "pr-column", Width = ToolSize, Children = pullRequests is null ? [] : [pullRequests] },
+			new Container { Key = "pr-column", Width = pullRequests is null ? 0 : ToolSize, Children = pullRequests is null ? [] : [pullRequests] },
 			BuildStateColumn( id, menuName, mark ),
 		],
 	};
 
 	/// <summary>Builds a row's state column: its state mark at rest, and its … button over it, shown while the pointer is on the row or its menu is open and
-	/// otherwise see-through yet focusable, so the keyboard still reaches the menu.</summary>
+	/// otherwise see-through yet focusable, so the keyboard still reaches the menu. Without a mark at rest it takes no width, so the title uses the space.</summary>
 	private Container BuildStateColumn( Guid id, string menuName, Blob? mark )
 	{
 		var isRevealed = _sidebar.IsHovered( id ) || _sidebar.IsMenuOpen( id );
@@ -174,7 +175,7 @@ internal sealed partial class HistoryContent
 		more.Width = StateWidth;
 		more.Height = ToolSize;
 		more.Position = PositionType.Absolute;
-		more.Left = 0;
+		more.Right = 0;
 		more.Top = 0;
 		var children = new List<Blob>();
 		if ( !isRevealed && mark is not null )
@@ -183,7 +184,7 @@ internal sealed partial class HistoryContent
 		return new Container
 		{
 			Key = "state",
-			Width = StateWidth,
+			Width = isRevealed || mark is not null ? StateWidth : 0,
 			Height = ToolSize,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,

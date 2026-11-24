@@ -123,7 +123,9 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var isFlat = groups.All( group => group.IsMain );
 		var listed = conversations.Where( conversation => !IsToolTask( conversation ) ).ToArray();
 		var hasOverview = context.App.Modules.Any( loaded => loaded.Id == OverviewModuleId );
-		var heading = Projects.BuildHeading( project, module.Projects.GetIcon( project, host.Id ), isCollapsed,
+		var icon = module.Projects.GetIcon( project, host.Id );
+		var indent = SidebarRows.ComputeChildIndent( icon is not null );
+		var heading = Projects.BuildHeading( project, icon, isCollapsed,
 			hasOverview ? $"{project.Name}, open overview{(isTidying ? ", tidying" : "")}" : $"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}",
 			isTidying ? [Cell.Mount<Color, ActivityOrb>( "tidying", Theme.Current.Accent )] : null,
 			// Without the overview, the name folds the project like its chevron, so the heading keeps its layout either way.
@@ -163,10 +165,10 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		if ( _tidyPlan.Value.ProjectId == project.Id )
 			children.Add( BuildTidy( project, _tidyPlan.Value ) );
 		if ( _openArchive.Value == project.Id )
-			AddArchived( archived, children, SidebarRows.ChildIndent );
+			AddArchived( archived, children, indent );
 
 		if ( !isCollapsed )
-			AddProjectChats( project, groups, worktrees, worktreeActions, children );
+			AddProjectChats( project, groups, worktrees, worktreeActions, indent, children );
 
 		return SidebarRows.BuildGroup( project.Id, children );
 	}

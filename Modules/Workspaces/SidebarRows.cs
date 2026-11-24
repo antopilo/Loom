@@ -27,6 +27,10 @@ public sealed partial class SidebarRows( PanelContext context )
 	/// <summary>Defines how far a group's rows are inset so their titles start where the linked heading's name does: past the chevron and the icon column.</summary>
 	public const int ChildIndent = ChevronColumn + GroupIconSize;
 
+	/// <summary>Gets how far a group's rows are inset so their titles start where its linked heading's name does: past the icon column only when the group has an icon.</summary>
+	/// <param name="hasIcon">Whether the heading shows an icon.</param>
+	public static int ComputeChildIndent( bool hasIcon ) => hasIcon ? ChildIndent : ChildIndent - GroupIconSize - Theme.Current.Spacing / 2;
+
 	/// <summary>Tracks collapsed groups.</summary>
 	private readonly State<HashSet<Guid>> _collapsed = new( [] );
 
@@ -145,7 +149,7 @@ public sealed partial class SidebarRows( PanelContext context )
 	/// then the bold name with an optional muted count, which opens it.</summary>
 	/// <param name="id">The group, whose folding <see cref="IsCollapsed"/> reports.</param>
 	/// <param name="name">The group's name.</param>
-	/// <param name="icon">The icon before the name, or null for none; it takes its column either way, so names line up.</param>
+	/// <param name="icon">The icon before the name, or null for none, which leaves no empty column, so the name starts after the chevron.</param>
 	/// <param name="isCollapsed">Whether the chevron shows the group folded.</param>
 	/// <param name="accessibilityName">The name's accessible name, such as "Lokn, open overview".</param>
 	/// <param name="open">Runs when the name is clicked.</param>
@@ -187,14 +191,14 @@ public sealed partial class SidebarRows( PanelContext context )
 		label.Padding = new Edges( 0, theme.Spacing / 2 );
 		label.Children =
 		[
-			new Container
+			.. icon is null ? Array.Empty<Blob>() : [new Container
 			{
 				Key = "icon",
 				Width = GroupIconSize,
 				FlexShrink = 0,
 				AlignItems = AlignItems.Center,
-				Children = icon is null ? [] : [icon],
-			},
+				Children = [icon],
+			}],
 			new Text
 			{
 				Content = name,

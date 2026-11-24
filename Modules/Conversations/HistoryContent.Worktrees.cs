@@ -144,14 +144,14 @@ internal sealed partial class HistoryContent
 	/// <param name="worktrees">The working trees of the project's repository, or null when they are not known.</param>
 	/// <param name="actions">The worktree operations, or null while Worktrees is not loaded or the host is a paired one.</param>
 	/// <param name="children">The rows to add to.</param>
-	private void AddProjectChats( ProjectInfo project, IReadOnlyList<WorktreeGroup> groups, IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? actions, List<Blob> children )
+	private void AddProjectChats( ProjectInfo project, IReadOnlyList<WorktreeGroup> groups, IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? actions, int indent, List<Blob> children )
 	{
 		// A paired host's worktrees are grouped by the folder its chats work in: its disk and its Worktrees panel are not this PC's, so neither the git
 		// listing nor the worktree actions apply there.
 		var isLocal = Host.IsLocal;
 		if ( groups.All( group => group.IsMain ) )
 		{
-			AddChats( groups.SelectMany( group => group.Conversations ), "", children );
+			AddChats( groups.SelectMany( group => group.Conversations ), "", indent, children );
 			return;
 		}
 
@@ -170,16 +170,18 @@ internal sealed partial class HistoryContent
 			}
 			if ( actions is not null && _removingWorktree.Value.Length > 0 && ConversationStore.IsSameFolder( _removingWorktree.Value, group.Directory ) )
 				children.Add( BuildRemoveWorktree( project, group, name, actions, mainPath ) );
-			AddChats( group.Conversations, group.Directory, children );
+			// Worktree labels keep the icon column for their branch icon, so their chats line up with them.
+			AddChats( group.Conversations, group.Directory, SidebarRows.ChildIndent, children );
 		}
 	}
 
 	/// <summary>Adds a list's chats inset under their project's name, its tools' tasks left out; each keeps its place among the listed ones for dragging.</summary>
-	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, List<Blob> children )
+	/// <param name="indent">How far the rows are inset, such as <see cref="SidebarRows.ComputeChildIndent"/>.</param>
+	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, int indent, List<Blob> children )
 	{
 		var index = 0;
 		foreach ( var conversation in conversations.Where( conversation => !IsToolTask( conversation ) ) )
-			children.Add( BuildConversation( conversation, index++, list, SidebarRows.ChildIndent ) );
+			children.Add( BuildConversation( conversation, index++, list, indent ) );
 	}
 
 	/// <summary>Builds the label of a worktree: a branch icon in the project icon's column, its branch or folder name, then on This PC its tools, and its …

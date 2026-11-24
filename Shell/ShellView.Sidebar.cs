@@ -10,7 +10,7 @@ internal sealed partial class ShellView
 	private const int SidebarEdgeWidth = 6;
 
 	/// <summary>Defines the width of the window's left edge that brings the hidden sidebar out, in logical pixels.</summary>
-	private const int PeekEdgeWidth = 8;
+	private const int PeekEdgeWidth = 16;
 
 	/// <summary>Defines how long the pointer rests at the edge before the hidden sidebar comes out, in milliseconds, so crossing the edge does nothing.</summary>
 	private const double PeekShowMs = 60;
