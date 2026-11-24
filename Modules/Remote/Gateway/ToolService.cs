@@ -14,7 +14,7 @@ namespace Lokn.Modules.Remote;
 /// browser: the host's own browser tools run there when Loom on this PC does not offer them. A call waits until the client answers, the agent cancels
 /// it or the connection closes; there is no timeout of its own, as the registry has none.
 /// </remarks>
-internal sealed class ToolService( LoknApplication app, Func<Action, bool> post ) : IHostService, IBrowserWindows, IDisposable
+internal sealed class ToolService( LoknApplication app, ChatService chats, Func<Action, bool> post ) : IHostService, IBrowserWindows, IDisposable
 {
 	/// <summary>Names the module whose tools a window lends for the session's browser tabs.</summary>
 	public const string BrowserModuleId = "browser";
@@ -48,12 +48,14 @@ internal sealed class ToolService( LoknApplication app, Func<Action, bool> post 
 			app.Hosts.Local.BrowserTabs.Windows = null;
 	}
 
-	/// <summary>Runs a browser tool call in the window that lends its browser: Loom on this PC first, else a paired PC whose user lets the host's agents
-	/// use its browser, the latest offer first; null when none does.</summary>
+	/// <summary>Runs a browser tool call in the window that lends its browser: the one that shows the agent's chat first, so its pages open where the
+	/// user reads the chat; else Loom on this PC; else a paired PC whose user lets the host's agents use its browser, the latest offer first; null when none does.</summary>
 	public Task<AgentToolResult>? TryRun( AgentToolContext context, string tool, JsonElement arguments )
 	{
+		var showing = chats.FindShowing( context.Caller, context.Conversation );
 		var lender = _links.Where( link => link.LentAt > 0 && !link.Connection.Peer.IsClosed )
-			.OrderBy( link => link.Connection.DeviceId == HostGateway.LocalDevice ? 0 : 1 )
+			.OrderBy( link => link.Connection == showing ? 0 : 1 )
+			.ThenBy( link => link.Connection.DeviceId == HostGateway.LocalDevice ? 0 : 1 )
 			.ThenByDescending( link => link.LentAt )
 			.FirstOrDefault();
 		return lender is null ? null : CallAsync( lender, context, tool, arguments );

@@ -566,6 +566,20 @@ public sealed partial class ChatService : IHostService, IDisposable
 		link.Pages.Clear();
 	}
 
+	/// <summary>Finds the connection that shows a chat: the one that attached it as the calling panel, else the latest to attach it; null when none
+	/// attached it. On the UI thread.</summary>
+	/// <param name="caller">The panel of the agent's tool call, or null.</param>
+	/// <param name="conversation">The agent's conversation, or null.</param>
+	internal RemoteConnection? FindShowing( Guid? caller, Guid? conversation )
+	{
+		if ( conversation is not { } id || !_chats.TryGetValue( id, out var chat ) )
+			return null;
+
+		var link = chat.Subscribers.LastOrDefault( candidate => caller is { } panel && candidate.Attached.GetValueOrDefault( id ) == panel )
+			?? chat.Subscribers.LastOrDefault();
+		return link?.Connection;
+	}
+
 	/// <summary>Follows a session's requests for the user, for web push, once per session.</summary>
 	private IChatSession Watch( Guid id, IChatSession session )
 	{

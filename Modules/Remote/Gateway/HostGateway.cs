@@ -266,7 +266,7 @@ public sealed class HostGateway
 		_ = resolutions.RestoreRecorded();
 		var streams = new StreamService { Resolutions = resolutions };
 		Streams = streams;
-		var tools = new ToolService( _app, _post );
+		var tools = new ToolService( _app, chats, _post );
 		var tabs = _app.Hosts.Local.BrowserTabs;
 		tabs.Windows = tools;
 		_services.AddRange( [chats, tools, new BrowserService( tabs, _post ), new TunnelService( ReadGatewayPorts ), new WorkspaceService( _app ), streams, push, new AdminService( this )] );

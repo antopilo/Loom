@@ -897,8 +897,10 @@ connection closes the daemon removes the offer; `AgentToolRegistry.Changed` make
 Browser tools need a window's web view. The daemon loads the Browser module, whose tools (`browser_show`,
 `browser_tabs`, `browser_navigate`, `browser_read`, `browser_act`, `browser_eval`, `browser_screenshot`) act on the
 session's tabs; in the daemon each call goes to `BrowserTabs.Windows`, which the gateway's `ToolService` is, and runs as
-a `tool.call` in a window that lends its browser: one that offered tools of module `browser`. Loom on this PC (device
-`local`) is preferred, else the paired PC that offered most recently. With none, the call returns the error "No Loom
+a `tool.call` in a window that lends its browser: one that offered tools of module `browser`. The window that shows the
+agent's chat is preferred (the connection that attached it as the call's `caller`, else the latest to attach it), so pages
+such as the design studio open where the user reads the chat; then Loom on this PC (device `local`), else the paired PC
+that offered most recently. With none, the call returns the error "No Loom
 window is open to show the browser; open Loom on this PC or on a paired device." The window runs the tool on its own
 views of the session tabs, showing a tab it does not show yet beside the chat (or in view); a `caller` that is no
 panel of that window counts as none, since the chat may be attached in another window. Offered browser tools never
