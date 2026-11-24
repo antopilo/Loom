@@ -76,6 +76,9 @@ public sealed partial class ChatContent : PanelContent
 	/// <summary>Retains expanded rich blocks by stable message and content identifiers.</summary>
 	private readonly HashSet<string> _expanded = [];
 
+	/// <summary>Retains the reasoning and activity folds the reader closed while they ran, which otherwise show open until the agent writes or stops.</summary>
+	private readonly HashSet<string> _runningClosed = [];
+
 	/// <summary>Retains editable dialog values independently of composer input.</summary>
 	private readonly Dictionary<string, TextEditorController> _dialogEditors = [];
 
@@ -105,6 +108,9 @@ public sealed partial class ChatContent : PanelContent
 
 	/// <summary>Reports whether the row being built was built before, so a tool line or image new to it arrived while it was on screen.</summary>
 	private bool _isRowLive;
+
+	/// <summary>Reports whether the row being built is the run the agent works on now, whose reasoning and activity folds show open.</summary>
+	private bool _isRowRunning;
 
 	/// <summary>Reports whether the chat is connecting so it can open the Agent Hub once.</summary>
 	private bool _isOpeningAgents;
@@ -255,6 +261,8 @@ public sealed partial class ChatContent : PanelContent
 
 		var rows = new List<TranscriptRow>( messages.Count );
 		var activity = new List<TranscriptPart>();
+		// The index of the row the last reasoning or tool run became, so the run the agent works on now shows open.
+		var lastRun = -1;
 		string? previous = null;
 		void Add( TranscriptPart[] parts, bool isActivity )
 		{
@@ -287,6 +295,7 @@ public sealed partial class ChatContent : PanelContent
 
 			// Reasoning alone keeps its own fold; a summary line only replaces runs that used tools.
 			Add( [.. activity], activity.Any( HasToolCall ) );
+			lastRun = rows.Count - 1;
 			activity.Clear();
 		}
 
@@ -348,7 +357,12 @@ public sealed partial class ChatContent : PanelContent
 		}
 		Flush();
 		if ( !session.IsBusy )
+		{
+			_runningClosed.Clear();
 			AddChanges();
+		}
+		else if ( lastRun >= 0 && lastRun == rows.Count - 1 )
+			rows[lastRun] = rows[lastRun] with { IsRunning = true };
 		return rows;
 	}
 
@@ -379,8 +393,10 @@ public sealed partial class ChatContent : PanelContent
 	{
 		var isNew = _shown.Add( row.Key );
 		_isRowLive = !_built.Add( row.Key );
+		_isRowRunning = row.IsRunning;
 		var column = BuildColumn( "message", row.Changes is { } changes ? [BuildChanges( row.Key, changes )] : row.IsActivity ? [BuildActivity( row )] : [.. row.Parts.Select( BuildMessage ).OfType<Blob>()], Theme.Current.Spacing );
 		_isRowLive = false;
+		_isRowRunning = false;
 		// Folded tool lines were not built, so they count as shown now and an opened fold does not play them.
 		foreach ( var part in row.Parts )
 			UpdateToolsShown( part );

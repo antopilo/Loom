@@ -158,7 +158,7 @@ public sealed partial class ChatContent
 		{
 			// A closed fold never shows its body, so only an open one takes part in the reveal.
 			var thinking = ReadText( block, "thinking" );
-			yield return BuildFold( key, "Reasoning", [_expanded.Contains( key ) ? BuildStreamText( key, thinking ) : MarkdownView.Build( thinking, OpenLink )], ChatIcons.ThinkingGlyph );
+			yield return BuildFold( key, "Reasoning", [IsOpen( key, true ) ? BuildStreamText( key, thinking ) : MarkdownView.Build( thinking, OpenLink )], ChatIcons.ThinkingGlyph, followsRun: true );
 		}
 		else if ( type == "toolCall" )
 			yield return BuildTool( key, block );
@@ -196,10 +196,12 @@ public sealed partial class ChatContent
 	private static IEnumerable<Blob> BuildTasks( JsonElement value ) => BuildTodo( ComputeTodo( value ) );
 
 	/// <summary>Builds a muted, collapsible line, optionally led by an icon, whose content stays available on demand.</summary>
-	private Blob BuildFold( string key, string title, IReadOnlyList<Blob> body, string glyph = "" )
+	/// <param name="followsRun">Whether the fold shows open while its row is the run the agent works on now, such as reasoning.</param>
+	private Blob BuildFold( string key, string title, IReadOnlyList<Blob> body, string glyph = "", bool followsRun = false )
 	{
-		var expanded = _expanded.Contains( key );
-		var toggle = BuildDisclosure( title, expanded, () => context.Run( () => UpdateExpanded( key ) ) );
+		var expanded = IsOpen( key, followsRun );
+		var isRunning = followsRun && _isRowRunning;
+		var toggle = BuildDisclosure( title, expanded, () => context.Run( () => UpdateOpen( key, isRunning ) ) );
 		var children = new List<Blob>
 		{
 			glyph.Length == 0 ? toggle : new Row { AlignItems = AlignItems.Center, Gap = Theme.Current.Spacing, Children = [ChatIcons.BuildIcon( glyph ), toggle] },
@@ -277,10 +279,33 @@ public sealed partial class ChatContent
 	{
 		if ( !_expanded.Add( key ) )
 			_expanded.Remove( key );
+		MarkFoldChanged( key );
+	}
+
+	/// <summary>Rebuilds the row of a fold by its key, which starts with its message identifier, or the whole transcript without one.</summary>
+	private void MarkFoldChanged( string key )
+	{
 		if ( key.Length >= 32 && Guid.TryParseExact( key.AsSpan( 0, 32 ), "N", out var messageId ) )
 			MarkRowChanged( messageId );
 		else
 			MarkChanged();
+	}
+
+	/// <summary>Reports whether a fold shows open: in the run the agent works on now, a fold that follows it unless the reader closed it; otherwise one the reader opened.</summary>
+	private bool IsOpen( string key, bool followsRun ) => followsRun && _isRowRunning ? !_runningClosed.Contains( key ) : _expanded.Contains( key );
+
+	/// <summary>Opens or closes a fold: one of the running run in its own set, so it folds as usual once the run ends; any other as <see cref="UpdateExpanded"/>.</summary>
+	private void UpdateOpen( string key, bool isRunning )
+	{
+		if ( !isRunning )
+		{
+			UpdateExpanded( key );
+			return;
+		}
+
+		if ( !_runningClosed.Add( key ) )
+			_runningClosed.Remove( key );
+		MarkFoldChanged( key );
 	}
 
 	/// <summary>Computes the final success or error label for a recorded tool result.</summary>

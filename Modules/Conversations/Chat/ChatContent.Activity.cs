@@ -33,18 +33,26 @@ public sealed partial class ChatContent
 		_ => false,
 	};
 
-	/// <summary>Builds an activity row: a summary disclosure that opens onto every reasoning fold and tool line of the run.</summary>
+	/// <summary>Builds an activity row: a summary disclosure that opens onto every reasoning fold and tool line of the run, open while the agent works on it.</summary>
 	private Container BuildActivity( TranscriptRow row )
 	{
 		var first = row.Parts[0];
 		var key = $"{first.Message.Id:N}:activity:{first.Start}";
-		var expanded = _expanded.Contains( key );
+		var isRunning = _isRowRunning;
+		var expanded = IsOpen( key, followsRun: true );
 		// A closing fold still holds its content while it fades out, but its chevron already turns closed.
-		var isClosing = _closingActivities.Contains( key );
+		var isClosing = !isRunning && _closingActivities.Contains( key );
 		var tools = row.Parts.SelectMany( ReadBlocks ).Where( block => ReadText( block, "type" ) == "toolCall" ).ToArray();
 		var statuses = tools.Select( tool => ComputeToolStatus( ReadText( tool, "id" ), out _ ) ).ToArray();
 		var summary = ComputeActivitySummary( tools );
-		var toggle = BuildActivityToggle( summary, expanded && !isClosing, () => context.Run( () => UpdateActivityExpanded( first.Message.Id, key ) ) );
+		var toggle = BuildActivityToggle( summary, expanded && !isClosing,
+			() => context.Run( () =>
+			{
+				if ( isRunning )
+					UpdateOpen( key, true );
+				else
+					UpdateActivityExpanded( first.Message.Id, key );
+			} ) );
 		var failed = statuses.Count( status => status == "Failed" );
 		// A running run spins, a failed one is crossed out, and a finished one is quietly checked.
 		var head = new List<Blob>
