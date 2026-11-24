@@ -199,7 +199,7 @@ internal sealed class EditorContent : PanelContent
 			Controller = file.Editor,
 			Layers = [file.Refresh()],
 			ScrollbarY = ViewStyle.GetScrollbar(),
-			ScrollbarX = ViewStyle.GetScrollbar(),
+			ScrollbarX = ViewStyle.GetScrollbar( horizontal: true ),
 			AccessibilityName = name,
 			AccessibilityRole = AccessibilityRole.TextEditor,
 			FontFamily = CodeFont,

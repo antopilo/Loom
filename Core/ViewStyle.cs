@@ -66,40 +66,59 @@ public static class ViewStyle
 		return font;
 	}
 
-	/// <summary>Stores the shared scrollbar of <see cref="_scrollbarTheme"/>.</summary>
-	private static Scrollbar? _scrollbar;
+	/// <summary>Stores the vertical scrollbar for the current theme.</summary>
+	private static Scrollbar? _verticalScrollbar;
 
-	/// <summary>Stores the theme <see cref="_scrollbar"/> was built in.</summary>
+	/// <summary>Stores the horizontal scrollbar for the current theme.</summary>
+	private static Scrollbar? _horizontalScrollbar;
+
+	/// <summary>Stores the theme the cached scrollbars were built in.</summary>
 	private static Theme? _scrollbarTheme;
 
-	/// <summary>Gets the theme's shared scrollbar for either axis. Goo freezes it once mounted, so do not change it.</summary>
-	/// <remarks>Goo restarts a scrollbar hidden, with no fade, whenever a build passes a different instance, so every scroll region shares this one.</remarks>
-	public static Scrollbar GetScrollbar()
+	/// <summary>Gets the theme's shared scrollbar for one axis. Goo freezes it once mounted, so do not change it.</summary>
+	/// <param name="horizontal">True for a horizontal scrollbar, false for a vertical scrollbar.</param>
+	/// <remarks>Goo hides a scrollbar without fading it when its descriptor is replaced.</remarks>
+	public static Scrollbar GetScrollbar( bool horizontal = false )
 	{
 		var theme = Theme.Current;
-		if ( _scrollbar is not null && ReferenceEquals( theme, _scrollbarTheme ) )
-			return _scrollbar;
+		if ( !ReferenceEquals( theme, _scrollbarTheme ) )
+		{
+			_verticalScrollbar = _horizontalScrollbar = null;
+			_scrollbarTheme = theme;
+		}
 
-		_scrollbarTheme = theme;
-		return _scrollbar = new Scrollbar
+		ref var scrollbar = ref (horizontal ? ref _horizontalScrollbar : ref _verticalScrollbar);
+		if ( scrollbar is not null )
+			return scrollbar;
+
+		var hover = new Style
+		{
+			BorderRadius = TrackWidth / 2.0,
+			Opacity = 0.8,
+		};
+		var thumb = new Container
+		{
+			BorderRadius = ThumbWidth / 2.0,
+			BackgroundColor = theme.Muted,
+			Opacity = 0.5,
+			HoverStyle = hover,
+		};
+		if ( horizontal )
+		{
+			thumb.Height = ThumbWidth;
+			hover.Height = TrackWidth;
+		}
+		else
+		{
+			thumb.Width = ThumbWidth;
+			hover.Width = TrackWidth;
+		}
+
+		return scrollbar = new Scrollbar
 		{
 			Thickness = TrackWidth,
 			HitThickness = TrackWidth + 4,
-			Thumb = new Container
-			{
-				Width = ThumbWidth,
-				Height = ThumbWidth,
-				BorderRadius = ThumbWidth / 2.0,
-				BackgroundColor = theme.Muted,
-				Opacity = 0.5,
-				HoverStyle = new Style
-				{
-					Width = TrackWidth,
-					Height = TrackWidth,
-					BorderRadius = TrackWidth / 2.0,
-					Opacity = 0.8,
-				},
-			},
+			Thumb = thumb,
 		};
 	}
 
