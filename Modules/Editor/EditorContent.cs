@@ -19,18 +19,10 @@ internal sealed class EditorContent : PanelContent
 	private const long MaxBytes = 16 * 1024 * 1024;
 
 	/// <summary>Defines the monospace fonts; the first installed one wins.</summary>
-	private const string CodeFont = "Cascadia Mono, Consolas, Courier New";
+	private static readonly string CodeFont = OperatingSystem.IsWindows() ? "Cascadia Mono, Consolas, Courier New" : $"Cascadia Mono, {ViewStyle.CodeFontFamily}";
 
-	/// <summary>Holds the installed Windows icon font, registered once; Goo draws only fonts registered with it.</summary>
-	private static readonly FontSource Icons = BuildIconFont();
-
-	/// <summary>Registers Segoe Fluent Icons for the header buttons.</summary>
-	private static FontSource BuildIconFont()
-	{
-		var font = FontSource.FromPath( "Lokn Editor Icons", 400, italic: false, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" ) );
-		font.Register();
-		return font;
-	}
+	/// <summary>Holds the installed icon font, registered once; Goo draws only fonts registered with it.</summary>
+	private static readonly FontSource Icons = SystemFonts.Register( "Lokn Editor Icons", 400, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Defines the header's icon button size in logical pixels.</summary>
 	private const int IconSize = 28;

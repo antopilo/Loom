@@ -12,19 +12,11 @@ namespace Lokn.Modules.Files;
 /// </remarks>
 internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 {
-	/// <summary>Holds the installed Windows icon font, registered once; Goo draws only fonts registered with it.</summary>
-	private static readonly FontSource Icons = BuildIconFont();
+	/// <summary>Holds the installed icon font, registered once; Goo draws only fonts registered with it.</summary>
+	private static readonly FontSource Icons = SystemFonts.Register( "Lokn File Icons", 400, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Gets the icon font's family.</summary>
 	internal static string IconFont => Icons.Family;
-
-	/// <summary>Registers Segoe Fluent Icons for the tree and the sidebar item.</summary>
-	private static FontSource BuildIconFont()
-	{
-		var font = FontSource.FromPath( "Lokn File Icons", 400, italic: false, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" ) );
-		font.Register();
-		return font;
-	}
 
 	/// <summary>Defines the closed folder glyph.</summary>
 	internal const string FolderGlyph = "\uE8B7";

@@ -40,7 +40,7 @@ public sealed partial class SidebarRows
 	private const double ActionHoverAlpha = 0.08;
 
 	/// <summary>Retains the registered system icon font for the sidebar and the views that draw its glyphs.</summary>
-	public static readonly FontSource IconFont = BuildIconFont();
+	public static readonly FontSource IconFont = SystemFonts.Register( "Lokn History", IconWeight, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Builds a left-aligned icon action, such as New chat or New project.</summary>
 	public Button BuildIconAction( string title, string icon, Action action )
@@ -104,13 +104,4 @@ public sealed partial class SidebarRows
 		FontSize = IconSize,
 		Color = Theme.Current.Muted,
 	};
-
-	/// <summary>Registers the installed Windows font that contains sidebar icon glyphs.</summary>
-	private static FontSource BuildIconFont()
-	{
-		var path = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" );
-		var font = FontSource.FromPath( "Lokn History", IconWeight, italic: false, path );
-		font.Register();
-		return font;
-	}
 }

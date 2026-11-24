@@ -22,8 +22,22 @@ public static class ViewStyle
 	/// <summary>Defines regular font weight on the OpenType scale.</summary>
 	private const int RegularWeight = 400;
 
+	/// <summary>Defines the registered semibold font weight on the OpenType scale.</summary>
+	private const int SemiboldWeight = 600;
+
 	/// <summary>Defines the registered bold font weight on the OpenType scale.</summary>
 	private const int BoldWeight = 700;
+
+	/// <summary>Retains the UI faces registered off Windows in regular, semibold and bold, upright and italic; Windows uses its installed Segoe UI family.</summary>
+	private static readonly FontSource[] UiFonts = OperatingSystem.IsWindows() ? [] :
+	[
+		BuildFont( "Lokn UI", "segoeui.ttf", RegularWeight, italic: false ),
+		BuildFont( "Lokn UI", "seguisb.ttf", SemiboldWeight, italic: false ),
+		BuildFont( "Lokn UI", "seguisbi.ttf", SemiboldWeight, italic: true ),
+		BuildFont( "Lokn UI", "segoeuib.ttf", BoldWeight, italic: false ),
+		BuildFont( "Lokn UI", "segoeuii.ttf", RegularWeight, italic: true ),
+		BuildFont( "Lokn UI", "segoeuiz.ttf", BoldWeight, italic: true ),
+	];
 
 	/// <summary>Retains the registered monospace face used by code and inline code.</summary>
 	private static readonly FontSource CodeFont = BuildFont( "Lokn Code", "consola.ttf", RegularWeight, italic: false );
@@ -37,17 +51,17 @@ public static class ViewStyle
 	/// <summary>Retains the registered bold italic monospace face for combined emphasis.</summary>
 	private static readonly FontSource CodeBoldItalicFont = BuildFont( "Lokn Code", "consolaz.ttf", BoldWeight, italic: true );
 
-	/// <summary>Retains the registered Windows symbol face used by checklist and folding markers.</summary>
+	/// <summary>Retains the registered symbol face used by checklist and folding markers.</summary>
 	private static readonly FontSource SymbolFont = BuildFont( "Lokn Symbols", "seguisym.ttf", RegularWeight, italic: false );
 
 	/// <summary>Retains the installed emoji face used by UTF-8 text.</summary>
 	private static readonly FontSource EmojiFont = BuildFont( "Lokn Chat Emoji", "seguiemj.ttf", RegularWeight, italic: false );
 
-	/// <summary>Retains the installed Windows icon face used by icon buttons.</summary>
+	/// <summary>Retains the installed icon face used by icon buttons.</summary>
 	private static readonly FontSource IconFont = BuildFont( "Lokn Icons", "SegoeIcons.ttf", RegularWeight, italic: false );
 
 	/// <summary>Gets the app's UI face with registered symbol and emoji fallback families.</summary>
-	public static string FontFamily => $"Segoe UI, {SymbolFont.Family}, {EmojiFont.Family}";
+	public static string FontFamily => $"{(OperatingSystem.IsWindows() ? "Segoe UI" : UiFonts[0].Family)}, {SymbolFont.Family}, {EmojiFont.Family}";
 
 	/// <summary>Gets registered monospace and Unicode fallback families for code and commands, in every weight and slant.</summary>
 	public static string CodeFontFamily => $"{CodeFont.Family}, {SymbolFont.Family}, {EmojiFont.Family}";
@@ -58,13 +72,8 @@ public static class ViewStyle
 	/// <summary>Gets the installed Segoe Fluent Icons family, for the glyphs of icon buttons.</summary>
 	internal static string IconFontFamily => IconFont.Family;
 
-	/// <summary>Registers an installed Windows font file under a family name.</summary>
-	private static FontSource BuildFont( string family, string filename, int weight, bool italic )
-	{
-		var font = FontSource.FromPath( family, weight, italic, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), filename ) );
-		font.Register();
-		return font;
-	}
+	/// <summary>Registers an installed font file, named as in the Windows Fonts folder, under a family name.</summary>
+	private static FontSource BuildFont( string family, string filename, int weight, bool italic ) => SystemFonts.Register( family, weight, italic, filename );
 
 	/// <summary>Builds a visible vertical scrollbar in the current theme; call it per build because Goo owns a mounted descriptor.</summary>
 	internal static Scrollbar BuildScrollbar()
