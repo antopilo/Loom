@@ -24,7 +24,7 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 	/// <summary>Starts and stops the placement timer as the page area comes into and out of view.</summary>
 	private readonly MotionSwitch _following;
 
-	/// <summary>Holds the placement timer while the page area is seen, or null; Goo stops it when the view unmounts.</summary>
+	/// <summary>Holds the window placement timer while the page area is seen, or null; unlike a Cell timer it does not rebuild the view after each tick.</summary>
 	private WindowTimer? _sync;
 
 	/// <summary>Stores Lokn's native window once borrowed.</summary>
@@ -65,7 +65,11 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 	private void UpdateFollowing( bool isSeen )
 	{
 		_sync?.Dispose();
-		_sync = isSeen ? Every( SyncMs, UpdatePlacement ) : null;
+		_sync = null;
+		// The switch applies on a later pump, which can come after the view unmounted.
+		if ( Lifetime.IsCancellationRequested )
+			return;
+		_sync = isSeen ? Host.Every( SyncMs, UpdatePlacement ) : null;
 		UpdatePlacement();
 	}
 
@@ -96,6 +100,7 @@ internal sealed partial class BrowserView : GuardedCell<BrowserViewInput>
 		_area.MetricsChanged -= UpdateMetrics;
 		Input.Content.Context.App.NativeSurfaceOcclusionChanged -= UpdateOcclusion;
 		Input.Content.Host.Changed -= UpdateHost;
+		_sync?.Dispose();
 		Send( null );
 		_handle = 0;
 	}

@@ -297,8 +297,9 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 	private double ComputeHeight( TRow row, Func<TRow, double> estimate ) =>
 		_measured.TryGetValue( row.Key, out var height ) || _heights.TryGetValue( row.Key, out height ) ? height : estimate( row );
 
-	/// <summary>Gets the mounted margin beyond each viewport edge: one viewport, so a page scroll never shows unbuilt rows.</summary>
-	private static double ComputeOverscan( double viewportHeight ) => Math.Max( MinimumOverscan, viewportHeight );
+	/// <summary>Gets the mounted margin beyond each viewport edge: a quarter viewport. Goo realizes again in the same frame after a scroll, so a larger
+	/// margin never shows more rows; it only mounts more off-screen rows, which Goo's scene compiler still walks every frame.</summary>
+	private static double ComputeOverscan( double viewportHeight ) => Math.Max( MinimumOverscan, viewportHeight / 4 );
 
 	/// <summary>Finds the rows that intersect the viewport and its overscan, end exclusive.</summary>
 	private static (int Start, int End) ComputeRange( double[] tops, double scroll, double viewportHeight )
