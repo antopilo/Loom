@@ -245,7 +245,7 @@ public sealed partial class ChatContent
 				? ParseSvg( File.ReadAllText( path ) )
 				: ImageSource.LoadThumbnail( path, ThumbnailMaxWidth, ThumbnailPixels );
 		}
-		// Goo rejects formats it cannot decode, such as WebP, with NotSupportedException.
+		// Goo rejects formats it cannot decode with NotSupportedException.
 		catch ( Exception error ) when ( error is FormatException or InvalidOperationException or ArgumentException or NotSupportedException or IOException
 			or UnauthorizedAccessException )
 		{
