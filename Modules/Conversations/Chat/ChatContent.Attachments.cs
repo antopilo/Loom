@@ -19,8 +19,8 @@ public sealed partial class ChatContent
 	/// <summary>Defines how many thumbnail pixels are decoded per logical pixel of the size limit, so large images stay sharp on high-density displays.</summary>
 	private const int ThumbnailDensity = 2;
 
-	/// <summary>Lists the file types a sent message shows as thumbnails; the thumbnail loader reads PNG, JPEG and a GIF's first frame.</summary>
-	private static readonly string[] _thumbnailExtensions = [".png", ".jpg", ".jpeg", ".gif"];
+	/// <summary>Lists the file types a sent message shows as thumbnails; the thumbnail loader reads PNG, JPEG and the first frame of a GIF or WebP.</summary>
+	private static readonly string[] _thumbnailExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
 
 	/// <summary>Retains attached absolute paths in the order they were added, until a prompt carrying them is accepted.</summary>
 	private readonly List<string> _attachments = [];
