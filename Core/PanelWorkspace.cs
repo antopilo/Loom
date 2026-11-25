@@ -26,6 +26,22 @@ public sealed partial class PanelWorkspace
 	/// <summary>Gets the immutable current split tree.</summary>
 	public DockNode Root
 	{
+		get => _root;
+		private set
+		{
+			_root = value;
+			// Any change to the tree, such as a panel opening or closing, brings the other panels back.
+			MaximizedPanelId = null;
+		}
+	}
+
+	/// <summary>Stores the current split tree.</summary>
+	private DockNode _root = new DockPane( Guid.NewGuid(), null );
+
+	/// <summary>Gets the panel that fills the whole workspace while the others rest hidden in their panes, or null when none does.</summary>
+	/// <remarks>Not saved with layouts: it ends with any change to the tree, such as a panel opening, closing or moving, and when another panel is focused.</remarks>
+	public Guid? MaximizedPanelId
+	{
 		get; private set;
 	}
 
@@ -67,7 +83,7 @@ public sealed partial class PanelWorkspace
 	internal PanelWorkspace( LoknApplication app )
 	{
 		_app = app;
-		Root = new DockPane( Guid.NewGuid(), null );
+		_root = new DockPane( Guid.NewGuid(), null );
 		ActivePaneId = Root.Id;
 	}
 
@@ -136,15 +152,23 @@ public sealed partial class PanelWorkspace
 	}
 
 	/// <summary>Focuses the pane receiving subsequent panel and split commands, acknowledging its panel's request for the user.</summary>
+	/// <remarks>Focusing a pane other than the maximized panel's brings the hidden panels back.</remarks>
 	public bool ActivatePane( Guid paneId )
 	{
 		if ( FindPane( Root, paneId ) is not { } pane )
 			return false;
 
+		var isRestored = MaximizedPanelId is { } maximized && pane.PanelId != maximized;
+		if ( isRestored )
+			MaximizedPanelId = null;
 		if ( pane.PanelId is { } panelId )
 			ClearAttention( panelId );
 		if ( ActivePaneId == paneId )
+		{
+			if ( isRestored )
+				_app.MarkChanged();
 			return true;
+		}
 
 		ActivePaneId = paneId;
 		_app.MarkChanged();

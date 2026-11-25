@@ -39,10 +39,11 @@ internal sealed partial class ShellView
 			new MenuAction( "Open a panel…", () => RunPaneAction( pane, null, () => UpdatePalette( "Open ", ActionsType ) ) ) { AccessKey = Key.O },
 			BuildPaneMenuAction( pane, "Split right", "shell.split-right" ),
 			BuildPaneMenuAction( pane, "Split down", "shell.split-down" ),
+			BuildPaneMenuAction( pane, panel is not null && _app.Panels.MaximizedPanelId == panel.Id ? "Restore panel" : "Maximize panel", "shell.toggle-maximize" ),
 			new MenuSeparator(),
 			BuildPaneMenuAction( pane, panel is null ? "Close pane" : "Close panel", "shell.close" ),
 			new MenuSeparator(),
-			new MenuNote( panel is null ? "Open a panel to move it" : "Drag the grip to dock or swap" ),
+			new MenuNote( panel is null ? "Open a panel to move it" : HasPaneHeaders ? "Drag the header to dock or swap" : "Drag the grip to dock or swap" ),
 		], ReleasePaneMenu )
 		{
 			Placement = PortalPlacement.Bottom,

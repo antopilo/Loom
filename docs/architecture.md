@@ -109,6 +109,13 @@ works ([remote.md](remote.md#roles)).
 - Moving or swapping a panel changes the tree only. The `PanelContent` instance and
   its mounted Goo cells keep their identity, because the shell keeps all panel views
   as siblings keyed by panel ID.
+- Each pane shows a header, drawn by the shell: the panel's title, maximize or restore and close buttons,
+  and the drag source for docking (`shell.pane-headers` turns it off). `PanelWorkspace.MaximizedPanelId` names
+  the panel that fills the workspace while the others stay mounted and hidden in their panes
+  (`ToggleMaximize`; `IsShown` is false for them). It is not part of the tree or of saved layouts, and any
+  change to the tree, or focusing another panel, ends it. A panel's header lies over the top of its body
+  and the content stays the body's first child, as in a hidden panel's body, so showing or hiding a panel
+  never moves its content among its siblings: that would remount its text editors, which Goo allows once.
 - A **host-bound** panel type (`builder.Panel( …, onHost: true )`, `PanelTypeInfo.IsHostBound`)
   works on one host, This PC or a paired host. `PanelWorkspace.Open( …, hostId )` binds it to
   the given host, else the current one; `OpenBeside` to the given host, else the host of the

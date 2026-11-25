@@ -3,6 +3,13 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.19
+
+- **Maximize a pane.** Right-click a pane's grip and choose **Maximize panel** to give it the whole workspace while the
+  others keep working hidden; restore it the same way, or by focusing another panel.
+- **Optional pane headers.** Settings › Shell › **Pane headers** gives every pane a header with its title and, when you
+  point at it, maximize and close buttons. Drag it to dock or swap, double-click it to maximize. Off by default.
+
 ## 0.4.18
 
 - **Act on a notification from the list.** Buttons such as **Restart now** show on the notification's row, under the
