@@ -407,7 +407,7 @@ internal static class HotloadChecks
 		{
 			Version = 1,
 			ActiveProfile = "Personal",
-			Global = new Dictionary<string, string> { ["hotload.folders"] = $"\"%LOKN_TEST_MODULES%\\repo\\Tools\"; {pack}" },
+			Global = new Dictionary<string, string> { ["hotload.folders"] = $"\"{Path.Combine( "%LOKN_TEST_MODULES%", "repo", "Tools" )}\"; {pack}" },
 			Work = new Dictionary<string, string>(),
 			Personal = new Dictionary<string, string>(),
 		} ) );
