@@ -371,6 +371,16 @@ internal static class HotloadChecks
 			CoreChecks.Check( app.Modules.Any( loaded => loaded.Id == "lab" ) && app.Panels.Types.Any( type => type.Id == "lab.note" ), "Trusting the project loads its module at once." );
 			CoreChecks.Check( projects.BuildModulePrompt( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, null ) ) is null, "A trusted project is not asked about again." );
 			CoreChecks.Check( Lokn.Modules.Projects.ProjectsModule.FindProjectModules( repository ).SequenceEqual( ["Lab"] ), "A project lists the module folders that hold C# files." );
+			if ( !OperatingSystem.IsWindows() )
+			{
+				var other = Path.Combine( root, "Repo" );
+				Directory.CreateDirectory( Path.Combine( other, ".lokn", "modules", "Lab" ) );
+				File.WriteAllText( Path.Combine( other, ".lokn", "modules", "Lab", "LabModule.cs" ), "" );
+				projects.Store.Create( app.Settings.ActiveProfile, "Other", other );
+				projects.UpdateProjectModules( app );
+				CoreChecks.Check( projects.BuildModulePrompt( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, null ) ) is not null,
+					"On a case-sensitive file system, trusting a project does not trust a folder whose path differs only in case." );
+			}
 		}
 		finally
 		{

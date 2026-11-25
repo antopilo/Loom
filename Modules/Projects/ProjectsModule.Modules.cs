@@ -143,6 +143,10 @@ public sealed partial class ProjectsModule
 	private static HashSet<string> ReadTrusted( LoknApplication app ) =>
 		[.. app.Settings.Get( TrustedModuleProjects ).Split( ';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ).Select( Normalize )];
 
-	/// <summary>Normalizes a directory for comparison: full path, no trailing separator, case-insensitive through the set's comparer.</summary>
-	private static string Normalize( string directory ) => Path.TrimEndingDirectorySeparator( Path.GetFullPath( directory ) ).ToLowerInvariant();
+	/// <summary>Normalizes a directory for comparison: full path, no trailing separator, lowercase on Windows, whose paths ignore case.</summary>
+	private static string Normalize( string directory )
+	{
+		var path = Path.TrimEndingDirectorySeparator( Path.GetFullPath( directory ) );
+		return OperatingSystem.IsWindows() ? path.ToLowerInvariant() : path;
+	}
 }
