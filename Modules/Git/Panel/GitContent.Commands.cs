@@ -27,9 +27,13 @@ internal sealed partial class GitContent
 		var idle = IsIdle;
 		var onBranch = _state?.Branch is not null;
 		var children = new List<Blob>();
-		// The panel's working tree and commit box live in the side view's Changes mode; once the side view is closed, this brings it back.
-		if ( _layout == GitLayout.Full && GitModule.FindSideView( _context, _root ?? _directory ) is not null )
-			children.Add( BuildIconTool( "side-view", GitIcons.SidePanel, "Show the changes in the side view", true, ShowSideChanges ) );
+		// The panel's working tree and commit box live in the side view's Changes mode: this shows it, lit while it shows, and hides it again.
+		if ( _layout == GitLayout.Full && GitModule.FindSideView( _context, _root ?? _directory ) is { } side )
+		{
+			var isShown = side.IsShown( _context.App );
+			_isSideShown = isShown;
+			children.Add( BuildIconTool( "side-view", GitIcons.SidePanel, isShown ? "Hide the side view" : "Show the changes in the side view", true, ToggleSideView, isOn: isShown ) );
+		}
 		if ( _state is { } state && (state.Branch ?? state.Commit) is { } head )
 			children.Add( new Row
 			{
@@ -81,7 +85,7 @@ internal sealed partial class GitContent
 		{
 			Key = "git-toolbar",
 			FlexShrink = 0,
-			FlexWrap = _layout == GitLayout.Full ? FlexWrap.NoWrap : FlexWrap.Wrap,
+			FlexWrap = FlexWrap.Wrap,
 			AlignItems = AlignItems.Center,
 			Gap = 2,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),

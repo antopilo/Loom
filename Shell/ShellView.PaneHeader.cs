@@ -73,10 +73,13 @@ internal sealed partial class ShellView
 		if ( host is not null )
 			children.Add( BuildHostChip( host, isFloating: false ) );
 		children.Add( new Spacer() );
+		// The buttons show while the pointer is on the header, the pane menu is open, or a button has the keyboard.
+		var isVisible = isMenuOpen || _headerPaneId == pane.Id;
+		void Reveal() => UpdateHeaderPane( pane.Id );
 		if ( canMaximize )
-			children.Add( BuildHeaderButton( $"maximize:{pane.Id}", isMaximized ? RestoreGlyph : MaximizeGlyph, isMaximized ? $"Restore {name}" : $"Maximize {name}", Maximize ) );
+			children.Add( BuildHeaderButton( $"maximize:{pane.Id}", isMaximized ? RestoreGlyph : MaximizeGlyph, isMaximized ? $"Restore {name}" : $"Maximize {name}", Maximize, isVisible, Reveal ) );
 		if ( canClose )
-			children.Add( BuildHeaderButton( $"close:{pane.Id}", HeaderCloseGlyph, $"Close {name}", Close ) );
+			children.Add( BuildHeaderButton( $"close:{pane.Id}", HeaderCloseGlyph, $"Close {name}", Close, isVisible, Reveal ) );
 
 		var header = new Button
 		{
@@ -93,6 +96,8 @@ internal sealed partial class ShellView
 			Cursor = panel is null ? Cursor.Default : Cursor.Move,
 			Focusable = true,
 			AccessibilityName = $"{name} header",
+			OnPointerMove = _ => Reveal(),
+			OnPointerLeave = _ => ReleaseHeaderPane( pane.Id ),
 			// A left press starts a drag; the menu opens on a right click, or Enter and Space from the keyboard.
 			OnPointerDown = pointer =>
 			{
@@ -131,8 +136,31 @@ internal sealed partial class ShellView
 	/// <summary>Defines the font weight of a pane header's title.</summary>
 	private const double PaneTitleWeight = 600;
 
-	/// <summary>Builds one small glyph button of a pane header.</summary>
-	private static Button BuildHeaderButton( string key, string glyph, string name, Action action )
+	/// <summary>Stores the pane whose header is under the pointer, which shows its buttons.</summary>
+	private Guid? _headerPaneId;
+
+	/// <summary>Shows a pane header's buttons, rebuilding only when the header under the pointer changes.</summary>
+	private void UpdateHeaderPane( Guid paneId )
+	{
+		if ( _headerPaneId == paneId )
+			return;
+
+		_headerPaneId = paneId;
+		Rebuild();
+	}
+
+	/// <summary>Hides a pane header's buttons once the pointer leaves it.</summary>
+	private void ReleaseHeaderPane( Guid paneId )
+	{
+		if ( _headerPaneId != paneId )
+			return;
+
+		_headerPaneId = null;
+		Rebuild();
+	}
+
+	/// <summary>Builds one small glyph button of a pane header, drawn only while <paramref name="isVisible"/>, or while it has the keyboard.</summary>
+	private static Button BuildHeaderButton( string key, string glyph, string name, Action action, bool isVisible, Action reveal )
 	{
 		var theme = Theme.Current;
 		return new Button
@@ -144,8 +172,12 @@ internal sealed partial class ShellView
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
 			BorderRadius = theme.Radius,
-			HoverStyle = new Style { BackgroundColor = theme.Hover },
-			FocusStyle = new Style { BackgroundColor = theme.Hover },
+			Opacity = isVisible ? 1 : 0,
+			TransitionMs = HighlightFadeMs,
+			TransitionProperties = [TransitionProperty.Opacity, TransitionProperty.BackgroundColor],
+			HoverStyle = new Style { Opacity = 1, BackgroundColor = theme.Hover },
+			FocusStyle = new Style { Opacity = 1, BackgroundColor = theme.Hover },
+			OnPointerEnter = _ => reveal(),
 			Cursor = Cursor.Pointer,
 			Focusable = true,
 			AccessibilityName = name,

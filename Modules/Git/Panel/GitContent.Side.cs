@@ -57,11 +57,24 @@ internal sealed partial class GitContent
 		return children;
 	}
 
-	/// <summary>Shows the Files side view in its Changes mode, opening it when closed, while the panel's repository is the open project's.</summary>
+	/// <summary>Shows the Files side view in its Changes mode, while the panel's repository is the open project's: where it last sat beside this panel and
+	/// as wide as it was, else at this panel's left.</summary>
 	private void ShowSideChanges()
 	{
 		if ( GitModule.FindSideView( _context, _root ?? _directory ) is { } side )
-			side.Show( _context.App, GitModule.ChangesMode );
+			side.Show( _context.App, GitModule.ChangesMode, _context.Id );
+	}
+
+	/// <summary>Hides the Files side view while it shows, else shows it as <see cref="ShowSideChanges"/> does; the toolbar's side view button.</summary>
+	private void ToggleSideView()
+	{
+		if ( GitModule.FindSideView( _context, _root ?? _directory ) is not { } side )
+			return;
+
+		if ( side.IsShown( _context.App ) )
+			side.Hide( _context.App );
+		else
+			side.Show( _context.App, GitModule.ChangesMode, _context.Id );
 	}
 
 	/// <summary>Defines the connected-nodes glyph that stands for the branch in the footer.</summary>

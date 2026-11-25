@@ -222,7 +222,7 @@ feature out when it is null:
 |`IWorkingFolder`|Projects|`Current`: the open session's folder, where a new terminal, file tree or Git panel starts: a project's directory, else what a `SessionFolder` contributed to `projects.folders` gives, such as a task's worktree or project directory from Conversations; null elsewhere.|
 |`IMarkdownRenderer`|Markdown|Draws Markdown text; without it, show plain text.|
 |`IAgentService`|Omp|`AskAsync` and `AskSmallAsync`: one-off questions to the profile's model, such as naming chats or writing commit messages.|
-|`IFileSideView`|Files|`Show( app, modeKey )`: shows the Files side view at the left edge in a mode, opening it when hidden, and leaves the focus where it was.|
+|`IFileSideView`|Files|`Show( app, modeKey, besidePanelId )`: shows the Files side view in a mode, opening it when hidden where it last sat beside the asking panel, else at that panel's left, else at the left edge, and leaves the focus where it was; `IsShown( app )` and `Hide( app )`.|
 
 Panel lookups by content type use `app.Panels.FindContent<T>()`, which returns the panel's
 identifier and content, shown or hidden. `app.Settings.Changed` reports every settings change,

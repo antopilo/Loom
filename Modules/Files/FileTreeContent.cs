@@ -27,9 +27,6 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	/// <summary>Defines the file glyph.</summary>
 	private const string FileGlyph = "\uE7C3";
 
-	/// <summary>Defines the glyph of the button that hides the tree.</summary>
-	private const string CollapseGlyph = "\uE90C";
-
 	/// <summary>Defines the right-pointing chevron of a closed folder.</summary>
 	private const string ClosedChevron = "\uE76C";
 
@@ -134,7 +131,6 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 				.. mode.Key == FileTreeMode.FilesKey || mode.ShowsButtons
 					? _context.App.Extensions.Get<FileTreeButton>( FileTreeButton.Point ).Select( BuildContributedButton )
 					: [],
-				BuildIconButton( CollapseGlyph, "Hide files", () => _context.App.Panels.Close( _context.Id ) ),
 			],
 		};
 

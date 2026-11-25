@@ -9,9 +9,9 @@ version being packed. Write for users: what changed for them, not how.
   swap the pane, right-click it for the pane's actions, and double-click it (or press the maximize button) to give a
   panel the whole workspace while the others keep working hidden; restore it the same way. Turn the headers off in
   Settings › Shell › **Pane headers** to get the dotted grip back.
-- **Git next to the chat, not around it.** A Git panel opened from a chat sits between the Files side view and the
-  chat. Closing the side view no longer loses the working tree and commit box: the Git panel's first button, or its
-  **Working tree** row, brings them back.
+- **Git to the chat's right, with its files.** A Git panel opened from a chat opens at the chat's right, with the Files
+  side view between them. The Git panel's first button toggles the side view, lit while it shows, and reopens it where
+  it was; closing it no longer loses the working tree and commit box. Its toolbar wraps when the panel is narrow.
 - **The commit table fits narrow panes.** The commit message keeps its room while Branch / Tag and Graph shrink, then
   the SHA and the date hide.
 - **See the effort.** Point at the ring beside the model to read the thinking effort and the one a click switches to.

@@ -552,9 +552,10 @@ per changed file) and `write` calls (the written content as added lines). Each c
 has the file name, its folder relative to the project, `+added −removed` counts and
 the first lines with line numbers, a change bar and green/red tints; unchanged lines
 between hunks collapse to one `⋯ N unchanged lines` row. Clicking a card opens the
-project's **Git** panel beside the chat on that file's diff, and the Files side view in
-its Changes mode at the left edge; the Git panel goes between the side view and the chat,
-so the chat stays at the edge. Later clicks reuse that panel.
+project's **Git** panel to the chat's right on that file's diff, and the Files side view in
+its Changes mode at the Git panel's left, so the chat stays at the edge. Later clicks reuse
+that panel. The Git toolbar's first button is a toggle for the side view, lit while it shows: it
+opens it where it last sat beside the Git panel, as wide as it was, else at the panel's left.
 
 The **Git** panel (palette: Open Git) has two modes:
 

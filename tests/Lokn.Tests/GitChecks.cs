@@ -956,7 +956,7 @@ internal static class GitChecks
 		CoreChecks.Check( reopened is not null && app.Panels.Sessions.Single( session => session.Info.Id == reopened.Id ).Content is FileTreeContent { SelectedModeKey: "git.changes" },
 			"The Git panel shows the closed side view again, in its Changes mode." );
 
-		// A Git panel opened from a chat sits next to the side view it opens, so the chat is not left between the two Git views.
+		// A Git panel opened from a chat opens to the chat's right, as every panel does, with the side view between them, so the chat stays at the edge.
 		CoreChecks.Check( app.Load( new FixtureModule( "chat-fixture", builder => builder.Panel( "page", "Chat", _ => new FixtureContent() ) ) ), "A chat stand-in loads." );
 		foreach ( var panel in app.Panels.Panels )
 			app.Panels.Close( panel.Id );
@@ -964,11 +964,47 @@ internal static class GitChecks
 		string Order() => string.Join( ", ", app.Panels.Panes.Select( item => app.Panels.Panels.Single( panel => panel.Id == item.PanelId ).TypeId ) );
 		app.GetModule<GitModule>().OpenPanel( app, chatId, repository );
 		Pump();
-		CoreChecks.Check( Order() == "files.tree, git.panel, chat-fixture.page", $"A Git panel opened from a chat opens the side view and sits between it and the chat: {Order()}." );
-		app.Panels.Close( app.Panels.Panels.Single( panel => panel.TypeId == GitModule.PanelType ).Id );
+		CoreChecks.Check( Order() == "chat-fixture.page, files.tree, git.panel", $"A Git panel opened from a chat opens right of it, with the side view at its left: {Order()}." );
+
+		// The Git panel's button opens the side view where it last sat beside that panel, as wide as it was; the sidebar's Files action still opens it at the left edge.
+		DockSplit? SideSplit() => Splits( app.Panels.Root ).FirstOrDefault( split => split.First is DockPane { PanelId: { } first } && FilesModule.Find( app ) is { } found && first == found.Id );
+		IEnumerable<DockSplit> Splits( DockNode node ) => node is DockSplit split ? new[] { split }.Concat( Splits( split.First ) ).Concat( Splits( split.Second ) ) : [];
+		GitContent GitNow() => (GitContent)app.Panels.Sessions.Single( session => session.Info.TypeId == GitModule.PanelType ).Content!;
+		var showSide = typeof( GitContent ).GetMethod( "ShowSideChanges", flags )!;
+		app.Panels.UpdateSplitRatio( SideSplit()!.Id, 0.4 );
+		app.Panels.Close( FilesModule.Find( app )!.Id );
+		showSide.Invoke( GitNow(), [] );
+		CoreChecks.Check( Order() == "chat-fixture.page, files.tree, git.panel" && Math.Abs( SideSplit()!.Ratio - 0.4 ) < 0.01,
+			$"The button reopens the side view where it was, as wide as the user left it: {Order()}, {SideSplit()?.Ratio}." );
+
+		// Moved away, the Git panel gets the side view at its left.
+		app.Panels.Close( FilesModule.Find( app )!.Id );
+		var gitPanelId = app.Panels.Panels.Single( panel => panel.TypeId == GitModule.PanelType ).Id;
+		CoreChecks.Check( app.Panels.Move( gitPanelId, app.Panels.Panes.Single( pane => pane.PanelId == chatId ).Id, PanelPlacement.Left ), "The Git panel moves left of the chat." );
+		showSide.Invoke( GitNow(), [] );
+		CoreChecks.Check( Order() == "files.tree, git.panel, chat-fixture.page", $"After the Git panel moves, the button opens the side view at its left: {Order()}." );
+
+		// The sidebar's action is unchanged: the left edge of the workspace.
+		app.Panels.Close( FilesModule.Find( app )!.Id );
+		CoreChecks.Check( app.Panels.Move( gitPanelId, app.Panels.Panes.Single( pane => pane.PanelId == chatId ).Id, PanelPlacement.Right ), "The Git panel moves right of the chat." );
+		FilesModule.Toggle( app );
+		CoreChecks.Check( Order() == "files.tree, chat-fixture.page, git.panel", $"The sidebar's Files action opens the side view at the left edge: {Order()}." );
+
+		// The Git panel's side view button is a toggle, and the panel notices the side view opening and closing to light it.
+		var toggleSide = typeof( GitContent ).GetMethod( "ToggleSideView", flags )!;
+		var litField = typeof( GitContent ).GetField( "_isSideShown", flags )!;
+		GitNow().Build();
+		CoreChecks.Check( (bool)litField.GetValue( GitNow() )!, "The side view button is lit while the side view shows." );
+		toggleSide.Invoke( GitNow(), [] );
+		CoreChecks.Check( FilesModule.Find( app ) is null && !(bool)litField.GetValue( GitNow() )!, "Pressing the lit button hides the side view and puts the light out." );
+		toggleSide.Invoke( GitNow(), [] );
+		CoreChecks.Check( FilesModule.Find( app ) is not null && (bool)litField.GetValue( GitNow() )!, "Pressing the button again shows the side view and lights it." );
+
+		// With the side view already open, a Git panel still opens to the right of the chat.
+		app.Panels.Close( gitPanelId );
 		app.GetModule<GitModule>().OpenPanel( app, chatId, repository );
 		Pump();
-		CoreChecks.Check( Order() == "files.tree, git.panel, chat-fixture.page", $"A Git panel opened from a chat beside an open side view sits between them: {Order()}." );
+		CoreChecks.Check( Order() == "chat-fixture.page, git.panel, files.tree", $"A Git panel opened from a chat beside an open side view opens right of the chat, as any panel does: {Order()}." );
 		app.Shutdown();
 
 		void Pump()

@@ -38,9 +38,6 @@ public sealed class GitModule : ILoknModule
 	/// <summary>Tracks open Git panels so opening a repository's Git panel again reuses the one showing it.</summary>
 	private readonly Dictionary<Guid, GitContent> _panels = [];
 
-	/// <summary>Stores the panel a Git panel opens beside while <see cref="OpenPanel"/> opens it, for the panel's factory; null otherwise.</summary>
-	private Guid? _openingBeside;
-
 	/// <summary>Stores the running module context, or null while the module is stopped.</summary>
 	private ModuleContext? _context;
 
@@ -152,15 +149,7 @@ public sealed class GitModule : ILoknModule
 			return;
 		}
 
-		_openingBeside = besidePanelId;
-		try
-		{
-			app.Panels.OpenBeside( PanelType, besidePanelId, new GitPanelInput( directory, Focus: focus, Staged: staged ), host );
-		}
-		finally
-		{
-			_openingBeside = null;
-		}
+		app.Panels.OpenBeside( PanelType, besidePanelId, new GitPanelInput( directory, Focus: focus, Staged: staged ), host );
 		if ( keepFocus )
 			app.Panels.Activate( besidePanelId );
 	}
@@ -175,55 +164,19 @@ public sealed class GitModule : ILoknModule
 			? context.App.Services.Get<IFileSideView>()
 			: null;
 
-	/// <summary>Opens the Files side view in its Changes mode beside a Git panel the user just opened in the open project, so its files are a click away,
-	/// and keeps the Git panel next to it.</summary>
-	/// <remarks>Only a panel on screen whose folder is the project's, or inside it, does; a restored panel, or one on another repository, leaves the side view as it is.</remarks>
+	/// <summary>Opens the Files side view in its Changes mode beside a Git panel the user just opened in the open project, so its files are a click away.</summary>
+	/// <remarks>The side view opens at the Git panel's left, so a Git panel opened beside a chat leaves the chat at the edge with the two Git views to its
+	/// right. Only a panel on screen whose folder is the project's, or inside it, does; a restored panel, or one on another repository, leaves the side view as it is.</remarks>
 	/// <param name="context">The new Git panel's context.</param>
 	/// <param name="directory">The folder the Git panel shows.</param>
-	/// <param name="beside">The panel the Git panel opened beside, or null.</param>
-	private static void ShowChanges( PanelContext context, string directory, Guid? beside )
+	private static void ShowChanges( PanelContext context, string directory )
 	{
 		var app = context.App;
 		if ( !app.Panels.IsShown( context.Id ) || FindSideView( context, directory ) is not { } side )
 			return;
 
-		side.Show( app, ChangesMode );
-		if ( beside is { } source )
-			MoveNextToSideView( app.Panels, context.Id, source );
+		side.Show( app, ChangesMode, context.Id );
 	}
-
-	/// <summary>Moves a Git panel that opened right of a panel to that panel's left, so it sits next to the side view instead of leaving that panel between them.</summary>
-	/// <remarks>The side view opens at the left edge. A Git panel opened beside a chat splits the chat's pane to its right, which put the chat between the
-	/// two Git views. Nothing moves when the panel the Git panel opened beside is at the left edge itself, such as the side view, or is not its left neighbor.</remarks>
-	private static void MoveNextToSideView( PanelWorkspace panels, Guid gitId, Guid besideId )
-	{
-		var root = panels.Root;
-		if ( FindParent( root, gitId ) is not { Axis: SplitAxis.Horizontal, Second: DockPane { PanelId: { } second } } split || second != gitId )
-			return;
-
-		var left = FindEdge( split.First, last: true );
-		if ( left.PanelId != besideId || FindEdge( root, last: false ).Id == left.Id )
-			return;
-
-		panels.Move( gitId, left.Id, PanelPlacement.Left );
-	}
-
-	/// <summary>Finds the split one of whose two children is the pane holding a panel.</summary>
-	private static DockSplit? FindParent( DockNode node, Guid panelId ) => node switch
-	{
-		DockSplit { First: DockPane { PanelId: var first } } split when first == panelId => split,
-		DockSplit { Second: DockPane { PanelId: var second } } split when second == panelId => split,
-		DockSplit split => FindParent( split.First, panelId ) ?? FindParent( split.Second, panelId ),
-		_ => null,
-	};
-
-	/// <summary>Finds the first or the last pane of a layout, following each split's first or second child.</summary>
-	private static DockPane FindEdge( DockNode node, bool last ) => node switch
-	{
-		DockPane pane => pane,
-		DockSplit split => FindEdge( last ? split.Second : split.First, last ),
-		_ => throw new InvalidOperationException( "The layout has an unknown node." ),
-	};
 
 	/// <summary>Reports whether a folder is another one or inside it, whatever the separators or letter case.</summary>
 	private static bool IsInside( string folder, string parent )
@@ -260,10 +213,7 @@ public sealed class GitModule : ILoknModule
 		Forget( context.App, _panels );
 		// The panel is placed once this returns, so the side view opens after it, and only for a panel the user opened now.
 		if ( isNew )
-		{
-			var beside = _openingBeside;
-			context.Post( () => ShowChanges( context, input.Directory, beside ) );
-		}
+			context.Post( () => ShowChanges( context, input.Directory ) );
 		return _panels[context.Id] = new GitContent( context, input );
 	}
 

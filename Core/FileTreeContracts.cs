@@ -111,8 +111,19 @@ public sealed record FileTreeMode( string Key, string Glyph, string Name, int Or
 /// <remarks>Resolve it with <c>app.Services.Get&lt;IFileSideView&gt;()</c>; without the Files module it is null, and nothing opens.</remarks>
 public interface IFileSideView
 {
-	/// <summary>Shows the side view at the workspace's left edge in a mode, opening it when it is hidden, and keeps the focus where it was.</summary>
+	/// <summary>Shows the side view in a mode, opening it when it is hidden, and keeps the focus where it was.</summary>
+	/// <remarks>A hidden side view opens where it last was when that is beside <paramref name="besidePanelId"/> (or anywhere when none is given) and the
+	/// panel it sat beside still shows, else at the left of <paramref name="besidePanelId"/>, else at the workspace's left edge.</remarks>
 	/// <param name="app">The application.</param>
 	/// <param name="modeKey">The mode to select, such as <c>git.changes</c>; <see cref="FileTreeMode.FilesKey"/> shows the tree.</param>
-	void Show( LoknApplication app, string modeKey );
+	/// <param name="besidePanelId">The panel asking, such as a Git panel, which the side view opens beside; or null.</param>
+	void Show( LoknApplication app, string modeKey, Guid? besidePanelId = null );
+
+	/// <summary>Reports whether the side view is on screen in the shown layout.</summary>
+	/// <param name="app">The application.</param>
+	bool IsShown( LoknApplication app );
+
+	/// <summary>Closes the side view when it is on screen.</summary>
+	/// <param name="app">The application.</param>
+	void Hide( LoknApplication app );
 }

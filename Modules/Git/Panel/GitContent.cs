@@ -129,6 +129,8 @@ internal sealed partial class GitContent : PanelContent
 		_watch = git.Watch( context.Host, _directory );
 		_pictures = git.Pictures;
 		_tableArea.MetricsChanged += metrics => _context.Run( () => UpdateTableWidth( metrics ) );
+		if ( layout == GitLayout.Full )
+			context.App.Panels.TreeChanged += OnTreeChanged;
 		_changes = new GitChangesPane( context, () => _root ?? "", Run, () => ReviewFindings, OpenChange, OnChangesLoaded );
 		_file = new GitFileView( context, _changes, () => _root, Run, CloseFile );
 		_focus = input.Focus;
@@ -287,9 +289,24 @@ internal sealed partial class GitContent : PanelContent
 		return JsonSerializer.SerializeToElement( new GitPanelInput( _directory, _review?.Action, _review?.Id, file, _file.Target?.Staged ?? false ) );
 	}
 
+	/// <summary>Lights the toolbar's side view button while the side view shows, rebuilding only when that changes.</summary>
+	private void OnTreeChanged()
+	{
+		var isShown = GitModule.FindSideView( _context, _root ?? _directory )?.IsShown( _context.App ) == true;
+		if ( isShown == _isSideShown )
+			return;
+
+		_isSideShown = isShown;
+		MarkChanged();
+	}
+
+	/// <summary>Stores whether the side view showed when the toolbar was last built.</summary>
+	private bool _isSideShown;
+
 	/// <summary>Stops the running loads and command and the git watch.</summary>
 	public override void Closed()
 	{
+		_context.App.Panels.TreeChanged -= OnTreeChanged;
 		_load?.Cancel();
 		_command?.Cancel();
 		_details?.Cancel();

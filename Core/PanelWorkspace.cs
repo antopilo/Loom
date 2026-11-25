@@ -32,8 +32,13 @@ public sealed partial class PanelWorkspace
 			_root = value;
 			// Any change to the tree, such as a panel opening or closing, brings the other panels back.
 			MaximizedPanelId = null;
+			TreeChanged?.Invoke();
 		}
 	}
+
+	/// <summary>Occurs after the split tree is replaced, such as when a panel opens, closes, moves or a divider is dragged; <see cref="Root"/> is the new tree.</summary>
+	/// <remarks>It fires on the UI thread, once for every replacement, so a handler stays quick: a feature that wants to remember where a panel sat reads the tree here.</remarks>
+	public event Action? TreeChanged;
 
 	/// <summary>Stores the current split tree.</summary>
 	private DockNode _root = new DockPane( Guid.NewGuid(), null );
