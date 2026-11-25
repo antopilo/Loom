@@ -17,7 +17,7 @@ internal sealed record PendingModules( ProjectInfo Project, IReadOnlyList<string
 public sealed partial class ProjectsModule
 {
 	/// <summary>Defines the folder, relative to a project's directory, that holds its modules.</summary>
-	internal const string ProjectModulesFolder = ".lokn\\modules";
+	internal static readonly string ProjectModulesFolder = Path.Combine( ".lokn", "modules" );
 
 	/// <summary>Defines the identifier the trusted directories were saved under while Conversations owned projects; <see cref="Start"/> moves them to <see cref="TrustedModuleProjects"/>.</summary>
 	internal const string LegacyTrustedModuleProjects = "conversations.module-projects";
