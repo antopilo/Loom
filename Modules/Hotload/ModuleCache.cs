@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Runtime.Loader;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using Lokn.Core;
@@ -28,6 +30,7 @@ internal static class ModuleCache
 	/// <param name="sources">The module's sources.</param>
 	/// <param name="cacheDirectory">Where builds are kept, or null to always compile.</param>
 	/// <exception cref="InvalidDataException">The sources do not compile, or do not hold exactly one module.</exception>
+	/// <exception cref="PlatformNotSupportedException">The module's assembly supports only other operating systems.</exception>
 	internal static ILoknModule Load( string name, string directory, IReadOnlyList<SourceFile> sources, string? cacheDirectory )
 	{
 		if ( cacheDirectory is null )
@@ -42,7 +45,16 @@ internal static class ModuleCache
 			return Create( cached );
 
 		var built = ModuleCompiler.Emit( name, sources );
-		var type = LoadType( name, built.Image, built.Symbols );
+		Type type;
+		try
+		{
+			type = LoadType( name, built.Image, built.Symbols );
+		}
+		catch ( PlatformNotSupportedException )
+		{
+			Store( cacheDirectory, scope, stem, built.Image, built.Symbols );
+			throw;
+		}
 		Store( cacheDirectory, scope, stem, built.Image, built.Symbols );
 		return Create( type );
 	}
@@ -53,9 +65,18 @@ internal static class ModuleCache
 	private static Type LoadType( string name, byte[] image, byte[] symbols )
 	{
 		var context = new AssemblyLoadContext( BuildAssemblyName( name ), isCollectible: true );
-		var types = context
-			.LoadFromStream( new MemoryStream( image ), new MemoryStream( symbols ) )
-			.GetTypes()
+		var assembly = context.LoadFromStream( new MemoryStream( image ), new MemoryStream( symbols ) );
+		if ( OperatingSystem.IsLinux() )
+		{
+			var platforms = assembly.GetCustomAttributes<SupportedOSPlatformAttribute>().Select( attribute => attribute.PlatformName ).ToArray();
+			if ( platforms.Length > 0 && !platforms.Any( platform => OperatingSystem.IsOSPlatform( new string( [.. platform.TakeWhile( char.IsLetter )] ) ) ) )
+			{
+				context.Unload();
+				throw new PlatformNotSupportedException( $"This module supports only {string.Join( ", ", platforms )}." );
+			}
+		}
+
+		var types = assembly.GetTypes()
 			.Where( type => !type.IsAbstract && typeof( ILoknModule ).IsAssignableFrom( type ) )
 			.ToArray();
 		if ( types.Length != 1 )
