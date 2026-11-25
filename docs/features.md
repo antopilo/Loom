@@ -535,7 +535,9 @@ a checked disc when done). A finished phase folds to its header. Markdown checkl
 use the same marks, and fenced code is colored for C-family languages, Python, shell
 and JSON from the theme's ANSI colors, with a language badge. A floating ↓ returns to
 the newest message after you scroll up. The line under the prompt shows the project,
-model and profile; the model opens Omp setup. Code and tool commands remain monospace.
+model and profile; the model opens Omp setup. A ring beside the model fills with the
+thinking effort; pointing at it names the effort and the next one, and clicking steps to
+it. Code and tool commands remain monospace.
 Process pipes explicitly use UTF-8, including emoji and non-ASCII punctuation; terminal
 color/link escapes are removed from tool output before native rendering.
 
