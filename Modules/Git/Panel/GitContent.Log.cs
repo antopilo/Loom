@@ -12,7 +12,9 @@ namespace Lokn.Modules.Git;
 /// <param name="Refs">The branches and tags pointing at the commit.</param>
 /// <param name="IsHead">Whether the commit is checked out.</param>
 /// <param name="IsSelected">Whether the commit's details are shown.</param>
-internal sealed record GitLogRow( string Key, GitCommit Commit, GitGraphPaths Graph, double GraphWidth, IReadOnlyList<GitRef> Refs, bool IsHead, bool IsSelected ) : IMeasuredRow;
+/// <param name="Columns">The Git panel table's columns at its width, shared by every row; null in the side view's History mode.</param>
+internal sealed record GitLogRow( string Key, GitCommit Commit, GitGraphPaths Graph, double GraphWidth, IReadOnlyList<GitRef> Refs, bool IsHead, bool IsSelected,
+	GitTableColumns? Columns ) : IMeasuredRow;
 
 /// <summary>Builds the History mode's commits: the searchable list with its graph, and the selected commit's details below it; and the commit
 /// selection both layouts share.</summary>
@@ -43,7 +45,8 @@ internal sealed partial class GitContent
 	private GitStash? _selectedStash;
 
 	/// <summary>Stores the rows of the last build with the inputs they were computed from, so unchanged builds reuse them.</summary>
-	private (GitHistory? History, string Search, string? Selected, string? Head, object Refs, IReadOnlyList<GitLogRow> Rows) _logRows = (null, "", null, null, new object(), Array.Empty<GitLogRow>());
+	private (GitHistory? History, string Search, string? Selected, string? Head, object Refs, GitTableColumns? Columns, IReadOnlyList<GitLogRow> Rows) _logRows =
+		(null, "", null, null, new object(), null, Array.Empty<GitLogRow>());
 
 	/// <summary>Builds the search box, the commit list and, with a commit selected, its details below.</summary>
 	private Container BuildCommits()
@@ -138,8 +141,10 @@ internal sealed partial class GitContent
 	private IReadOnlyList<GitLogRow> ComputeLogRows()
 	{
 		var head = ComputeHeadId();
+		var columns = _layout == GitLayout.Full ? ComputeTableColumns() : null;
 		var cached = _logRows;
-		if ( cached.History == _history && cached.Search == _search && cached.Selected == _selectedId && cached.Head == head && cached.Refs == _refsByCommit )
+		if ( cached.History == _history && cached.Search == _search && cached.Selected == _selectedId && cached.Head == head && cached.Refs == _refsByCommit
+			&& cached.Columns == columns )
 			return cached.Rows;
 
 		var rows = new List<GitLogRow>();
@@ -154,11 +159,11 @@ internal sealed partial class GitContent
 					continue;
 
 				rows.Add( new( commit.Id, commit, history.Graph[index], width, _refsByCommit.GetValueOrDefault( commit.Id ) ?? [],
-					commit.Id == head, commit.Id == _selectedId ) );
+					commit.Id == head, commit.Id == _selectedId, columns ) );
 			}
 		}
 
-		_logRows = (_history, _search, _selectedId, head, _refsByCommit, rows);
+		_logRows = (_history, _search, _selectedId, head, _refsByCommit, columns, rows);
 		return rows;
 	}
 

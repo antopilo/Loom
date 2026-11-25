@@ -552,7 +552,9 @@ The **Git** panel (palette: Open Git) has two modes:
 - **Graph**: the commit table (Branch / Tag, Graph, Commit message, Date, SHA) under a
   pinned **Working tree** row. Beside it shows the working tree (unstaged and staged
   folder trees with checkboxes and the commit box) or the selected commit (its message,
-  people, SHA, parents and changed files as a tree or a list).
+  people, SHA, parents and changed files as a tree or a list). A narrow table keeps room for the commit
+  message: the Branch / Tag and Graph columns shrink first, badges then keep their icon only and cut-off
+  lanes keep their dots at the column's edge, then the SHA and then the Date hide. The toolbar wraps.
 - **File**: clicking a changed file, in the working tree, in a commit, or in the Files
   side view's Changes mode, turns the panel into that file's diff: its path and counts,
   **Edit**, **Stage file** or **Unstage file**, **Unstaged** / **Staged**, **Wrap**,

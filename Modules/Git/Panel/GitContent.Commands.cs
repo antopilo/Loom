@@ -20,7 +20,7 @@ internal sealed partial class GitContent
 	private const double HeadWeight = 600;
 
 	/// <summary>Builds the toolbar: the checked-out branch or commit, then icons for fetch, pull with its options, push, new branch, stash and pop,
-	/// the working-tree actions other modules add, and reload; a side view wraps it.</summary>
+	/// the working-tree actions other modules add, and reload; it wraps when the panel is narrow.</summary>
 	private Row BuildToolbar()
 	{
 		var theme = Theme.Current;
@@ -78,7 +78,7 @@ internal sealed partial class GitContent
 		{
 			Key = "git-toolbar",
 			FlexShrink = 0,
-			FlexWrap = _layout == GitLayout.Full ? FlexWrap.NoWrap : FlexWrap.Wrap,
+			FlexWrap = FlexWrap.Wrap,
 			AlignItems = AlignItems.Center,
 			Gap = 2,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
