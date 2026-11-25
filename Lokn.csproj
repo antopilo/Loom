@@ -74,4 +74,8 @@
 		<ProjectReference Include="Modules\Setup\Lokn.Modules.Setup.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Remote\Lokn.Modules.Remote.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 	</ItemGroup>
+	<ItemGroup Condition="'$(RuntimeIdentifier)' != ''">
+		<!-- Module project references do not inherit the application's runtime identifier. -->
+		<ProjectReference Update="Modules\**\*.csproj" AdditionalProperties="LoknWindowsFeatures=$(RuntimeIdentifier.StartsWith('win'))" />
+	</ItemGroup>
 </Project>

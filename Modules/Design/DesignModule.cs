@@ -52,7 +52,16 @@ public sealed partial class DesignModule : ILoknModule
 	public IReadOnlyList<string> Dependencies => ["conversations", "browser"];
 
 	/// <summary>Registers the design tools.</summary>
-	public void Register( ModuleBuilder builder ) => builder
+	public void Register( ModuleBuilder builder )
+	{
+		if ( OperatingSystem.IsWindows() )
+			RegisterStudioTools( builder );
+
+		RegisterFileTools( builder );
+	}
+
+	/// <summary>Registers tools that use Loom's browser to show the studio and render its pages.</summary>
+	private void RegisterStudioTools( ModuleBuilder builder ) => builder
 		.ToolAsync( "open",
 			"Opens a user interface design in Loom's browser beside your conversation, in a studio where the user watches it update live, switches variants and screen widths, and pins comments to elements. "
 			+ "Call it first, then write the design as plain HTML and CSS: <folder>/index.html for one design, or one folder per variant such as <folder>/a/index.html and <folder>/b/index.html to offer choices. "
@@ -108,7 +117,10 @@ public sealed partial class DesignModule : ILoknModule
 				"additionalProperties": false
 			}
 			""",
-			SnapshotAsync )
+			SnapshotAsync );
+
+	/// <summary>Registers tools that read, update and export designs directly from disk.</summary>
+	private static void RegisterFileTools( ModuleBuilder builder ) => builder
 		.Tool( "comments",
 			"Lists the comments the user pinned to a design in the studio: each one's id, variant, the CSS selector of the element and the text. Read them when the user asks you to apply their comments, then call design_resolve for those you did.",
 			$$"""
@@ -158,6 +170,9 @@ public sealed partial class DesignModule : ILoknModule
 	/// <summary>Follows the chats on this PC, so a design opens as soon as an agent works on it.</summary>
 	public void Start( ModuleContext context )
 	{
+		if ( !OperatingSystem.IsWindows() )
+			return;
+
 		LoadKnown();
 		StartFollowing( context );
 		// Listening from the start lets studio tabs restored with the window find their design at once.

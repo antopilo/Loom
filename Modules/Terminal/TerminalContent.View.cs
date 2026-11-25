@@ -46,12 +46,12 @@ internal sealed partial class TerminalContent
 	/// <summary>Retains the registered monospace faces and Unicode fallbacks the grid draws with.</summary>
 	private static readonly FontSource[] Fonts =
 	[
-		RegisterFont( "Lokn Terminal", "consola.ttf", RegularWeight, italic: false ),
-		RegisterFont( "Lokn Terminal", "consolab.ttf", BoldWeight, italic: false ),
-		RegisterFont( "Lokn Terminal", "consolai.ttf", RegularWeight, italic: true ),
-		RegisterFont( "Lokn Terminal", "consolaz.ttf", BoldWeight, italic: true ),
-		RegisterFont( "Lokn Terminal Symbols", "seguisym.ttf", RegularWeight, italic: false ),
-		RegisterFont( "Lokn Terminal Emoji", "seguiemj.ttf", RegularWeight, italic: false ),
+		SystemFonts.Register( "Lokn Terminal", RegularWeight, italic: false, "consola.ttf" ),
+		SystemFonts.Register( "Lokn Terminal", BoldWeight, italic: false, "consolab.ttf" ),
+		SystemFonts.Register( "Lokn Terminal", RegularWeight, italic: true, "consolai.ttf" ),
+		SystemFonts.Register( "Lokn Terminal", BoldWeight, italic: true, "consolaz.ttf" ),
+		SystemFonts.Register( "Lokn Terminal Symbols", RegularWeight, italic: false, "seguisym.ttf" ),
+		SystemFonts.Register( "Lokn Terminal Emoji", RegularWeight, italic: false, "seguiemj.ttf" ),
 	];
 
 	/// <summary>Retains the grid element for focus, geometry and the input method window.</summary>
@@ -453,12 +453,4 @@ internal sealed partial class TerminalContent
 
 	/// <summary>Reads a cell, treating cells past a short history line as blank.</summary>
 	private static TerminalCell ReadCell( TerminalCell[] cells, int column ) => column < cells.Length ? cells[column] : TerminalCell.Blank;
-
-	/// <summary>Registers one installed Windows font file under a terminal family name.</summary>
-	private static FontSource RegisterFont( string family, string fileName, int weight, bool italic )
-	{
-		var font = FontSource.FromPath( family, weight, italic, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), fileName ) );
-		font.Register();
-		return font;
-	}
 }

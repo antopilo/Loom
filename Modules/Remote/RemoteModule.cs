@@ -275,6 +275,9 @@ public sealed partial class RemoteModule : ILoknModule
 	[SupportedOSPlatformGuard( "windows" )]
 	private bool UsesDaemonControl => OperatingSystem.IsWindows() && (_hooks is null || _hooks.DaemonExecutable is not null);
 
+	/// <summary>Reports whether this PC can run the daemon, including when a check supplies a replacement.</summary>
+	internal bool SupportsDaemon => OperatingSystem.IsWindows() || _hooks is not null;
+
 	/// <summary>Registers the remote settings, the Remote access panel, the window stream panel, the status bar's connection dot, the pairing answers',
 	/// reconnect and role routes, the handler of <c>loom://pair#…</c> links, and the daemon's sign-in switch for its notification-area menu.</summary>
 	public void Register( ModuleBuilder builder )
@@ -289,7 +292,6 @@ public sealed partial class RemoteModule : ILoknModule
 			.Setting( LendBrowser )
 			.Setting( AgentWindows )
 			.Setting( FollowHostScreen )
-			.Contribute( ShellPanelCapture.Point, new PanelCaptureProvider( CapturePanelAsync ) )
 			.Service<IHostLoginItem>( new HostLoginItem( this ) )
 			.Setting( Access )
 			.Slot( ShellSlots.StatusRight, 0, context => new RemoteStatusContent( context, this ) )
@@ -298,7 +300,11 @@ public sealed partial class RemoteModule : ILoknModule
 			.Route( RoleRoute, OpenRoleLink )
 			.LinkHandler( PairingProtocol.Open );
 		StreamPanel.Register( builder, BuildStreamSource );
-		RegisterDesktopTools( builder );
+		if ( OperatingSystem.IsWindows() )
+		{
+			builder.Contribute( ShellPanelCapture.Point, new PanelCaptureProvider( CapturePanelAsync ) );
+			RegisterDesktopTools( builder );
+		}
 	}
 
 	/// <summary>Starts the gateway and the status of its notification-area icon in the daemon. In Loom it rewrites the former <c>remote</c> role,
@@ -341,7 +347,7 @@ public sealed partial class RemoteModule : ILoknModule
 
 		if ( _hooks?.Role is null )
 			MigrateRole( app.Settings );
-		if ( (_hooks?.Role ?? LatchRole( Settings.Role )) == DaemonRole )
+		if ( SupportsDaemon && (_hooks?.Role ?? LatchRole( Settings.Role )) == DaemonRole )
 			StartDaemonLink();
 		else
 			TakeChats( dataFolder, conversations );
@@ -394,7 +400,7 @@ public sealed partial class RemoteModule : ILoknModule
 	{
 		if ( role is not (LocalRole or DaemonRole) )
 			throw new ArgumentException( $"This PC's chats cannot run in the {role} role.", nameof( role ) );
-		if ( _context is not { App.IsHost: false } )
+		if ( _context is not { App.IsHost: false } || role == DaemonRole && !SupportsDaemon )
 			return Task.FromResult( false );
 
 		ChooseRole( role );
@@ -639,6 +645,9 @@ public sealed partial class RemoteModule : ILoknModule
 		_dataLock = DataLock.TryTake( dataFolder );
 		if ( _dataLock is null )
 		{
+			if ( !SupportsDaemon )
+				throw new InvalidOperationException( "Another Loom instance holds this data folder." );
+
 			StartDaemonLink();
 			if ( _hooks?.Role is null )
 				ChooseRole( DaemonRole );
@@ -715,7 +724,7 @@ public sealed partial class RemoteModule : ILoknModule
 	/// <summary>Follows the <see cref="Role"/> setting while Loom runs, unless a check fixed the role, and applies a choice made while this module was off.</summary>
 	private void FollowRole()
 	{
-		if ( _hooks?.Role is not null )
+		if ( !SupportsDaemon || _hooks?.Role is not null )
 			return;
 
 		Context.App.Settings.Changed += UpdateRole;
@@ -911,7 +920,7 @@ public sealed partial class RemoteModule : ILoknModule
 	/// <c>add-host</c> opens Remote access at the pairing link field, and any other path opens Remote access.</summary>
 	private void OpenRoleLink( RouteRequest request )
 	{
-		if ( request.Path is LocalRole or DaemonRole )
+		if ( request.Path == LocalRole || request.Path == DaemonRole && SupportsDaemon )
 			request.App.Settings.Set( Role, SettingsScope.Global, request.Path );
 		else
 			OpenAccess( request.App, request.Path == AccessContent.AddHostRequest ? AccessContent.AddHostRequest : "" );
@@ -951,9 +960,11 @@ public sealed partial class RemoteModule : ILoknModule
 		}
 	}
 
-	/// <summary>Supplies a new stream panel's source: the windows of the paired host the panel is on, across reconnects, else this PC's own.</summary>
+	/// <summary>Supplies a new stream panel's source: the windows of the paired host the panel is on, across reconnects, else this PC's own on Windows or with a
+	/// check's capturer, else null.</summary>
 	private IStreamSource? BuildStreamSource( PanelContext context ) =>
-		context.HostId is { } hostId && !context.Host.IsLocal ? FindLink( hostId )?.Stream : new LocalStreamSource( _hooks?.Windows?.CreateCapturer );
+		context.HostId is { } hostId && !context.Host.IsLocal ? FindLink( hostId )?.Stream
+			: OperatingSystem.IsWindows() || _hooks?.Windows is not null ? new LocalStreamSource( _hooks?.Windows?.CreateCapturer ) : null;
 
 	/// <summary>Creates the <c>window_*</c> agent tools on Windows, or with a check's replacements, and publishes them as <see cref="UpdateWindowTools"/> decides.</summary>
 	private void StartWindowTools( LoknApplication app, string dataFolder )

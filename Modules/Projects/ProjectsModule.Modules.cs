@@ -17,7 +17,7 @@ internal sealed record PendingModules( ProjectInfo Project, IReadOnlyList<string
 public sealed partial class ProjectsModule
 {
 	/// <summary>Defines the folder, relative to a project's directory, that holds its modules.</summary>
-	internal const string ProjectModulesFolder = ".lokn\\modules";
+	internal static readonly string ProjectModulesFolder = Path.Combine( ".lokn", "modules" );
 
 	/// <summary>Defines the identifier the trusted directories were saved under while Conversations owned projects; <see cref="Start"/> moves them to <see cref="TrustedModuleProjects"/>.</summary>
 	internal const string LegacyTrustedModuleProjects = "conversations.module-projects";
@@ -143,6 +143,10 @@ public sealed partial class ProjectsModule
 	private static HashSet<string> ReadTrusted( LoknApplication app ) =>
 		[.. app.Settings.Get( TrustedModuleProjects ).Split( ';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries ).Select( Normalize )];
 
-	/// <summary>Normalizes a directory for comparison: full path, no trailing separator, case-insensitive through the set's comparer.</summary>
-	private static string Normalize( string directory ) => Path.TrimEndingDirectorySeparator( Path.GetFullPath( directory ) ).ToLowerInvariant();
+	/// <summary>Normalizes a directory for comparison: full path, no trailing separator, lowercase on Windows, whose paths ignore case.</summary>
+	private static string Normalize( string directory )
+	{
+		var path = Path.TrimEndingDirectorySeparator( Path.GetFullPath( directory ) );
+		return OperatingSystem.IsWindows() ? path.ToLowerInvariant() : path;
+	}
 }

@@ -6,6 +6,8 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<LoknWindowsFeatures Condition="$(RuntimeIdentifier.StartsWith('win')) Or ('$(RuntimeIdentifier)' == '' And $([MSBuild]::IsOSPlatform('Windows')))">true</LoknWindowsFeatures>
+		<DefineConstants Condition="'$(LoknWindowsFeatures)' == 'true'">$(DefineConstants);LOKN_WINDOWS</DefineConstants>
 		<!-- The application loads module DLLs from this directory beside its executable; see Shell/ModuleHost.cs. -->
 		<LoknModulesDirectory>$(MSBuildThisFileDirectory)..\bin\$(Configuration)\net10.0\modules\</LoknModulesDirectory>
 	</PropertyGroup>

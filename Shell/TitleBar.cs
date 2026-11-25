@@ -19,7 +19,7 @@ internal sealed partial class TitleBar : GuardedCell<TitleBarInput>
 	private const int CaptionFontWeight = 400;
 
 	/// <summary>Retains the registered system caption font for the application lifetime; the notification views use its icons too.</summary>
-	internal static readonly FontSource CaptionFont = BuildCaptionFont();
+	internal static readonly FontSource CaptionFont = SystemFonts.Register( "Lokn Caption", CaptionFontWeight, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Defines the native Windows minimize glyph.</summary>
 	private const string MinimizeGlyph = "\uE921";
@@ -117,19 +117,6 @@ internal sealed partial class TitleBar : GuardedCell<TitleBarInput>
 				},
 			],
 		};
-	}
-
-	/// <summary>Registers the installed Windows icon font used by the caption controls.</summary>
-	private static FontSource BuildCaptionFont()
-	{
-		var fontPath = Path.Combine(
-			Environment.GetFolderPath( Environment.SpecialFolder.Fonts ),
-			"SegoeIcons.ttf" );
-		var font = FontSource.FromPath( "Lokn Caption", CaptionFontWeight, italic: false, fontPath );
-
-		// Goo needs explicit registration to render the font's private-use caption glyphs.
-		font.Register();
-		return font;
 	}
 
 	/// <summary>Toggles the window between normal and maximized states.</summary>

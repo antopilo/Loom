@@ -9,7 +9,7 @@ public sealed class TerminalModule : ILoknModule, ITerminalLauncher
 	internal static readonly Setting<string> Shell = new(
 		"terminal.shell",
 		"Shell",
-		"The command new terminals run, such as pwsh or wsl. Blank picks one.",
+		OperatingSystem.IsWindows() ? "The command new terminals run, such as pwsh or wsl. Blank picks one." : "The command new terminals run, such as bash or zsh. Blank uses your login shell.",
 		defaultValue: "",
 		category: "Terminal" );
 

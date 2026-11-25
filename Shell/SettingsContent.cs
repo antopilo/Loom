@@ -331,7 +331,11 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		if ( definition.Editor is { } editor )
 			return editor( context.App, scope );
 		if ( definition.Choices is { Count: > 0 } choices )
-			return BuildSegments( definition.Title, choices, value, picked => context.App.Settings.SetValue( definition, scope, picked ) );
+		{
+			// Linux has one translucent material, so a saved Acrylic shows as Glass and stays saved for Windows.
+			var shown = !OperatingSystem.IsWindows() && definition == ShellSettings.Backdrop && value is ShellSettings.AcrylicBackdrop ? ShellSettings.MicaBackdrop : value;
+			return BuildSegments( definition.Title, choices, shown, picked => context.App.Settings.SetValue( definition, scope, picked ) );
+		}
 
 		return definition.Kind switch
 		{

@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Goo;
 using Lokn.Core;
 using Lokn.Modules.Chat;
@@ -444,18 +443,11 @@ internal sealed partial class HistoryContent
 		} );
 	}
 
-	/// <summary>Shows a worktree's folder in File Explorer, as the Worktrees panel does; only an existing directory is opened.</summary>
+	/// <summary>Opens a worktree's folder in the file manager if it exists.</summary>
 	private static void OpenFolder( string path )
 	{
-		if ( !Directory.Exists( path ) )
-			return;
-
-		var start = new ProcessStartInfo( "explorer.exe" )
-		{
-			UseShellExecute = false,
-		};
-		start.ArgumentList.Add( path );
-		Process.Start( start )?.Dispose();
+		if ( Directory.Exists( path ) )
+			FileManager.Open( path );
 	}
 
 	/// <summary>Derives a stable row identifier for a worktree label from its folder, for hover, its menu and the + grid.</summary>

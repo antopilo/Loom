@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Goo;
@@ -19,18 +18,10 @@ internal sealed class EditorContent : PanelContent
 	private const long MaxBytes = 16 * 1024 * 1024;
 
 	/// <summary>Defines the monospace fonts; the first installed one wins.</summary>
-	private const string CodeFont = "Cascadia Mono, Consolas, Courier New";
+	private static readonly string CodeFont = OperatingSystem.IsWindows() ? "Cascadia Mono, Consolas, Courier New" : $"Cascadia Mono, {ViewStyle.CodeFontFamily}";
 
-	/// <summary>Holds the installed Windows icon font, registered once; Goo draws only fonts registered with it.</summary>
-	private static readonly FontSource Icons = BuildIconFont();
-
-	/// <summary>Registers Segoe Fluent Icons for the header buttons.</summary>
-	private static FontSource BuildIconFont()
-	{
-		var font = FontSource.FromPath( "Lokn Editor Icons", 400, italic: false, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" ) );
-		font.Register();
-		return font;
-	}
+	/// <summary>Holds the installed icon font, registered once; Goo draws only fonts registered with it.</summary>
+	private static readonly FontSource Icons = SystemFonts.Register( "Lokn Editor Icons", 400, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Defines the header's icon button size in logical pixels.</summary>
 	private const int IconSize = 28;
@@ -438,7 +429,7 @@ internal sealed class EditorContent : PanelContent
 			new MenuSeparator(),
 			new MenuAction( wraps ? "✓ Wrap lines" : "Wrap lines", () => Choose( () => _context.App.Settings.Set( EditorModule.WrapLines, SettingsScope.Global, !wraps ) ) ),
 			new MenuSeparator(),
-			new MenuAction( "Show in Explorer", () => Choose( () => ShowInExplorer( Current ) ) ) { IsEnabled = hasPath && _context.Host.IsLocal },
+			new MenuAction( OperatingSystem.IsWindows() ? "Show in Explorer" : "Show in File Manager", () => Choose( () => ShowInFileManager( Current ) ) ) { IsEnabled = hasPath && _context.Host.IsLocal },
 			new MenuAction( "Copy path", () => Choose( () => Copy( Current ) ) ) { IsEnabled = hasPath },
 			new MenuAction( "Copy relative path", () => Choose( () => Copy( Path.GetRelativePath( root!, Current ) ) ) ) { IsEnabled = root is not null },
 		];
@@ -480,16 +471,16 @@ internal sealed class EditorContent : PanelContent
 		clipboard.WriteText( text );
 	}
 
-	/// <summary>Opens Explorer with the file selected.</summary>
-	private void ShowInExplorer( string path )
+	/// <summary>Reveals the file in the local file manager.</summary>
+	private void ShowInFileManager( string path )
 	{
 		try
 		{
-			Process.Start( new ProcessStartInfo( "explorer.exe" ) { ArgumentList = { "/select,", path }, UseShellExecute = false } );
+			FileManager.Open( path, selectFile: true );
 		}
 		catch ( Exception error ) when ( error is System.ComponentModel.Win32Exception or InvalidOperationException )
 		{
-			Fail( $"Could not open Explorer: {error.Message}" );
+			Fail( $"Could not open {(OperatingSystem.IsWindows() ? "Explorer" : "the file manager")}: {error.Message}" );
 		}
 	}
 

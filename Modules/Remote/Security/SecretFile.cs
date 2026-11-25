@@ -15,13 +15,18 @@ public static class SecretFile
 		Directory.CreateDirectory( Path.GetDirectoryName( Path.GetFullPath( path ) )! );
 		var temporary = path + ".tmp";
 		var bytes = Encoding.UTF8.GetBytes( text );
+#if LOKN_WINDOWS
 		if ( OperatingSystem.IsWindows() )
 			WriteOwnerOnly( temporary, bytes );
 		else
 			File.WriteAllBytes( temporary, bytes );
+#else
+		File.WriteAllBytes( temporary, bytes );
+#endif
 		File.Move( temporary, path, overwrite: true );
 	}
 
+#if LOKN_WINDOWS
 	/// <summary>Builds the security of a file only the current user may use: no inherited entries, full control for the user alone.</summary>
 	[SupportedOSPlatform( "windows" )]
 	internal static FileSecurity BuildOwnerOnly()
@@ -42,4 +47,5 @@ public static class SecretFile
 		using var stream = new FileInfo( path ).Create( FileMode.CreateNew, FileSystemRights.FullControl, FileShare.None, 4096, FileOptions.None, BuildOwnerOnly() );
 		stream.Write( bytes );
 	}
+#endif
 }

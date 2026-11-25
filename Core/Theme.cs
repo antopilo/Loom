@@ -116,7 +116,7 @@ public sealed record Theme
 	public Color AnsiBrightWhite { get; init; } = Color.Parse( "#f4f2ec" );
 
 	/// <summary>Gets the user interface font family.</summary>
-	public string FontFamily { get; init; } = "Segoe UI";
+	public string FontFamily { get; init; } = OperatingSystem.IsWindows() ? "Segoe UI" : ViewStyle.FontFamily;
 
 	/// <summary>Gets the standard text size in logical pixels.</summary>
 	public int FontSize { get; init; } = 13;

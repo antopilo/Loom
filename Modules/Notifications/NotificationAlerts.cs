@@ -94,7 +94,7 @@ internal sealed class NotificationAlerts
 		} );
 		if ( _app.Settings.Get( NotificationSettings.Sound ) )
 			AttentionChime.Play();
-		if ( !isFocused && _app.ApplicationId.Length > 0 && _app.Settings.Get( NotificationSettings.Desktop ) && OperatingSystem.IsWindows() && NotificationIdentity.CanInstall )
+		if ( !isFocused && _app.ApplicationId.Length > 0 && OperatingSystem.IsWindows() && _app.Settings.Get( NotificationSettings.Desktop ) && NotificationIdentity.CanInstall )
 			UpdateNotification( panel.Id, attention );
 	}
 

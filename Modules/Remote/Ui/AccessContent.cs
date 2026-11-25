@@ -62,9 +62,12 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 		if ( _message.Length > 0 )
 			children.Add( BuildParagraph( _message, _isError ? theme.Error : theme.Success, selectable: true ) );
 
-		children.AddRange( BuildServe( theme ) );
-		children.AddRange( BuildDevices( theme ) );
-		children.AddRange( BuildPending( theme ) );
+		if ( module.SupportsDaemon )
+		{
+			children.AddRange( BuildServe( theme ) );
+			children.AddRange( BuildDevices( theme ) );
+			children.AddRange( BuildPending( theme ) );
+		}
 		children.AddRange( BuildHosts( theme ) );
 		return new Container { Gap = theme.Spacing, Children = children };
 	}

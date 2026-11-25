@@ -73,8 +73,8 @@ internal static class ChatIcons
 	/// <summary>Holds an upward arrow: a stem and a chevron head.</summary>
 	private static readonly VectorPath Arrow = VectorPath.Parse( "M7 12 L7 2.5 M2.75 6.75 L7 2.5 L11.25 6.75", Box );
 
-	/// <summary>Retains the registered Windows icon font.</summary>
-	private static readonly FontSource IconFont = BuildIconFont();
+	/// <summary>Retains the registered icon font.</summary>
+	private static readonly FontSource IconFont = SystemFonts.Register( "Lokn Chat Icons", IconWeight, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Builds a task's status mark: an empty ring, a ring around a dot, a checked disc, or a crossed ring.</summary>
 	internal static Blob BuildTaskMark( TaskState state )
@@ -259,15 +259,6 @@ internal static class ChatIcons
 			FlexShrink = 0,
 			Children = children,
 		};
-	}
-
-	/// <summary>Registers the installed Windows font that holds the tool icon glyphs.</summary>
-	private static FontSource BuildIconFont()
-	{
-		var path = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" );
-		var font = FontSource.FromPath( "Lokn Chat Icons", IconWeight, italic: false, path );
-		font.Register();
-		return font;
 	}
 
 	/// <summary>Describes a spinner's arc.</summary>

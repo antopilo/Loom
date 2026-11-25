@@ -20,7 +20,7 @@ internal sealed partial class AccessContent
 	private const int LevelIconSize = 22;
 
 	/// <summary>Retains the installed Segoe Fluent Icons face drawn by the level picker.</summary>
-	private static readonly FontSource IconFont = RegisterIconFont();
+	private static readonly FontSource IconFont = SystemFonts.Register( "Lokn Remote Icons", 400, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Lists the three sharing levels: their id, icon glyph, label and one line on what they do.</summary>
 	private static readonly (string Level, string Glyph, string Label, string Text)[] Levels =
@@ -95,7 +95,8 @@ internal sealed partial class AccessContent
 		yield return BuildSection( "Sharing", theme );
 		yield return BuildLevels( level, theme );
 		yield return BuildParagraph( Levels.First( item => item.Level == level ).Text, theme.Muted );
-		yield return BuildGroup( theme, [BuildAgentWindows( theme )] );
+		if ( OperatingSystem.IsWindows() )
+			yield return BuildGroup( theme, [BuildAgentWindows( theme )] );
 
 		if ( _pendingNetwork is not null || _module.Switching is not null )
 		{
@@ -347,14 +348,6 @@ internal sealed partial class AccessContent
 		if ( !step.IsDone && step.Button is { } label && step.Url is { } url )
 			children.Add( theme.BuildButton( label, () => _context.Run( () => _context.App.OpenLink( new Uri( url ) ) ) ) );
 		return BuildGroupRow( "step:" + index, theme, [.. children] );
-	}
-
-	/// <summary>Registers the installed Segoe Fluent Icons face for the level picker and the setup steps.</summary>
-	private static FontSource RegisterIconFont()
-	{
-		var font = FontSource.FromPath( "Lokn Remote Icons", 400, false, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" ) );
-		font.Register();
-		return font;
 	}
 
 	/// <summary>Builds Pair a device while the daemon serves devices: buttons that show a code to control or to watch, or the shown code.</summary>
