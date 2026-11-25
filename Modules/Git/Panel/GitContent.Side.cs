@@ -3,7 +3,8 @@ using Lokn.Core;
 
 namespace Lokn.Modules.Git;
 
-/// <summary>Lays the Git views out for the Files side view: the Changes mode's working tree and commit box, and the History mode's refs above the log.</summary>
+/// <summary>Lays the Git views out for the Files side view: the Changes mode's working tree and commit box, and the History mode's refs above the log;
+/// and shows the side view's Changes mode from the panel.</summary>
 internal sealed partial class GitContent
 {
 	/// <summary>Defines the stash button's glyph, a box.</summary>
@@ -54,6 +55,13 @@ internal sealed partial class GitContent
 			Children = [BuildSidebar(), BuildCommits()],
 		} );
 		return children;
+	}
+
+	/// <summary>Shows the Files side view in its Changes mode, opening it when closed, while the panel's repository is the open project's.</summary>
+	private void ShowSideChanges()
+	{
+		if ( GitModule.FindSideView( _context, _root ?? _directory ) is { } side )
+			side.Show( _context.App, GitModule.ChangesMode );
 	}
 
 	/// <summary>Defines the connected-nodes glyph that stands for the branch in the footer.</summary>

@@ -84,6 +84,9 @@ internal static class GitIcons
 	/// <summary>Holds three bulleted lines, for a flat list.</summary>
 	internal static readonly VectorPath List = Parse( "M3 6h.01M3 12h.01M3 18h.01M8 6h13M8 12h13M8 18h13" );
 
+	/// <summary>Holds a window with a panel along its left edge, for the side view.</summary>
+	internal static readonly VectorPath SidePanel = Parse( Rectangle( 3, 3, 18, 18, 2 ) + "M9 3v18" );
+
 	/// <summary>Builds an icon of a size in a color.</summary>
 	/// <param name="icon">The icon.</param>
 	/// <param name="size">The icon's width and height in logical pixels.</param>

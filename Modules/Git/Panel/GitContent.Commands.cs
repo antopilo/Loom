@@ -19,14 +19,17 @@ internal sealed partial class GitContent
 	/// <summary>Defines the font weight of the checked-out branch or commit in the toolbar.</summary>
 	private const double HeadWeight = 600;
 
-	/// <summary>Builds the toolbar: the checked-out branch or commit, then icons for fetch, pull with its options, push, new branch, stash and pop,
-	/// the working-tree actions other modules add, and reload; a side view wraps it.</summary>
+	/// <summary>Builds the toolbar: in the panel, the button that shows the side view's changes; then the checked-out branch or commit, icons for fetch,
+	/// pull with its options, push, new branch, stash and pop, the working-tree actions other modules add, and reload; a side view wraps it.</summary>
 	private Row BuildToolbar()
 	{
 		var theme = Theme.Current;
 		var idle = IsIdle;
 		var onBranch = _state?.Branch is not null;
 		var children = new List<Blob>();
+		// The panel's working tree and commit box live in the side view's Changes mode; once the side view is closed, this brings it back.
+		if ( _layout == GitLayout.Full && GitModule.FindSideView( _context, _root ?? _directory ) is not null )
+			children.Add( BuildIconTool( "side-view", GitIcons.SidePanel, "Show the changes in the side view", true, ShowSideChanges ) );
 		if ( _state is { } state && (state.Branch ?? state.Commit) is { } head )
 			children.Add( new Row
 			{

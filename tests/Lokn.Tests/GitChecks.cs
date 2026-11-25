@@ -926,6 +926,49 @@ internal static class GitChecks
 		Pump();
 		CoreChecks.Check( Loaded() && fileView.Target == new GitFileTarget( "readme.txt", true ) && app.Panels.ActivePanelId == sideTree.Id && app.Panels.Panels.Count( panel => panel.TypeId == GitModule.PanelType ) == 1,
 			"Clicking a file in the Changes mode shows its diff in the open Git panel, while the side view keeps the focus." );
+
+		// The Git panel's table gives the message its room first at any width: the other columns shrink, then the SHA and the date hide.
+		var tableWidth = typeof( GitContent ).GetField( "_tableWidth", flags )!;
+		var computeColumns = typeof( GitContent ).GetMethod( "ComputeTableColumns", flags )!;
+		GitTableColumns Columns( double width )
+		{
+			tableWidth.SetValue( gitPanel, width );
+			return (GitTableColumns)computeColumns.Invoke( gitPanel, [] )!;
+		}
+		var unmeasured = Columns( 0 );
+		var wide = Columns( 1600 );
+		CoreChecks.Check( unmeasured == wide && wide is { ShowsDate: true, ShowsSha: true, IsRefCompact: false },
+			"A wide Git table, or one not laid out yet, shows every column at its full width." );
+		foreach ( var width in new[] { 900.0, 525, 400, 300 } )
+		{
+			var columns = Columns( width );
+			var taken = columns.RefWidth + columns.GraphWidth + (columns.ShowsDate ? 72 : 0) + (columns.ShowsSha ? 72 : 0);
+			CoreChecks.Check( width - taken >= 120, $"A {width} pixel wide Git table leaves the commit message at least 120 pixels: {columns}." );
+		}
+		CoreChecks.Check( Columns( 525 ) is { ShowsDate: true, ShowsSha: true } && Columns( 260 ) is { ShowsDate: false, ShowsSha: false, IsRefCompact: true },
+			"A narrowing Git table shrinks its Branch / Tag column to icons before it hides the SHA and the date." );
+		tableWidth.SetValue( gitPanel, 0.0 );
+
+		// Closing the side view leaves the Git panel a way to bring its working tree back.
+		app.Panels.Close( sideTree.Id );
+		typeof( GitContent ).GetMethod( "ShowSideChanges", flags )!.Invoke( gitPanel, [] );
+		var reopened = FilesModule.Find( app );
+		CoreChecks.Check( reopened is not null && app.Panels.Sessions.Single( session => session.Info.Id == reopened.Id ).Content is FileTreeContent { SelectedModeKey: "git.changes" },
+			"The Git panel shows the closed side view again, in its Changes mode." );
+
+		// A Git panel opened from a chat sits next to the side view it opens, so the chat is not left between the two Git views.
+		CoreChecks.Check( app.Load( new FixtureModule( "chat-fixture", builder => builder.Panel( "page", "Chat", _ => new FixtureContent() ) ) ), "A chat stand-in loads." );
+		foreach ( var panel in app.Panels.Panels )
+			app.Panels.Close( panel.Id );
+		var chatId = app.Panels.Open( "chat-fixture.page" );
+		string Order() => string.Join( ", ", app.Panels.Panes.Select( item => app.Panels.Panels.Single( panel => panel.Id == item.PanelId ).TypeId ) );
+		app.GetModule<GitModule>().OpenPanel( app, chatId, repository );
+		Pump();
+		CoreChecks.Check( Order() == "files.tree, git.panel, chat-fixture.page", $"A Git panel opened from a chat opens the side view and sits between it and the chat: {Order()}." );
+		app.Panels.Close( app.Panels.Panels.Single( panel => panel.TypeId == GitModule.PanelType ).Id );
+		app.GetModule<GitModule>().OpenPanel( app, chatId, repository );
+		Pump();
+		CoreChecks.Check( Order() == "files.tree, git.panel, chat-fixture.page", $"A Git panel opened from a chat beside an open side view sits between them: {Order()}." );
 		app.Shutdown();
 
 		void Pump()

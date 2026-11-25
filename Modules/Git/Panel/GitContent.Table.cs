@@ -11,11 +11,27 @@ namespace Lokn.Modules.Git;
 /// <param name="IsOnRemote">Whether a local branch's remote branch points at the same commit, drawn as a globe after its name.</param>
 internal sealed record GitRefLabel( GitRef Ref, string Label, VectorPath Icon, bool IsOnRemote );
 
+/// <summary>The Git panel table's columns at its width.</summary>
+/// <param name="RefWidth">The Branch / Tag column's width in logical pixels.</param>
+/// <param name="GraphWidth">The Graph column's width in logical pixels; narrower than the lanes need, it cuts them off at its right edge.</param>
+/// <param name="ShowsDate">Whether the Date column shows.</param>
+/// <param name="ShowsSha">Whether the SHA column shows.</param>
+internal sealed record GitTableColumns( double RefWidth, double GraphWidth, bool ShowsDate, bool ShowsSha )
+{
+	/// <summary>Defines the Branch / Tag column width below which its badges and heading show their icon only, in logical pixels.</summary>
+	private const double CompactRefWidth = 96;
+
+	/// <summary>Gets whether the Branch / Tag column shows icons only, without names or the count of further branches and tags.</summary>
+	public bool IsRefCompact => RefWidth < CompactRefWidth;
+}
+
 /// <summary>Builds the Git panel's graph: the commit table with its Branch / Tag, Graph, Commit message, Date and SHA columns under a pinned
 /// Working tree row, with the selected commit's details beside it.</summary>
 /// <remarks>
 /// Each row tints the graph from its commit to the message in its lane's color and marks the message with a bar of that color, so a branch
 /// reads across the table. A commit a branch or tag points at shows its author's avatar in place of its dot, joined to its badges by a line.
+/// When the table narrows, the Branch / Tag and Graph columns give way before the message does: they shrink, the badges keep their icons only
+/// and the graph cuts its outer lanes off, then the SHA and the date hide.
 /// </remarks>
 internal sealed partial class GitContent
 {
@@ -40,6 +56,12 @@ internal sealed partial class GitContent
 	/// <summary>Defines the narrowest the table's graph column gets, so its heading fits, in logical pixels.</summary>
 	private const double MinGraphWidth = 56;
 
+	/// <summary>Defines the narrowest the table's Branch / Tag column gets, room for one badge's icon, in logical pixels.</summary>
+	private const double MinRefWidth = 44;
+
+	/// <summary>Defines the room the table keeps for a commit message before the other columns take any beyond their narrowest, in logical pixels.</summary>
+	private const double MinMessageWidth = 120;
+
 	/// <summary>Defines a branch tip's avatar diameter in logical pixels.</summary>
 	private const double TipAvatarSize = 18;
 
@@ -57,6 +79,12 @@ internal sealed partial class GitContent
 
 	/// <summary>Defines how long a row's fill takes to change on hover and selection, in milliseconds.</summary>
 	private const int RowFadeMs = 120;
+
+	/// <summary>Targets the commit table, whose width sets its columns.</summary>
+	private readonly ElementHandle _tableArea = new();
+
+	/// <summary>Stores the commit table's width in logical pixels, or 0 before it is first laid out.</summary>
+	private double _tableWidth;
 
 	/// <summary>Gets the table's graph column width: the lanes with room for avatars at both ends, or wide enough for its heading.</summary>
 	private double TableGraphWidth => Math.Max( GraphInset + Math.Min( _history?.Lanes ?? 1, MaxLanes ) * GitHistory.LaneWidth + GraphTail, MinGraphWidth );
@@ -99,6 +127,7 @@ internal sealed partial class GitContent
 		return new Container
 		{
 			Key = "git-table",
+			Handle = _tableArea,
 			FlexGrow = 1,
 			MinWidth = 0,
 			MinHeight = 0,
@@ -106,10 +135,51 @@ internal sealed partial class GitContent
 		};
 	}
 
-	/// <summary>Builds the column headings, aligned with the rows below.</summary>
+	/// <summary>Records the commit table's width once laid out, so its columns fit it.</summary>
+	private void UpdateTableWidth( ElementMetrics metrics )
+	{
+		if ( !metrics.IsMounted )
+			return;
+
+		var width = Math.Round( metrics.ContentBox.Width );
+		if ( width == _tableWidth )
+			return;
+
+		_tableWidth = width;
+		MarkChanged();
+	}
+
+	/// <summary>Lays the table's columns out for its width: the message keeps its room first, then the Branch / Tag and Graph columns at their
+	/// narrowest, then the date, then the SHA; what is left widens those two columns up to their full width, each taking half or what the other
+	/// does not need, and the message takes the rest.</summary>
+	private GitTableColumns ComputeTableColumns()
+	{
+		var graph = TableGraphWidth;
+		if ( _tableWidth <= 0 )
+			return new( RefWidth, graph, true, true );
+
+		// Every row's right padding, the message's bar and the message's own padding.
+		var spacing = Theme.Current.Spacing;
+		var spare = _tableWidth - spacing * 3 - MessageBarWidth - MinMessageWidth - MinRefWidth - MinGraphWidth;
+		var showsDate = spare >= TableDateWidth;
+		if ( showsDate )
+			spare -= TableDateWidth;
+		var showsSha = spare >= TableShaWidth;
+		if ( showsSha )
+			spare -= TableShaWidth;
+
+		spare = Math.Max( spare, 0 );
+		var refRoom = RefWidth - MinRefWidth;
+		var graphGrowth = Math.Min( graph - MinGraphWidth, Math.Max( spare / 2, spare - refRoom ) );
+		var refGrowth = Math.Min( refRoom, spare - graphGrowth );
+		return new( MinRefWidth + refGrowth, MinGraphWidth + graphGrowth, showsDate, showsSha );
+	}
+
+	/// <summary>Builds the column headings, aligned with the rows below; a compact Branch / Tag column shows a branch icon for its heading.</summary>
 	private Row BuildTableHeader()
 	{
 		var theme = Theme.Current;
+		var columns = ComputeTableColumns();
 		Text Heading( string label, double? width, double inset = 0 ) => new()
 		{
 			Content = label,
@@ -121,7 +191,28 @@ internal sealed partial class GitContent
 			FontSize = ViewStyle.SmallSize,
 			Color = theme.Muted,
 			TextWrap = TextWrap.NoWrap,
+			TextTrimming = TextTrimming.Ellipsis,
 		};
+		var children = new List<Blob>
+		{
+			columns.IsRefCompact
+				? new Container
+				{
+					Width = columns.RefWidth,
+					FlexShrink = 0,
+					Padding = new Edges( 0, 0, 0, theme.Spacing ),
+					AccessibilityRole = AccessibilityRole.Text,
+					AccessibilityName = "Branch / Tag",
+					Children = [GitIcons.Build( GitIcons.Branch, 12, theme.Muted )],
+				}
+				: Heading( "Branch / Tag", columns.RefWidth, theme.Spacing ),
+			Heading( "Graph", columns.GraphWidth, GraphInset ),
+			Heading( "Commit message", null, theme.Spacing + MessageBarWidth ),
+		};
+		if ( columns.ShowsDate )
+			children.Add( Heading( "Date", TableDateWidth ) );
+		if ( columns.ShowsSha )
+			children.Add( Heading( "SHA", TableShaWidth ) );
 		return new Row
 		{
 			Key = "git-table-header",
@@ -131,18 +222,12 @@ internal sealed partial class GitContent
 			Padding = new Edges( 0, theme.Spacing, 0, 0 ),
 			BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
 			BorderColor = theme.Border,
-			Children =
-			[
-				Heading( "Branch / Tag", RefWidth, theme.Spacing ),
-				Heading( "Graph", TableGraphWidth, GraphInset ),
-				Heading( "Commit message", null, theme.Spacing + MessageBarWidth ),
-				Heading( "Date", TableDateWidth ),
-				Heading( "SHA", TableShaWidth ),
-			],
+			Children = children,
 		};
 	}
 
-	/// <summary>Builds the pinned Working tree row: a hollow circle, and how many files are staged and unstaged; selecting it hides the commit details.</summary>
+	/// <summary>Builds the pinned Working tree row: a hollow circle, and how many files are staged and unstaged; selecting it hides the commit details and
+	/// shows the changes in the side view.</summary>
 	private Button BuildWorkingTreeRow()
 	{
 		var theme = Theme.Current;
@@ -161,18 +246,23 @@ internal sealed partial class GitContent
 		if ( unstaged == 0 && staged == 0 )
 			message.Add( new Text { Content = "No local changes", FontSize = ViewStyle.SmallSize, Color = theme.Muted, FlexShrink = 0, TextWrap = TextWrap.NoWrap } );
 
-		void Select() => _context.Run( SelectWorkingTree );
+		void Select() => _context.Run( () =>
+		{
+			SelectWorkingTree();
+			ShowSideChanges();
+		} );
 		var row = BuildTableRowShell( "git-working-tree", _isWorkingTree, $"Working tree, {unstaged:N0} unstaged, {staged:N0} staged", Select );
 		row.Key = "git-working-tree";
 		row.BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 );
 		row.BorderColor = theme.Border;
 		row.KeyBindings = [new( Key.Enter, KeyModifiers.None, Select ), new( Key.Space, KeyModifiers.None, Select )];
+		var columns = ComputeTableColumns();
 		row.Children =
 		[
-			new Container { Width = RefWidth, FlexShrink = 0 },
+			new Container { Width = columns.RefWidth, FlexShrink = 0 },
 			new Container
 			{
-				Width = TableGraphWidth,
+				Width = columns.GraphWidth,
 				Height = GitHistory.RowHeight,
 				FlexShrink = 0,
 				Children =
@@ -213,7 +303,8 @@ internal sealed partial class GitContent
 		Children = [new Text { Content = label, FontSize = ViewStyle.SmallSize - 1, Color = color, TextWrap = TextWrap.NoWrap, LineHeight = 1 }],
 	};
 
-	/// <summary>Builds one table row: its branches and tags, graph, lane-marked subject, date and short SHA; click selects it, right-click opens its menu.</summary>
+	/// <summary>Builds one table row: its branches and tags, graph, lane-marked subject, and the date and short SHA when their columns show; click selects it,
+	/// right-click opens its menu.</summary>
 	private Blob BuildTableRow( GitLogRow row )
 	{
 		var theme = Theme.Current;
@@ -221,6 +312,7 @@ internal sealed partial class GitContent
 		var id = commit.Id;
 		var key = "commit:" + id;
 		var lane = ComputeLaneColor( row.Graph.Color );
+		var columns = row.Columns ?? ComputeTableColumns();
 		void Select() => _context.Run( () => SelectCommit( id, reveal: false ) );
 		var button = BuildTableRowShell( key, row.IsSelected, $"{commit.Subject}, {commit.AuthorName}, {commit.ShortId}", Select );
 		button.Handle = EnsureHandle( key );
@@ -240,10 +332,10 @@ internal sealed partial class GitContent
 			new( Key.Up, KeyModifiers.None, () => _context.Run( () => SelectNeighbor( id, -1 ) ) ),
 			new( Key.Down, KeyModifiers.None, () => _context.Run( () => SelectNeighbor( id, 1 ) ) ),
 		];
-		button.Children =
-		[
-			BuildRefCell( row, lane ),
-			BuildTableGraph( row, lane ),
+		var cells = new List<Blob>
+		{
+			BuildRefCell( row, lane, columns ),
+			BuildTableGraph( row, lane, columns.GraphWidth ),
 			new Row
 			{
 				FlexGrow = 1,
@@ -267,9 +359,12 @@ internal sealed partial class GitContent
 					},
 				],
 			},
-			BuildColumn( FormatShortDate( commit.AuthorDate ), TableDateWidth ),
-			BuildShaColumn( commit.ShortId ),
-		];
+		};
+		if ( columns.ShowsDate )
+			cells.Add( BuildColumn( FormatShortDate( commit.AuthorDate ), TableDateWidth ) );
+		if ( columns.ShowsSha )
+			cells.Add( BuildShaColumn( commit.ShortId ) );
+		button.Children = cells;
 		return button;
 	}
 
@@ -307,18 +402,24 @@ internal sealed partial class GitContent
 		return sha;
 	}
 
-	/// <summary>Builds a row's graph cell: the lane tint from its commit rightward, the line from its badges, the graph's lines, and its dot or avatar.</summary>
-	private Container BuildTableGraph( GitLogRow row, Color lane )
+	/// <summary>Builds a row's graph cell: the lane tint from its commit rightward, the line from its badges, the graph's lines, and its dot or avatar;
+	/// a commit on a lane the column cuts off keeps its dot or avatar at the column's right edge.</summary>
+	/// <param name="row">The row.</param>
+	/// <param name="lane">The commit's lane color.</param>
+	/// <param name="width">The column's width.</param>
+	private Container BuildTableGraph( GitLogRow row, Color lane, double width )
 	{
 		var theme = Theme.Current;
 		var graph = row.Graph;
-		var x = GraphInset + GitHistory.ComputeX( graph.Lane );
+		var x = Math.Min( GraphInset + GitHistory.ComputeX( graph.Lane ), width - GitHistory.LaneWidth / 2 );
+		var isCutOff = x < GraphInset + GitHistory.ComputeX( graph.Lane );
 		var middle = GitHistory.RowHeight / 2;
 		var isTip = row.Refs.Count > 0;
+		var hasDot = !isTip || _pictures is null;
 		var lines = new List<Blob>();
 		foreach ( var (color, path) in graph.Lines )
 			lines.Add( BuildLayer( path, graph.Width, new Shape { Stroke = new VectorStroke( LineWidth, ComputeLaneColor( color ) ) { Cap = StrokeCap.Round } } ) );
-		if ( !isTip || _pictures is null )
+		if ( hasDot && !isCutOff )
 			lines.Add( BuildLayer( graph.Dot, graph.Width, row.IsHead
 				? new Shape { Fill = new VectorPaint( theme.Panel ), Stroke = new VectorStroke( 2, lane ) }
 				: new Shape { Fill = new VectorPaint( lane ) } ) );
@@ -330,6 +431,19 @@ internal sealed partial class GitContent
 		if ( isTip )
 			children.Add( new Container { Position = PositionType.Absolute, Left = 0, Width = x, Top = middle - 0.5, Height = 1, BackgroundColor = lane.WithAlpha( ConnectorOpacity ) } );
 		children.Add( new Container { Position = PositionType.Absolute, Left = GraphInset, Top = 0, Width = graph.Width, Height = GitHistory.RowHeight, Children = lines } );
+		if ( hasDot && isCutOff )
+			children.Add( new Container
+			{
+				Position = PositionType.Absolute,
+				Left = x - GitHistory.DotRadius,
+				Top = middle - GitHistory.DotRadius,
+				Width = GitHistory.DotRadius * 2,
+				Height = GitHistory.DotRadius * 2,
+				BorderRadius = GitHistory.DotRadius,
+				BackgroundColor = row.IsHead ? theme.Panel : lane,
+				BorderWidth = row.IsHead ? 2 : 0,
+				BorderColor = lane,
+			} );
 		if ( isTip && _pictures is { } pictures )
 			children.Add( new Container
 			{
@@ -341,7 +455,7 @@ internal sealed partial class GitContent
 
 		return new Container
 		{
-			Width = TableGraphWidth,
+			Width = width,
 			Height = GitHistory.RowHeight,
 			FlexShrink = 0,
 			Overflow = Overflow.Hidden,
@@ -349,8 +463,9 @@ internal sealed partial class GitContent
 		};
 	}
 
-	/// <summary>Builds a row's Branch / Tag cell: a HEAD badge when detached, the first branch or tag, how many more point there, and a line on to the graph.</summary>
-	private Row BuildRefCell( GitLogRow row, Color lane )
+	/// <summary>Builds a row's Branch / Tag cell: a HEAD badge when detached, the first branch or tag, how many more point there, and a line on to the graph;
+	/// a compact column shows the first badge's icon only.</summary>
+	private Row BuildRefCell( GitLogRow row, Color lane, GitTableColumns columns )
 	{
 		var theme = Theme.Current;
 		var labels = ComputeRefLabels( row.Refs );
@@ -358,14 +473,14 @@ internal sealed partial class GitContent
 		if ( row.IsHead && !row.Refs.Any( item => item.IsCurrent ) )
 			children.Add( BuildHeadBadge() );
 		if ( labels.Count > 0 )
-			children.Add( BuildRefBadge( labels[0] ) );
-		if ( labels.Count > 1 )
+			children.Add( BuildRefBadge( labels[0], columns.IsRefCompact ) );
+		if ( labels.Count > 1 && !columns.IsRefCompact )
 			children.Add( BuildMoreRefs( row.Commit.Id, [.. labels.Skip( 1 ).Select( label => label.Ref )] ) );
 		if ( children.Count > 0 )
 			children.Add( new Container { FlexGrow = 1, MinWidth = theme.Spacing, Height = 1, BackgroundColor = lane.WithAlpha( ConnectorOpacity ) } );
 		return new Row
 		{
-			Width = RefWidth,
+			Width = columns.RefWidth,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
@@ -405,17 +520,18 @@ internal sealed partial class GitContent
 		return remote.ShortName.StartsWith( prefix, StringComparison.Ordinal ) ? remote.ShortName[prefix.Length..] : remote.ShortName;
 	}
 
-	/// <summary>Builds a branch or tag badge: its icon, name and a globe when it is on a remote too; click selects its commit, double-click checks it
-	/// out, right-click opens its menu.</summary>
-	private Button BuildRefBadge( GitRefLabel label )
+	/// <summary>Builds a branch or tag badge: its icon, name and a globe when it is on a remote too, or its icon only when compact; click selects its
+	/// commit, double-click checks it out, right-click opens its menu.</summary>
+	private Button BuildRefBadge( GitRefLabel label, bool isCompact )
 	{
 		var theme = Theme.Current;
 		var reference = label.Ref;
 		var key = "ref:" + reference.Name;
 		var isCurrent = reference.IsCurrent;
-		var children = new List<Blob>
+		var icon = GitIcons.Build( label.Icon, 13, isCurrent ? theme.Accent : theme.Text.WithAlpha( 0.7 ) );
+		var children = isCompact ? [icon] : new List<Blob>
 		{
-			GitIcons.Build( label.Icon, 13, isCurrent ? theme.Accent : theme.Text.WithAlpha( 0.7 ) ),
+			icon,
 			new Text
 			{
 				Content = label.Label,
@@ -429,7 +545,7 @@ internal sealed partial class GitContent
 				TextTrimming = TextTrimming.Ellipsis,
 			},
 		};
-		if ( label.IsOnRemote )
+		if ( label.IsOnRemote && !isCompact )
 			children.Add( GitIcons.Build( GitIcons.Globe, 13, theme.Text.WithAlpha( 0.6 ) ) );
 
 		return new Button

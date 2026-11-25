@@ -128,6 +128,7 @@ internal sealed partial class GitContent : PanelContent
 		var git = context.App.GetModule<GitModule>();
 		_watch = git.Watch( context.Host, _directory );
 		_pictures = git.Pictures;
+		_tableArea.MetricsChanged += metrics => _context.Run( () => UpdateTableWidth( metrics ) );
 		_changes = new GitChangesPane( context, () => _root ?? "", Run, () => ReviewFindings, OpenChange, OnChangesLoaded );
 		_file = new GitFileView( context, _changes, () => _root, Run, CloseFile );
 		_focus = input.Focus;
