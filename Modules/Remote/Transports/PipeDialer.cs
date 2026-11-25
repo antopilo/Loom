@@ -11,6 +11,7 @@ namespace Lokn.Modules.Remote;
 /// <summary>Connects to the daemon's named pipe as the current user.</summary>
 public static class PipeDialer
 {
+#if LOKN_WINDOWS
 	/// <summary>Asks <see cref="OpenProcess"/> for the right to read a process's token.</summary>
 	private const int QueryLimitedInformation = 0x1000;
 
@@ -19,6 +20,7 @@ public static class PipeDialer
 
 	/// <summary>Selects the token's mandatory label in <see cref="GetTokenInformation"/>.</summary>
 	private const int TokenIntegrityLevel = 25;
+#endif
 
 	/// <summary>Connects to a pipe, or returns null when no daemon answers within <paramref name="timeout"/>, so the caller can start one.</summary>
 	/// <param name="pipeName">The pipe name without <c>\\.\pipe\</c>, usually <see cref="PipeHost.ComputePipeName"/>.</param>
@@ -32,9 +34,11 @@ public static class PipeDialer
 		try
 		{
 			await client.ConnectAsync( timeout, cancellationToken ).ConfigureAwait( false );
+#if LOKN_WINDOWS
 			// A sandboxed or low-integrity process of the same user passes CurrentUserOnly; it must not pose as the daemon and receive tool calls.
 			if ( OperatingSystem.IsWindows() )
 				CheckServerIntegrity( client );
+#endif
 			return new PipeConnection( client );
 		}
 		catch ( TimeoutException )
@@ -49,6 +53,7 @@ public static class PipeDialer
 		}
 	}
 
+#if LOKN_WINDOWS
 	/// <summary>Checks that the pipe's server runs at this process's integrity level or above.</summary>
 	/// <exception cref="UnauthorizedAccessException">The server runs lower, or its level cannot be read.</exception>
 	[SupportedOSPlatform( "windows" )]
@@ -115,4 +120,5 @@ public static class PipeDialer
 	[DllImport( "advapi32.dll", SetLastError = true )]
 	[return: MarshalAs( UnmanagedType.Bool )]
 	private static extern bool GetTokenInformation( SafeAccessTokenHandle token, int kind, nint buffer, int length, out int needed );
+#endif
 }

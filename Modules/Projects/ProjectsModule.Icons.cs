@@ -1,7 +1,9 @@
-using System.Runtime.Versioning;
 using Goo;
 using Lokn.Core;
+#if LOKN_WINDOWS
+using System.Runtime.Versioning;
 using Windows.Graphics.Imaging;
+#endif
 
 namespace Lokn.Modules.Projects;
 
@@ -240,11 +242,14 @@ internal static class ProjectIcons
 		{
 			return Task.Run( () => ImageSource.LoadThumbnail( path, maximumPixels, maximumPixels, cancellation ), cancellation );
 		}
-		if ( !OperatingSystem.IsWindowsVersionAtLeast( 10, 0, 10240 ) )
-			throw new PlatformNotSupportedException( "WebP project icons need Windows 10 or later." );
-		return LoadWebpAsync( path, maximumPixels, cancellation );
+#if LOKN_WINDOWS
+		if ( OperatingSystem.IsWindowsVersionAtLeast( 10, 0, 10240 ) )
+			return LoadWebpAsync( path, maximumPixels, cancellation );
+#endif
+		throw new PlatformNotSupportedException( "WebP project icons need Windows 10 or later." );
 	}
 
+#if LOKN_WINDOWS
 	/// <summary>Decodes a WebP image to bounded premultiplied RGBA pixels through Windows Imaging Component.</summary>
 	[SupportedOSPlatform( "windows10.0.10240.0" )]
 	private static async Task<ImageSource> LoadWebpAsync( string path, int maximumPixels, CancellationToken cancellation )
@@ -268,6 +273,7 @@ internal static class ProjectIcons
 			ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage ).AsTask( cancellation );
 		return ImageSource.Transfer( (int)width, (int)height, data.DetachPixelData(), static () => { } );
 	}
+#endif
 
 	/// <summary>Builds a square project icon from its asynchronously loaded source.</summary>
 	internal static Image Build( ImageSourceProvider source, string projectName, double size ) => new()

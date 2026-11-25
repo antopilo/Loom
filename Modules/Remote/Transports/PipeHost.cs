@@ -29,8 +29,12 @@ public sealed class PipeHost( string pipeName, Func<PipeConnection, Task> accept
 	/// <param name="bareFolder">The bare daemon's folder, or null for the user's daemon.</param>
 	public static string ComputePipeName( string? bareFolder = null )
 	{
+#if LOKN_WINDOWS
 		var name = "loom-host-" + WindowsIdentity.GetCurrent().User!.Value;
 		return bareFolder is null ? name : name + "-" + ComputeBareHash( bareFolder );
+#else
+		throw new PlatformNotSupportedException( "The Loom daemon is only supported on Windows." );
+#endif
 	}
 
 	/// <summary>Builds the daemon's single-instance mutex name, <c>Local\LoomHost</c>, or <c>Local\LoomHost.&lt;hash&gt;</c> for a bare daemon.</summary>
@@ -65,10 +69,14 @@ public sealed class PipeHost( string pipeName, Func<PipeConnection, Task> accept
 	/// <summary>Creates one pipe instance whose ACL grants only the current user.</summary>
 	private NamedPipeServerStream CreateServer( bool first )
 	{
+#if LOKN_WINDOWS
 		var security = new PipeSecurity();
 		security.AddAccessRule( new PipeAccessRule( WindowsIdentity.GetCurrent().User!, PipeAccessRights.FullControl, AccessControlType.Allow ) );
 		var options = PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : PipeOptions.None);
 		return NamedPipeServerStreamAcl.Create( pipeName, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, options, 0, 0, security );
+#else
+		throw new PlatformNotSupportedException( "The Loom daemon is only supported on Windows." );
+#endif
 	}
 
 	/// <summary>Waits for a client on one instance, hands it to the handler, and opens the next instance, until stopped.</summary>

@@ -26,11 +26,12 @@ public interface IWindowCapturer : IDisposable
 /// <summary>Opens the best capturer for a window or a screen.</summary>
 public static class WindowCapturers
 {
-	/// <summary>Opens a <see cref="GraphicsCapture"/>, which takes frames from the compositor, else a <see cref="WindowCapture"/> on Windows without it or for a window it refuses.</summary>
-	/// <param name="window">The window, or a screen's negative id (<see cref="ScreenCatalog"/>), which only <see cref="GraphicsCapture"/> captures.</param>
-	/// <exception cref="NotSupportedException">A screen was asked for on Windows without Windows.Graphics.Capture.</exception>
+	/// <summary>Opens Windows Graphics Capture, else a <see cref="WindowCapture"/> for a window it refuses.</summary>
+	/// <param name="window">The window, or a screen's negative id (<see cref="ScreenCatalog"/>).</param>
+	/// <exception cref="NotSupportedException">Windows Graphics Capture is unavailable for a screen, or capture is unavailable on this platform.</exception>
 	public static IWindowCapturer Open( nint window )
 	{
+#if LOKN_WINDOWS
 		if ( ScreenCatalog.IsScreen( window ) )
 		{
 			return OperatingSystem.IsWindowsVersionAtLeast( 10, 0, 19041 )
@@ -49,6 +50,9 @@ public static class WindowCapturers
 		}
 
 		return new WindowCapture( window );
+#else
+		throw new PlatformNotSupportedException( "Window capture is only supported on Windows." );
+#endif
 	}
 }
 
