@@ -110,6 +110,7 @@ internal sealed class GetStartedContent : PanelContent
 					MinHeight = 0,
 					Padding = ContentPadding,
 					OverflowY = Overflow.Scroll,
+					ScrollbarY = ViewStyle.GetScrollbar(),
 					AlignItems = AlignItems.Center,
 					Children =
 					[
@@ -138,7 +139,7 @@ internal sealed class GetStartedContent : PanelContent
 		var head = new List<Blob>();
 		if ( !isChecking && status is not null )
 			head.Add( BuildDot( ComputeColor( item, status.State ) ) );
-		head.Add( new Text { Content = item.Title, FontWeight = TitleWeight, Color = theme.Text, FlexShrink = 0 } );
+		head.Add( new Text { Content = item.Title, FontWeight = TitleWeight, Color = theme.Text, MinWidth = 0 } );
 		head.Add( BuildTag( item.IsRequired ? "Required" : "Optional" ) );
 		head.Add( new Container { FlexGrow = 1 } );
 		if ( status is { State: not SetupState.Ready } && item.FixAsync is not null )

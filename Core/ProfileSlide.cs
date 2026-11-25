@@ -38,6 +38,7 @@ public sealed class ProfileSlide : GuardedCell<ProfileSlideInput>
 		var offset = _offset?.Value ?? 0;
 		return new Container
 		{
+			FlexGrow = 1,
 			MinHeight = 0,
 			Gap = 2,
 			Transform = new PanelTransform { TranslateX = offset * SlideDistance },

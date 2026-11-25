@@ -62,6 +62,7 @@ internal sealed partial class AccessContent
 				{
 					FlexGrow = 1,
 					FlexShrink = 1,
+					MinWidth = 0,
 					Children = [new Text { Content = host.Name.Length > 0 ? host.Name : "Loom PC" }, BuildParagraph( detail, isWaiting ? theme.Text : theme.Muted, selectable: true )],
 				},
 				theme.BuildButton( isWaiting ? "Waiting\u2026" : "Pair", () => RequestNearby( host ), isEnabled: !_isBusy && _requesting is null ) ) );
@@ -146,6 +147,7 @@ internal sealed partial class AccessContent
 		{
 			FlexGrow = 1,
 			FlexShrink = 1,
+			MinWidth = 0,
 			Children =
 			[
 				new Row
@@ -178,6 +180,7 @@ internal sealed partial class AccessContent
 			{
 				FlexGrow = 1,
 				FlexShrink = 1,
+				MinWidth = 0,
 				Children =
 				[
 					new Text { Content = link.Host.Name, },

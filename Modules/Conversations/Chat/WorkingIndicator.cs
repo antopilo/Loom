@@ -73,10 +73,12 @@ internal sealed class WorkingIndicator : GuardedCell<WorkingInput>
 			_tick.Value++;
 	}
 
-	/// <summary>Formats elapsed time as seconds, or minutes and seconds past a minute.</summary>
+	/// <summary>Formats elapsed time as seconds, then minutes and seconds past a minute, then hours, minutes and seconds past an hour.</summary>
 	internal static string FormatElapsed( TimeSpan elapsed )
 	{
 		var seconds = Math.Max( 0, (int)elapsed.TotalSeconds );
-		return seconds < 60 ? $"{seconds}s" : $"{seconds / 60}m {seconds % 60:00}s";
+		return seconds < 60 ? $"{seconds}s"
+			: seconds < 3600 ? $"{seconds / 60}m {seconds % 60:00}s"
+			: $"{seconds / 3600}h {seconds / 60 % 60:00}m {seconds % 60:00}s";
 	}
 }

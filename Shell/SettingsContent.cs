@@ -14,6 +14,9 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	/// <summary>Defines the settings content inset in logical pixels.</summary>
 	private const int ContentPadding = 24;
 
+	/// <summary>Defines the right inset that keeps the heading clear of the window's close button and holds the scrollbar beside the settings, in logical pixels.</summary>
+	private const int EdgeGutter = 44;
+
 	/// <summary>Defines the widest the settings column grows, in logical pixels.</summary>
 	private const int ColumnWidth = 720;
 
@@ -125,28 +128,45 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			.OrderBy( group => group.Key, StringComparer.CurrentCulture )
 			.ToArray();
 
-		var children = new List<Blob>
+		var header = new Container
 		{
-			new Row
-			{
-				AlignItems = AlignItems.Center,
-				FlexWrap = FlexWrap.Wrap,
-				Gap = theme.Spacing,
-				Children =
-				[
-					new Text { Content = query.Length > 0 ? $"Results for “{query}”" : shown?.Title ?? "Settings", FontSize = HeadingSize, FontWeight = TitleWeight, FlexGrow = 1 },
-					BuildSegments( "Scope", [.. Enum.GetValues<SettingsScope>().Select( item => new SettingChoice( item, item == SettingsScope.Global ? "Defaults" : item.ToString() ) )],
-						scope, value => _scope.Value = (SettingsScope)value ),
-				],
-			},
-			new Text
-			{
-				Content = scope == SettingsScope.Global
-					? $"Editing the defaults every profile inherits. Active profile: {settings.ActiveProfile}."
-					: $"Editing {scope}: a changed setting overrides the default for this profile only.",
-				Color = theme.Muted,
-			},
+			Width = Length.Percent( 100 ),
+			MaxWidth = ContentPadding + ColumnWidth + EdgeGutter,
+			Padding = new Edges( 0, EdgeGutter, 0, ContentPadding ),
+			Gap = theme.Spacing,
+			Children =
+			[
+				new Row
+				{
+					AlignItems = AlignItems.Center,
+					FlexWrap = FlexWrap.Wrap,
+					Gap = theme.Spacing,
+					Children =
+					[
+						new Text
+						{
+							Content = query.Length > 0 ? $"Results for “{query}”" : shown?.Title ?? "Settings",
+							FontSize = HeadingSize,
+							FontWeight = TitleWeight,
+							FlexGrow = 1,
+							MinWidth = 0,
+							TextMaxLines = 1,
+							TextTrimming = TextTrimming.Ellipsis,
+						},
+						BuildSegments( "Scope", [.. Enum.GetValues<SettingsScope>().Select( item => new SettingChoice( item, item == SettingsScope.Global ? "Defaults" : item.ToString() ) )],
+							scope, value => _scope.Value = (SettingsScope)value ),
+					],
+				},
+				new Text
+				{
+					Content = scope == SettingsScope.Global
+						? $"Editing the defaults every profile inherits. Active profile: {settings.ActiveProfile}."
+						: $"Editing {scope}: a changed setting overrides the default for this profile only.",
+					Color = theme.Muted,
+				},
+			],
 		};
+		var children = new List<Blob>();
 
 		if ( query.Length > 0 )
 		{
@@ -183,6 +203,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Settings editor",
 			FlexGrow = 1,
+			MinWidth = 0,
 			MinHeight = 0,
 			Children =
 			[
@@ -190,20 +211,36 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 				new Container
 				{
 					Key = "page",
-					Handle = _main,
 					FlexGrow = 1,
 					MinWidth = 0,
-					Padding = ContentPadding,
-					OverflowY = Overflow.Scroll,
+					MinHeight = 0,
+					Padding = new Edges( ContentPadding, 0, 0, 0 ),
+					Gap = theme.Spacing,
 					AlignItems = AlignItems.Center,
 					Children =
 					[
+						header,
 						new Container
 						{
+							Key = "settings",
+							Handle = _main,
 							Width = Length.Percent( 100 ),
-							MaxWidth = ColumnWidth,
-							Gap = theme.Spacing,
-							Children = children,
+							FlexGrow = 1,
+							MinHeight = 0,
+							Padding = new Edges( 0, EdgeGutter, ContentPadding, ContentPadding ),
+							OverflowY = Overflow.Scroll,
+							ScrollbarY = ViewStyle.GetScrollbar(),
+							AlignItems = AlignItems.Center,
+							Children =
+							[
+								new Container
+								{
+									Width = Length.Percent( 100 ),
+									MaxWidth = ColumnWidth,
+									Gap = theme.Spacing,
+									Children = children,
+								},
+							],
 						},
 					],
 				},
@@ -220,23 +257,41 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 	/// <summary>Builds a category's heading and its card of rows.</summary>
 	private IEnumerable<Blob> BuildCategory( string title, IReadOnlyList<SettingDefinition> items, SettingsScope scope )
 	{
-		var theme = Theme.Current;
-		yield return new Text
-		{
-			Key = "heading:" + title,
-			Content = title.ToUpper( CultureInfo.CurrentCulture ),
-			Color = theme.Muted,
-			FontSize = theme.FontSize - 1,
-			Margin = new Edges( theme.Spacing * 2.5, 0, 0, theme.Spacing ),
-		};
+		yield return BuildHeading( title );
 		var rows = new List<Blob>();
 		foreach ( var definition in items )
 			rows.Add( BuildSetting( definition, scope, isFirst: rows.Count == 0 ) );
-		yield return new Container
+		yield return BuildCard( "category:" + title, title, rows );
+	}
+
+	/// <summary>Builds a section's heading, with controls such as a search field at its right.</summary>
+	private static Row BuildHeading( string title, params Blob[] tools )
+	{
+		var theme = Theme.Current;
+		return new Row
 		{
-			Key = "category:" + title,
+			Key = "heading:" + title,
+			AlignItems = AlignItems.Center,
+			FlexWrap = FlexWrap.Wrap,
+			Gap = theme.Spacing,
+			Margin = new Edges( theme.Spacing * 2.5, 0, 0, theme.Spacing ),
+			Children =
+			[
+				new Text { Content = title.ToUpper( CultureInfo.CurrentCulture ), Color = theme.Muted, FontSize = theme.FontSize - 1, FlexGrow = 1 },
+				.. tools,
+			],
+		};
+	}
+
+	/// <summary>Builds a section's card, which holds its rows.</summary>
+	private static Container BuildCard( string key, string name, List<Blob> rows )
+	{
+		var theme = Theme.Current;
+		return new Container
+		{
+			Key = key,
 			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = title,
+			AccessibilityName = name,
 			BackgroundColor = theme.Raised,
 			BorderColor = theme.Border,
 			BorderWidth = theme.BorderWidth,
@@ -246,61 +301,75 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		};
 	}
 
-	/// <summary>Builds one row: the title, description and where the value comes from, beside its widget, or above its segments.</summary>
-	private Container BuildSetting( SettingDefinition definition, SettingsScope scope, bool isFirst )
+	/// <summary>Builds one row of a card: its lines, and beside them its control, which moves under the lines when the row is narrow,
+	/// or always under them when <paramref name="isBelow"/> is set.</summary>
+	/// <remarks>The row never shrinks: Goo holds a shrinking row at a smallest height it measures with the text at its basis width, so a long
+	/// line wrapped there made the row taller than its card, and the card cut off the rows under it.</remarks>
+	/// <param name="key">The row's key.</param>
+	/// <param name="name">The row's accessible name.</param>
+	/// <param name="lines">The title first, then the lines that describe it.</param>
+	/// <param name="control">The row's widget or buttons, or null for a row of text.</param>
+	/// <param name="isFirst">Whether the row is the card's first, which has no line above it.</param>
+	/// <param name="isBelow">Whether the control always takes its own line under the text.</param>
+	private static Container BuildRow( string key, string name, IList<Blob> lines, Blob? control, bool isFirst, bool isBelow = false )
 	{
 		var theme = Theme.Current;
-		var settings = context.App.Settings;
-		var value = settings.GetValue( definition, scope );
 		var text = new Container
 		{
-			// The text keeps at least this width; with less room the widget wraps under it instead of squeezing it.
+			// The text keeps at least this width; with less room the control wraps under it instead of squeezing it.
 			FlexBasis = TextMinWidth,
 			FlexGrow = 1000,
 			FlexShrink = 1,
 			MinWidth = 0,
 			Gap = theme.Spacing / 2,
-			Children =
-			[
-				new Text { Content = definition.Title, FontWeight = TitleWeight },
-				.. definition.Description.Length > 0 ? [new Text { Content = definition.Description, Color = theme.Muted }] : Array.Empty<Blob>(),
-				.. BuildSource( definition, scope ) is { } source ? [source] : Array.Empty<Blob>(),
-			],
+			Children = lines,
 		};
-		var editor = BuildEditor( definition, scope, value );
-		// A module's own editor, such as the theme picker, takes its own line; segments sit beside the text, as other widgets do.
-		var isBelow = definition.Editor is not null;
-		var isFocused = definition.Id == _focus.Value;
-		// A value changed in the scope shown is marked with an accent bar at the row's left edge.
-		Blob[] mark = settings.HasValue( definition, scope )
-			? [new Container { Position = PositionType.Absolute, Left = 0, Top = 0, Bottom = 0, Width = 2, BackgroundColor = theme.Accent }]
-			: [];
 		return new Container
 		{
-			Key = $"{scope}:{definition.Id}",
-			Handle = isFocused ? _focused : null,
+			Key = key,
 			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = definition.Title,
+			AccessibilityName = name,
+			FlexShrink = 0,
 			Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2 ),
 			Gap = theme.Spacing,
-			BackgroundColor = isFocused ? theme.Hover : Color.Transparent,
 			BorderColor = theme.Border,
 			BorderWidth = new Edges( isFirst ? 0 : theme.BorderWidth, 0, 0, 0 ),
-			Children = isBelow
-				? [.. mark, text, editor]
+			Children = control is null ? [text]
+				: isBelow ? [text, control]
 				:
 				[
-					.. mark,
 					new Row
 					{
 						AlignItems = AlignItems.Center,
 						FlexWrap = FlexWrap.Wrap,
 						Gap = theme.Spacing * 2,
-						// Growing a little lets the widget take the whole line once it wraps, where it sits at the right edge.
-						Children = [text, new Row { FlexGrow = 1, FlexShrink = 0, JustifyContent = JustifyContent.FlexEnd, Children = [editor] }],
+						// Growing a little lets the control take the whole line once it wraps, where it sits at the right edge.
+						Children = [text, new Row { FlexGrow = 1, FlexShrink = 0, JustifyContent = JustifyContent.FlexEnd, Children = [control] }],
 					},
 				],
 		};
+	}
+
+	/// <summary>Builds one setting's row: the title, description and where the value comes from, beside its widget, or above a module's own editor.</summary>
+	private Container BuildSetting( SettingDefinition definition, SettingsScope scope, bool isFirst )
+	{
+		var theme = Theme.Current;
+		var settings = context.App.Settings;
+		var isFocused = definition.Id == _focus.Value;
+		// A module's own editor, such as the theme picker, takes its own line; segments sit beside the text, as other widgets do.
+		var row = BuildRow( $"{scope}:{definition.Id}", definition.Title,
+			[
+				new Text { Content = definition.Title, FontWeight = TitleWeight },
+				.. definition.Description.Length > 0 ? [new Text { Content = definition.Description, Color = theme.Muted }] : Array.Empty<Blob>(),
+				.. BuildSource( definition, scope ) is { } source ? [source] : Array.Empty<Blob>(),
+			],
+			BuildEditor( definition, scope, settings.GetValue( definition, scope ) ), isFirst, isBelow: definition.Editor is not null );
+		row.Handle = isFocused ? _focused : null;
+		row.BackgroundColor = isFocused ? theme.Hover : Color.Transparent;
+		// A value changed in the scope shown is marked with an accent bar at the row's left edge.
+		if ( settings.HasValue( definition, scope ) )
+			row.Children.Insert( 0, new Container { Position = PositionType.Absolute, Left = 0, Top = 0, Bottom = 0, Width = 2, BackgroundColor = theme.Accent } );
+		return row;
 	}
 
 	/// <summary>Builds the quiet line that tells a changed value from an inherited one, with the action that resets or overrides it; null for an untouched default.</summary>
@@ -399,7 +468,16 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			} );
 		}
 
-		children.Add( new Container { Key = "modules", Gap = NavItemGap, Children = items } );
+		children.Add( new Container
+		{
+			Key = "modules",
+			FlexGrow = 1,
+			MinHeight = 0,
+			Padding = new Edges( 0, ViewStyle.TrackWidth, 0, 0 ),
+			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.GetScrollbar(),
+			Children = [new Container { Gap = NavItemGap, Children = items }],
+		} );
 
 		return new Container
 		{
@@ -409,8 +487,8 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			Width = SidebarWidth,
 			FlexShrink = 0,
 			Padding = new Edges( ContentPadding * 0.75, theme.Spacing * 1.25 ),
+			MinHeight = 0,
 			Gap = 0,
-			OverflowY = Overflow.Scroll,
 			BorderColor = theme.Divider,
 			BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
 			Children = children,
@@ -484,7 +562,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			.OrderBy( group => group.Key == "Built into the shell" ? 0 : 1 );
 		foreach ( var group in groups )
 		{
-			yield return new Text { Content = group.Key, Color = theme.Muted, Margin = new Edges( theme.Spacing * 2, 0, 0, theme.Spacing ) };
+			yield return BuildHeading( group.Key );
 			var rows = new List<Blob>();
 			foreach ( var module in group.OrderBy( module => module.Title, StringComparer.CurrentCulture ) )
 			{
@@ -499,29 +577,21 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 					: !isOn && missing.Count > 0 ? $"Also turns on {string.Join( ", ", missing.Select( Title ) )}."
 					: null;
 				var isEnabled = module.CanUnload && (isOn ? neededBy.Length == 0 : isInstalled);
-				var text = new Container
-				{
-					FlexBasis = TextMinWidth,
-					FlexGrow = 1000,
-					FlexShrink = 1,
-					MinWidth = 0,
-					Gap = theme.Spacing / 2,
-					Children =
-					[
-						new Row
-						{
-							Gap = theme.Spacing,
-							AlignItems = AlignItems.Center,
-							Children =
-							[
-								new Text { Content = module.Title, FontWeight = TitleWeight },
-								new Text { Content = module.Id, Color = theme.Muted, FontSize = theme.FontSize - 1 },
-							],
-						},
-						.. needs.Count > 0 ? [new Text { Content = $"Uses {string.Join( ", ", needs.Select( Title ) )}.", Color = theme.Muted }] : Array.Empty<Blob>(),
-						.. note is not null ? [new Text { Content = note, Color = isEnabled ? theme.Muted : theme.Accent, FontSize = theme.FontSize - 1 }] : Array.Empty<Blob>(),
-					],
-				};
+				List<Blob> lines =
+				[
+					new Row
+					{
+						Gap = theme.Spacing,
+						AlignItems = AlignItems.Center,
+						Children =
+						[
+							new Text { Content = module.Title, FontWeight = TitleWeight },
+							new Text { Content = module.Id, Color = theme.Muted, FontSize = theme.FontSize - 1 },
+						],
+					},
+					.. needs.Count > 0 ? [new Text { Content = $"Uses {string.Join( ", ", needs.Select( Title ) )}.", Color = theme.Muted }] : Array.Empty<Blob>(),
+					.. note is not null ? [new Text { Content = note, Color = isEnabled ? theme.Muted : theme.Accent, FontSize = theme.FontSize - 1 }] : Array.Empty<Blob>(),
+				];
 				var toggle = BuildToggle( module.Title, isOn, isEnabled, () =>
 				{
 					if ( isOn )
@@ -534,39 +604,10 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 						app.Enable( module.Id );
 					}
 				} );
-				rows.Add( new Container
-				{
-					Key = "module:" + module.Id,
-					AccessibilityRole = AccessibilityRole.Group,
-					AccessibilityName = module.Title,
-					Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2 ),
-					BorderColor = theme.Border,
-					BorderWidth = new Edges( rows.Count == 0 ? 0 : theme.BorderWidth, 0, 0, 0 ),
-					Children =
-					[
-						new Row
-						{
-							AlignItems = AlignItems.Center,
-							FlexWrap = FlexWrap.Wrap,
-							Gap = theme.Spacing * 2,
-							Children = [text, new Row { FlexGrow = 1, FlexShrink = 0, JustifyContent = JustifyContent.FlexEnd, Children = [toggle] }],
-						},
-					],
-				} );
+				rows.Add( BuildRow( "module:" + module.Id, module.Title, lines, toggle, isFirst: rows.Count == 0 ) );
 			}
 
-			yield return new Container
-			{
-				Key = "modules:" + group.Key,
-				AccessibilityRole = AccessibilityRole.Group,
-				AccessibilityName = group.Key,
-				BackgroundColor = theme.Raised,
-				BorderColor = theme.Border,
-				BorderWidth = theme.BorderWidth,
-				BorderRadius = theme.Radius * 2,
-				Overflow = Overflow.Hidden,
-				Children = rows,
-			};
+			yield return BuildCard( "modules:" + group.Key, group.Key, rows );
 		}
 	}
 
@@ -586,32 +627,23 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			context.Post( () => community.Refresh() );
 		}
 
-		yield return new Row
-		{
-			AlignItems = AlignItems.Center,
-			Gap = theme.Spacing,
-			Margin = new Edges( theme.Spacing * 2, 0, 0, theme.Spacing ),
-			Children =
-			[
-				new Text { Content = "Community", Color = theme.Muted, FlexGrow = 1 },
-				new TextEntry
-				{
-					Value = _communityQuery.Value,
-					Controlled = true,
-					Placeholder = "Search community modules",
-					Width = FieldWidth,
-					Height = EditorHeight,
-					Padding = new Edges( 0, theme.Spacing ),
-					BackgroundColor = theme.Canvas,
-					BorderColor = theme.Border,
-					BorderWidth = theme.BorderWidth,
-					BorderRadius = theme.Radius + 2,
-					AccessibilityName = "Search community modules",
-					OnChange = text => _communityQuery.Value = text,
-				},
-				BuildQuiet( community.IsLoading ? "Loading…" : "Refresh", () => community.Refresh(), isEnabled: !community.IsLoading, name: "Refresh community modules" ),
-			],
-		};
+		yield return BuildHeading( "Community",
+			new TextEntry
+			{
+				Value = _communityQuery.Value,
+				Controlled = true,
+				Placeholder = "Search community modules",
+				Width = FieldWidth,
+				Height = EditorHeight,
+				Padding = new Edges( 0, theme.Spacing ),
+				BackgroundColor = theme.Canvas,
+				BorderColor = theme.Border,
+				BorderWidth = theme.BorderWidth,
+				BorderRadius = theme.Radius + 2,
+				AccessibilityName = "Search community modules",
+				OnChange = text => _communityQuery.Value = text,
+			},
+			BuildQuiet( community.IsLoading ? "Loading…" : "Refresh", () => community.Refresh(), isEnabled: !community.IsLoading, name: "Refresh community modules" ) );
 		yield return new Text
 		{
 			Content = $"From {community.SourceLabel}. Each module is reviewed before it joins the hub, but it runs with your rights: install only what you trust.",
@@ -633,11 +665,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			.ToArray();
 
 		var rows = new List<Blob>();
-		Blob BuildMessage( string text, Color color ) => new Container
-		{
-			Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2 ),
-			Children = [new Text { Content = text, Color = color }],
-		};
+		Blob BuildMessage( string text, Color color ) => BuildRow( "message", text, [new Text { Content = text, Color = color }], null, isFirst: rows.Count == 0 );
 		if ( community.Error is { } error )
 			rows.Add( BuildMessage( $"Could not read the module list: {error}", theme.Accent ) );
 		else if ( community.Index is null )
@@ -649,18 +677,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		if ( rows.Count == 0 )
 			rows.Add( BuildMessage( query.Length > 0 ? "No community module matches." : "The hub has no modules yet.", theme.Muted ) );
 
-		yield return new Container
-		{
-			Key = "community",
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = "Community modules",
-			BackgroundColor = theme.Raised,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = theme.Radius * 2,
-			Overflow = Overflow.Hidden,
-			Children = rows,
-		};
+		yield return BuildCard( "community", "Community modules", rows );
 	}
 
 	/// <summary>Builds one community module's row: its name, version and author, what it does, its state, and its buttons.</summary>
@@ -697,39 +714,13 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		if ( hub is not null )
 			heading.Add( new Text { Content = $"by {hub.Author}", Color = theme.Muted, FontSize = theme.FontSize - 1 } );
 
-		var text = new Container
-		{
-			FlexBasis = TextMinWidth,
-			FlexGrow = 1000,
-			FlexShrink = 1,
-			MinWidth = 0,
-			Gap = theme.Spacing / 2,
-			Children =
-			[
-				new Row { Gap = theme.Spacing, AlignItems = AlignItems.Center, Children = heading },
-				.. hub is not null ? [new Text { Content = hub.Description, Color = theme.Muted }] : Array.Empty<Blob>(),
-				.. note is not null ? [new Text { Content = note, Color = isWarning ? theme.Accent : theme.Muted, FontSize = theme.FontSize - 1 }] : Array.Empty<Blob>(),
-			],
-		};
-		return new Container
-		{
-			Key = "community:" + id,
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = name,
-			Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2 ),
-			BorderColor = theme.Border,
-			BorderWidth = new Edges( isFirst ? 0 : theme.BorderWidth, 0, 0, 0 ),
-			Children =
-			[
-				new Row
-				{
-					AlignItems = AlignItems.Center,
-					FlexWrap = FlexWrap.Wrap,
-					Gap = theme.Spacing * 2,
-					Children = [text, new Row { FlexGrow = 1, FlexShrink = 0, Gap = theme.Spacing, JustifyContent = JustifyContent.FlexEnd, Children = buttons }],
-				},
-			],
-		};
+		List<Blob> lines =
+		[
+			new Row { Gap = theme.Spacing, AlignItems = AlignItems.Center, Children = heading },
+			.. hub is not null ? [new Text { Content = hub.Description, Color = theme.Muted }] : Array.Empty<Blob>(),
+			.. note is not null ? [new Text { Content = note, Color = isWarning ? theme.Accent : theme.Muted, FontSize = theme.FontSize - 1 }] : Array.Empty<Blob>(),
+		];
+		return BuildRow( "community:" + id, name, lines, buttons.Count > 0 ? new Row { Gap = theme.Spacing, Children = buttons } : null, isFirst );
 	}
 
 	/// <summary>Lists the modules that are off and that a module needs, directly or through another, those needed first.</summary>

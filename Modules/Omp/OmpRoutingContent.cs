@@ -7,6 +7,9 @@ namespace Lokn.Modules.Omp;
 /// <summary>Edits Omp model roles, fallback chains and named presets for one Lokn account profile.</summary>
 internal sealed class OmpRoutingContent : PanelContent
 {
+	/// <summary>Defines the narrowest a selector column gets before the routing table wraps it under the role.</summary>
+	private const int RouteEntryMinWidth = 120;
+
 	/// <summary>Defines built-in Omp roles in their useful display order.</summary>
 	private static readonly string[] BuiltInRoles =
 	[
@@ -70,6 +73,7 @@ internal sealed class OmpRoutingContent : PanelContent
 			new Row
 			{
 				AlignItems = AlignItems.Center,
+				FlexWrap = FlexWrap.Wrap,
 				Gap = theme.Spacing,
 				Children =
 				[
@@ -89,6 +93,7 @@ internal sealed class OmpRoutingContent : PanelContent
 			new Row
 			{
 				AlignItems = AlignItems.Center,
+				FlexWrap = FlexWrap.Wrap,
 				Gap = theme.Spacing,
 				Children =
 				[
@@ -108,6 +113,7 @@ internal sealed class OmpRoutingContent : PanelContent
 			FontFamily = theme.FontFamily,
 			FontSize = theme.FontSize,
 			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Children = children,
 		};
 	}
@@ -150,6 +156,7 @@ internal sealed class OmpRoutingContent : PanelContent
 			rows.Add( new Row
 			{
 				AlignItems = AlignItems.Center,
+				FlexWrap = FlexWrap.Wrap,
 				Gap = theme.Spacing,
 				Children =
 				[
@@ -163,6 +170,7 @@ internal sealed class OmpRoutingContent : PanelContent
 		rows.Add( new Row
 		{
 			AlignItems = AlignItems.Center,
+			FlexWrap = FlexWrap.Wrap,
 			Gap = theme.Spacing,
 			Children =
 			[
@@ -172,7 +180,8 @@ internal sealed class OmpRoutingContent : PanelContent
 					Controlled = true,
 					Placeholder = "Preset name",
 					AccessibilityName = "Preset name",
-					Width = 220,
+					FlexBasis = 220,
+					MinWidth = 0,
 					OnChange = value =>
 					{
 						_presetName = value;
@@ -204,6 +213,7 @@ internal sealed class OmpRoutingContent : PanelContent
 			new Row
 			{
 				AlignItems = AlignItems.Center,
+				FlexWrap = FlexWrap.Wrap,
 				Gap = theme.Spacing,
 				Children =
 				[
@@ -215,11 +225,23 @@ internal sealed class OmpRoutingContent : PanelContent
 			new Row
 			{
 				Gap = theme.Spacing,
+				FlexWrap = FlexWrap.Wrap,
 				Children =
 				[
-					new Text { Content = "Role", Width = 100, Color = theme.Muted },
-					new Text { Content = "Primary selector", FlexGrow = 1, Color = theme.Muted },
-					new Text { Content = "Fallback selectors, in order", FlexGrow = 1, Color = theme.Muted },
+					new Text { Content = "Role", Width = 100, Color = theme.Muted, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+					new Row
+					{
+						FlexGrow = 1,
+						FlexBasis = 0,
+						MinWidth = RouteEntryMinWidth,
+						FlexWrap = FlexWrap.Wrap,
+						Gap = theme.Spacing,
+						Children =
+						[
+							new Text { Content = "Primary selector", FlexGrow = 1, FlexBasis = 0, MinWidth = RouteEntryMinWidth, Color = theme.Muted, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+							new Text { Content = "Fallback selectors, in order", FlexGrow = 1, FlexBasis = 0, MinWidth = RouteEntryMinWidth, Color = theme.Muted, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+						],
+					},
 				],
 			},
 		};
@@ -231,12 +253,20 @@ internal sealed class OmpRoutingContent : PanelContent
 			rows.Add( new Row
 			{
 				AlignItems = AlignItems.Center,
+				FlexWrap = FlexWrap.Wrap,
 				Gap = theme.Spacing,
 				Children =
 				[
 					new Text { Content = name, Width = 100, FlexShrink = 0 },
-					BuildRouteEntry( name, isFallback: false ),
-					BuildRouteEntry( name, isFallback: true ),
+					new Row
+					{
+						FlexGrow = 1,
+						FlexBasis = 0,
+						MinWidth = RouteEntryMinWidth,
+						FlexWrap = FlexWrap.Wrap,
+						Gap = theme.Spacing,
+						Children = [BuildRouteEntry( name, isFallback: false ), BuildRouteEntry( name, isFallback: true )],
+					},
 				],
 			} );
 		}
@@ -259,7 +289,8 @@ internal sealed class OmpRoutingContent : PanelContent
 		Placeholder = isFallback ? "provider/model, @default" : "provider/model:effort",
 		AccessibilityName = $"{role} {(isFallback ? "fallbacks" : "primary model")}",
 		FlexGrow = 1,
-		MinWidth = 160,
+		FlexBasis = 0,
+		MinWidth = RouteEntryMinWidth,
 		OnChange = value =>
 		{
 			if ( isFallback )

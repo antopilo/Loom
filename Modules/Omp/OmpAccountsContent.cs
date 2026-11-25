@@ -193,7 +193,7 @@ internal sealed class OmpAccountsContent : PanelContent
 				Key = "answer",
 				Placeholder = ReadText( input, "placeholder", "Paste the authorization callback or code" ),
 				AccessibilityName = "Omp authorization callback",
-				Height = theme.ControlHeight + theme.Spacing,
+				MinHeight = theme.ControlHeight + theme.Spacing,
 				Padding = theme.Spacing,
 				BackgroundColor = theme.Panel,
 				BorderRadius = theme.Radius,

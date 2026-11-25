@@ -95,6 +95,7 @@ public sealed partial class ChatContent
 		children.Add( new Row
 		{
 			Key = "todo-head",
+			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			Gap = Theme.Current.Spacing,
 			Children =
@@ -115,6 +116,7 @@ public sealed partial class ChatContent
 			children.Add( new Container
 			{
 				Key = "todo-tasks:" + index,
+				FlexShrink = 0,
 				Gap = Theme.Current.Spacing / 2,
 				// Tasks hang under their phase name, past the phase's ring.
 				Padding = new Edges( 0, 0, 0, phase.Name.Length > 0 ? ChatIcons.MarkSize + Theme.Current.Spacing : 0 ),
@@ -129,6 +131,7 @@ public sealed partial class ChatContent
 	private static Row BuildTodoPhase( int index, TodoPhase phase, bool isFinished ) => new()
 	{
 		Key = "todo-phase:" + index,
+		FlexShrink = 0,
 		AlignItems = AlignItems.Center,
 		Gap = Theme.Current.Spacing,
 		Children =
@@ -157,6 +160,7 @@ public sealed partial class ChatContent
 		return new Row
 		{
 			AlignItems = AlignItems.FlexStart,
+			FlexShrink = 0,
 			Gap = Theme.Current.Spacing,
 			AccessibilityName = $"{task.Content}, {task.State switch
 			{

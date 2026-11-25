@@ -208,7 +208,8 @@ internal sealed partial class GitChangesPane
 	{
 		var button = Theme.Current.BuildButton( label, action, isEnabled );
 		button.AccessibilityName = accessibilityName;
-		button.Height = Theme.Current.ControlHeight - Theme.Current.Spacing;
+		button.Height = Length.Auto;
+		button.MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing;
 		button.Padding = new Edges( 0, Theme.Current.Spacing / 2 );
 		button.FlexShrink = 0;
 		button.Children =

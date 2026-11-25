@@ -139,7 +139,7 @@ public sealed partial class ChatContent
 				Height = Math.Min( matches.Count, VisibleCommands ) * CommandRowHeight,
 				FlexShrink = 0,
 				OverflowY = Overflow.Scroll,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 				Children = rows,
 			} );
 		}

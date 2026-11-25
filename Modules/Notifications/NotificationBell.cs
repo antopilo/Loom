@@ -103,7 +103,7 @@ internal sealed class NotificationBell : PanelContent
 			Handle = _handle,
 			Width = ButtonWidth,
 			Height = ButtonHeight,
-			Margin = new Edges( 0, 8 ),
+			Margin = new Edges( 0, theme.Spacing ),
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,

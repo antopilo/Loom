@@ -52,9 +52,10 @@ public sealed class ConfirmDialog : GuardedCell<ConfirmDialogInput>
 			new Text { Key = "title", Content = input.Title, FontWeight = 600, FontSize = theme.FontSize + 1, Color = theme.Text },
 			new Text { Key = "message", Content = input.Message, Color = theme.Muted },
 		};
+		var items = new List<Blob>();
 		for ( var index = 0; index < input.Items.Count; index++ )
 		{
-			card.Add( new Text
+			items.Add( new Text
 			{
 				Key = "item:" + index,
 				Content = "· " + input.Items[index],
@@ -64,6 +65,8 @@ public sealed class ConfirmDialog : GuardedCell<ConfirmDialogInput>
 				TextTrimming = TextTrimming.Ellipsis,
 			} );
 		}
+		if ( items.Count > 0 )
+			card.Add( new Container { Key = "items", MinHeight = 0, OverflowY = Overflow.Scroll, ScrollbarY = ViewStyle.GetScrollbar(), Children = items } );
 		if ( input.Error is { Length: > 0 } error )
 			card.Add( new Text { Key = "error", Content = error, Color = theme.Error, Selectable = true } );
 
@@ -91,6 +94,7 @@ public sealed class ConfirmDialog : GuardedCell<ConfirmDialogInput>
 		var body = new Container
 		{
 			Key = "card",
+			MinHeight = 0,
 			Padding = theme.Spacing * 2,
 			Gap = theme.Spacing,
 			Children = card,

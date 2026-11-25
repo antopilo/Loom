@@ -177,7 +177,7 @@ internal sealed class ProfileSwitcher : GuardedCell<ProfileSwitcherInput>
 			BorderRadius = theme.Radius * 2,
 			Children =
 			[
-				new Text { Content = $"{profile} icon", FontSize = 12, Color = theme.Muted },
+				new Text { Content = $"{profile} icon", FontSize = ViewStyle.SmallSize, Color = theme.Muted },
 				new Row { FlexWrap = FlexWrap.Wrap, Gap = 2, Children = suggestions },
 				new TextEntry
 				{

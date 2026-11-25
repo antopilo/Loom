@@ -145,7 +145,7 @@ public sealed partial class ChatContent : PanelContent
 				MinHeight = 0,
 				Padding = new Edges( ContentPadding, ContentPadding, ReadFloatingHeight(), ContentPadding ),
 				OverflowX = Overflow.Hidden,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 			};
 		var stack = new List<Blob>();
 		// A question that was answered stays first while its exit plays; the next pending one shows after it.
@@ -157,6 +157,10 @@ public sealed partial class ChatContent : PanelContent
 			var column = BuildColumn( "conversation-dialog", [Reveal.BuildExit( "dialog-exit", question, _leavingDialogs.Count > 0 )], 0 );
 			// The composer's context meter sits on its top edge, so the question keeps clear of it.
 			column.Padding = new Edges( 0, 0, Theme.Current.Spacing * 2, 0 );
+			column.FlexShrink = 1;
+			column.MaxHeight = DialogHeight;
+			column.OverflowY = Overflow.Scroll;
+			column.ScrollbarY = ViewStyle.GetScrollbar();
 			stack.Add( column );
 		}
 		stack.Add( BuildComposer( conversation, BuildTodoPin( todo, isBeside: false ) ) );
@@ -218,13 +222,14 @@ public sealed partial class ChatContent : PanelContent
 	/// <summary>Builds the empty chat, new or cleared, as Home shows it: the wordmark and its host's recent cards, centered above the composer.</summary>
 	private Column BuildEmpty()
 	{
-		var children = new List<Blob> { Cell.Mount( "home-logo", () => new HomeLogo() ) };
+		var children = new List<Blob> { new Spacer(), Cell.Mount( "home-logo", () => new HomeLogo() ) };
 		// A chat hosted without the Conversations module, as in focused checks, has no projects to offer.
 		if ( context.App.Modules.Any( module => module.Id == "conversations" ) )
 		{
 			var conversations = context.App.GetModule<ConversationsModule>();
 			children.Add( HomeContent.BuildCards( context, conversations, conversations.Hosts.Find( context.HostId ) ?? conversations.Hosts.Local, session.UpdateStatus ) );
 		}
+		children.Add( new Spacer() );
 
 		return new Column
 		{
@@ -234,9 +239,9 @@ public sealed partial class ChatContent : PanelContent
 			FlexGrow = 1,
 			MinHeight = 0,
 			AlignItems = AlignItems.Center,
-			JustifyContent = JustifyContent.Center,
 			Padding = new Edges( ContentPadding, ContentPadding, ReadFloatingHeight(), ContentPadding ),
-			OverflowY = Overflow.Hidden,
+			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Children = children,
 		};
 	}
@@ -244,7 +249,8 @@ public sealed partial class ChatContent : PanelContent
 	/// <summary>Lists the visible messages as transcript rows, pairing tool results with their calls and spacing agent turns as one flow.</summary>
 	/// <remarks>
 	/// Consecutive reasoning and tool calls, across messages, become one activity row; the agent's prose between them ends a run.
-	/// A finished turn that edited or wrote files ends with a card listing them; the turn still running gets its card when it ends.
+	/// A finished turn that edited or wrote files ends with a card listing them; the turn still running gets its card when the agent's run ends,
+	/// even while background work, such as jobs or subagents, keeps the session busy.
 	/// </remarks>
 	private List<TranscriptRow> ComputeRows( IReadOnlyList<ConversationMessage> messages )
 	{
@@ -356,7 +362,7 @@ public sealed partial class ChatContent : PanelContent
 			}
 		}
 		Flush();
-		if ( !session.IsBusy )
+		if ( !session.IsBusy || session.IsSettling )
 		{
 			_runningClosed.Clear();
 			AddChanges();

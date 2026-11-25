@@ -45,32 +45,50 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 	private Container BuildSidebar()
 	{
 		var workspaces = ProjectsModule.FindWorkspaces( context.App );
-		var children = new List<Blob>();
+		var actions = new List<Blob>();
 		if ( workspaces is not null )
-			children.Add( _sidebar.BuildNewTask( workspaces ) );
-		children.Add( _sidebar.BuildSearch() );
-		children.Add( Projects.BuildNewProjectAction( project => module.OpenProject( context.App, project ) ) );
-		_sidebar.AddContributedActions( children );
+			actions.Add( _sidebar.BuildNewTask( workspaces ) );
+		actions.Add( _sidebar.BuildSearch() );
+		actions.Add( Projects.BuildNewProjectAction( project => module.OpenProject( context.App, project ) ) );
+		_sidebar.AddContributedActions( actions );
 		if ( module.BuildModulePrompt( context, isNarrow: true ) is { } prompt )
-			children.Add( prompt );
+			actions.Add( prompt );
 
+		var rows = new List<SidebarRow>();
 		var shown = 0;
 		foreach ( var project in module.Store.Projects( context.App.Settings.ActiveProfile ) )
 		{
-			children.Add( BuildProject( workspaces, project, SidebarRows.ComputeShown( module.GetTasks( context.App, project.Id ) ) ) );
+			AddProject( workspaces, project, rows );
 			shown++;
 		}
 
 		if ( workspaces is not null )
-			shown += _sidebar.AddHomeTasks( workspaces, children );
+			shown += _sidebar.AddHomeTasks( workspaces, rows );
 		if ( shown == 0 )
-			children.Add( SidebarRows.BuildEmpty( "Add a project to give its folder a workspace of its own." ) );
+			rows.Add( new( "empty", SidebarRows.RowGap, static () => SidebarRows.BuildEmpty( "Add a project to give its folder a workspace of its own." ) ) );
 
-		return _sidebar.BuildViewport( "Projects", children, workspaces?.CurrentTask );
+		return _sidebar.BuildSidebar( "Projects", actions, rows, workspaces?.CurrentTask );
 	}
 
-	/// <summary>Builds a project's bold heading with its actions and menu, then its tasks at the same indent.</summary>
-	private Container BuildProject( WorkspacesModule? workspaces, ProjectInfo project, IReadOnlyList<WorkspaceTask> tasks )
+	/// <summary>Adds a project's rows: its heading, set visibly apart from what comes before, then its tasks at the same indent unless it is collapsed.</summary>
+	private void AddProject( WorkspacesModule? workspaces, ProjectInfo project, List<SidebarRow> rows )
+	{
+		rows.Add( new( "project:" + project.Id, Theme.Current.Spacing * 2, () => BuildProject( project ) ) );
+		if ( _sidebar.IsCollapsed( project.Id ) || workspaces is null )
+			return;
+
+		var session = ProjectsModule.SessionKey( project.Id );
+		var tasks = SidebarRows.ComputeShown( module.GetTasks( context.App, project.Id ) );
+		for ( var index = 0; index < tasks.Length; index++ )
+		{
+			var task = tasks[index];
+			var place = index;
+			rows.Add( new( task.Id.ToString(), SidebarRows.RowGap, () => _sidebar.BuildTask( workspaces, session, task, place, () => module.OpenTask( context.App, project, task.Id ) ) ) );
+		}
+	}
+
+	/// <summary>Builds a project's bold heading with its actions, its + grid and its menu.</summary>
+	private Container BuildProject( ProjectInfo project )
 	{
 		var isCollapsed = _sidebar.IsCollapsed( project.Id );
 		var isOpen = module.FindCurrentProject( context.App ) == project.Id;
@@ -107,16 +125,6 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 		}
 		if ( Projects.BuildIconPicker( project ) is { } picker )
 			children.Add( picker );
-
-		if ( !isCollapsed && workspaces is not null )
-		{
-			var session = ProjectsModule.SessionKey( project.Id );
-			for ( var index = 0; index < tasks.Count; index++ )
-			{
-				var task = tasks[index];
-				children.Add( _sidebar.BuildTask( workspaces, session, task, index, () => module.OpenTask( context.App, project, task.Id ) ) );
-			}
-		}
 
 		return SidebarRows.BuildGroup( project.Id, children );
 	}

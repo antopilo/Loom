@@ -164,7 +164,7 @@ internal sealed class OmpSetupContent : PanelContent
 				Value = _context.App.Settings.Get( OmpModule.Executable, SettingsScope.Global ),
 				Placeholder = isWindows ? @"C:\path\to\omp.exe" : "/path/to/omp",
 				AccessibilityName = "Omp executable",
-				Height = theme.ControlHeight + theme.Spacing,
+				MinHeight = theme.ControlHeight + theme.Spacing,
 				Padding = theme.Spacing,
 				BackgroundColor = theme.Panel,
 				BorderRadius = theme.Radius,
@@ -254,7 +254,7 @@ internal sealed class OmpSetupContent : PanelContent
 			row.Children =
 			[
 				BuildDot( account.IsSignedIn ? theme.Success : theme.Inactive ),
-				new Text { Content = account.Name, FontWeight = isCurrent ? TitleWeight : 400, Color = theme.Text },
+				new Text { Content = account.Name, FontWeight = isCurrent ? TitleWeight : 400, Color = theme.Text, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
 				new Text { Content = DescribeAccount( account ), FontSize = SmallSize, Color = theme.Muted, MinWidth = 0, FlexShrink = 1, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
 			];
 			rows.Add( row );
@@ -267,7 +267,7 @@ internal sealed class OmpSetupContent : PanelContent
 			Controlled = true,
 			Placeholder = "New profile name, then Enter to sign in",
 			AccessibilityName = "New Omp profile",
-			Height = theme.ControlHeight,
+			MinHeight = theme.ControlHeight,
 			Padding = new Edges( 0, theme.Spacing ),
 			BackgroundColor = theme.Panel,
 			BorderRadius = theme.Radius,
@@ -286,7 +286,7 @@ internal sealed class OmpSetupContent : PanelContent
 		return new Container
 		{
 			Key = "accounts",
-			Gap = 2,
+			Gap = theme.Spacing / 4,
 			Padding = new Edges( 0, 0, 0, LabelWidth + theme.Spacing ),
 			Children = rows,
 		};
@@ -330,14 +330,14 @@ internal sealed class OmpSetupContent : PanelContent
 		return line;
 	}
 
-	/// <summary>Builds a status dot, an emphasized value, a muted detail that shortens when narrow, and actions.</summary>
+	/// <summary>Builds a status dot, an emphasized value that wraps only once the detail has no room left, a muted detail that shortens when narrow, and actions.</summary>
 	internal static Row BuildLine( Color? state, string value, string detail, List<Blob> actions )
 	{
 		var theme = Theme.Current;
 		var children = new List<Blob>();
 		if ( state is { } color )
 			children.Add( BuildDot( color ) );
-		children.Add( new Text { Content = value, Color = theme.Text, FlexShrink = 0 } );
+		children.Add( new Text { Content = value, Color = theme.Text, MinWidth = 0 } );
 		children.Add( new Text
 		{
 			Content = detail,
@@ -345,6 +345,7 @@ internal sealed class OmpSetupContent : PanelContent
 			Color = theme.Muted,
 			FlexGrow = 1,
 			FlexShrink = 1,
+			FlexBasis = 0,
 			MinWidth = 0,
 			TextWrap = TextWrap.NoWrap,
 			TextTrimming = TextTrimming.Ellipsis,
@@ -367,6 +368,7 @@ internal sealed class OmpSetupContent : PanelContent
 		MinHeight = 0,
 		Padding = ContentPadding,
 		OverflowY = Overflow.Scroll,
+		ScrollbarY = ViewStyle.GetScrollbar(),
 		AlignItems = AlignItems.Center,
 		Children =
 		[

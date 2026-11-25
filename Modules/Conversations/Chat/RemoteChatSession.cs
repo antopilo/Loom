@@ -115,6 +115,9 @@ public sealed class RemoteChatSession( LoknApplication app, ConversationStore st
 	/// <summary>Gets whether the host's agent is connecting, working or waiting on tools, or a prompt was just sent to it.</summary>
 	public bool IsBusy => _isSending || _state.IsBusy;
 
+	/// <summary>Gets whether the host's agent ended its run and the session stays busy only until background work, such as jobs or subagents, settles.</summary>
+	public bool IsSettling => _state.IsSettling;
+
 	/// <summary>Gets the host's status, or why the last call did not reach it until the next state arrives, or that a prompt is on its way.</summary>
 	public string Status => _failure ?? (_isSending ? "Sending…" : _state.Status);
 

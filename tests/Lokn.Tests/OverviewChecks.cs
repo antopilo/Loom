@@ -139,13 +139,18 @@ internal static class OverviewChecks
 	/// <summary>Lists the text of a declaration and every blob below it.</summary>
 	private static List<string> Texts( Blob blob ) => [.. Descendants( blob ).OfType<Text>().Select( text => text.Content ).OfType<string>()];
 
-	/// <summary>Lists a declaration and every blob below it, through the sidebar's profile slide, which holds its rows in its input.</summary>
+	/// <summary>Lists a declaration and every blob below it, through every row of its virtual lists and the sidebar's profile slide, which holds its rows in its input.</summary>
 	private static IEnumerable<Blob> Descendants( Blob blob )
 	{
 		yield return blob;
 		if ( blob.GetType().GetProperty( "Children" )?.GetValue( blob ) is IEnumerable<Blob> children )
 		{
 			foreach ( var child in children.SelectMany( Descendants ) )
+				yield return child;
+		}
+		if ( blob is Virtual list )
+		{
+			foreach ( var child in CoreChecks.BuildRows( list ).SelectMany( Descendants ) )
 				yield return child;
 		}
 		var fields = blob.GetType().GetFields( System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public );

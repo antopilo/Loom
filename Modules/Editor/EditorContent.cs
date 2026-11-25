@@ -189,8 +189,8 @@ internal sealed class EditorContent : PanelContent
 			Key = "editor:" + Current,
 			Controller = file.Editor,
 			Layers = [file.Refresh()],
-			ScrollbarY = BuildScrollbar(),
-			ScrollbarX = BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
+			ScrollbarX = ViewStyle.GetScrollbar( horizontal: true ),
 			AccessibilityName = name,
 			AccessibilityRole = AccessibilityRole.TextEditor,
 			FontFamily = CodeFont,
@@ -608,24 +608,25 @@ internal sealed class EditorContent : PanelContent
 	}
 
 	/// <summary>Reads a file through the workspace, keeping its encoding and line endings for the next save; a missing path or a new file starts empty.</summary>
-	/// <remarks>A host that answers later shows the file empty and unsavable until its answer arrives, then swaps in the read file.</remarks>
+	/// <remarks>A new file starts empty at once. Another file is read off the UI thread: it shows empty and unsavable until it is read, then the read file swaps in.</remarks>
 	private OpenFile Read( string path )
 	{
-		var load = LoadAsync( _context.Workspace, path, _context.Lifetime );
-		if ( load.IsCompleted )
-			return BuildFile( path, load );
+		if ( path.Length == 0 )
+			return BuildFile( path, LoadAsync( _context.Workspace, path, _context.Lifetime ) );
 
+		var workspace = _context.Workspace;
+		var load = Task.Run( () => LoadAsync( workspace, path, _context.Lifetime ) );
 		var loading = BuildFile( path, null );
 		loading.IsLoading = true;
-		load.WhenDone( _context.Post, done =>
+		_ = load.ContinueWith( _ => _context.Post( () =>
 		{
 			if ( !_files.TryGetValue( path, out var shown ) || shown != loading )
 				return;
 
-			_files[path] = BuildFile( path, done );
+			_files[path] = BuildFile( path, load );
 			loading.Dispose();
 			_version.Value++;
-		} );
+		} ), TaskScheduler.Default );
 		return loading;
 	}
 
@@ -761,26 +762,6 @@ internal sealed class EditorContent : PanelContent
 				}
 			}
 		} );
-	}
-
-	/// <summary>Builds a slim scrollbar that widens under the pointer, like the chat's.</summary>
-	private static Scrollbar BuildScrollbar()
-	{
-		var theme = Theme.Current;
-		return new Scrollbar
-		{
-			Thickness = 10,
-			HitThickness = 14,
-			Thumb = new Container
-			{
-				Width = 6,
-				Height = 6,
-				BorderRadius = 3,
-				BackgroundColor = theme.Muted,
-				Opacity = 0.5,
-				HoverStyle = new Style { Width = 10, Height = 10, BorderRadius = 5, Opacity = 0.8 },
-			},
-		};
 	}
 
 	/// <summary>Shows an error in the header.</summary>

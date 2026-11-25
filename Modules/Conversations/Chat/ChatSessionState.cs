@@ -14,6 +14,9 @@ public sealed record ChatSessionState
 	/// <summary>Gets whether the agent is connecting, working or waiting on tools.</summary>
 	public bool IsBusy { get; init; }
 
+	/// <summary>Gets whether the agent's run ended and the session stays busy only until background work, such as jobs or subagents, settles.</summary>
+	public bool IsSettling { get; init; }
+
 	/// <summary>Gets the visible backend status or error.</summary>
 	public string Status { get; init; } = "Ready";
 

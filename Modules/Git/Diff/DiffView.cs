@@ -177,7 +177,7 @@ internal static class DiffView
 
 		return new Row
 		{
-			Height = HeaderHeight,
+			MinHeight = HeaderHeight,
 			FlexShrink = 0,
 			Padding = new Edges( 0, Theme.Current.Spacing ),
 			Gap = Theme.Current.Spacing,

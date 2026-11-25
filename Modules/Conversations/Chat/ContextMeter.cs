@@ -49,6 +49,9 @@ internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
 	/// <summary>Defines the legend's text size in logical pixels.</summary>
 	private const int LabelSize = 10;
 
+	/// <summary>Defines the widest the details popup grows, in logical pixels; longer lines wrap.</summary>
+	private const int DetailsWidth = 320;
+
 	/// <summary>Anchors the details shown while pointing at the meter.</summary>
 	private readonly ElementHandle _handle = new();
 
@@ -113,7 +116,7 @@ internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
 			Position = PositionType.Absolute,
 			Right = 0,
 			Top = 0,
-			Height = MeterHeight,
+			MinHeight = MeterHeight,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,
 			Gap = 4,
@@ -134,31 +137,12 @@ internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
 
 		if ( _isHovered.Value || _isOpen.Value )
 		{
-			var lines = new List<Blob> { new Text { Content = "Token and cost", FontWeight = 600 } };
+			var lines = new List<Blob> { new Text { Content = "Token and cost", FontWeight = 600, MinWidth = 0 } };
 			foreach ( var line in Describe( input ) )
-				lines.Add( new Text { Content = line } );
+				lines.Add( new Text { Content = line, MinWidth = 0 } );
 
-			// A native popup draws over native child surfaces, such as browser pages, which a portal cannot; it takes no input, so the meter keeps the keyboard.
-			var details = new Container
-			{
-				Padding = theme.Spacing,
-				Gap = 2,
-				BackgroundColor = theme.Raised,
-				Color = theme.Text,
-				FontFamily = theme.FontFamily,
-				FontSize = ViewStyle.SmallSize,
-				BorderColor = theme.Border,
-				BorderWidth = theme.BorderWidth,
-				BorderRadius = theme.Radius,
-				Children = lines,
-			};
-			children.Add( Cell.Mount<NativePopupInput, NativePopup>( "details", new( _handle, details, null )
-			{
-				Placement = PortalPlacement.TopEnd,
-				Kind = PopupKind.Tooltip,
-				Role = _isOpen.Value ? AccessibilityRole.Dialog : AccessibilityRole.Tooltip,
-				Name = "Token and cost details",
-			} ) );
+			children.Add( NativePopup.BuildTooltip( _handle, "Token and cost details", lines, PortalPlacement.TopEnd, new LayoutSize( DetailsWidth, Host.Size.Height ),
+				_isOpen.Value ? AccessibilityRole.Dialog : AccessibilityRole.Tooltip ) );
 		}
 
 		return new Container

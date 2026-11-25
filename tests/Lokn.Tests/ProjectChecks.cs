@@ -145,11 +145,11 @@ internal static class ProjectChecks
 			&& ProjectsModule.SessionKey( project.Id, "h1" ) == $"project:{project.Id:N}@h1" && ProjectsModule.ReadSession( ProjectsModule.SessionKey( project.Id, "h1" ) ) is null,
 			"A paired host's project key is qualified with the host, This PC's stays as it was, and only This PC's keys read as Projects' own." );
 
-		// The project's group holds its heading row and its one task at the same level; the tasks outside projects follow under Tasks.
+		// The project's heading row is followed by its one task at the same level; the tasks outside projects follow under Tasks.
 		var task = workspaces.Tasks( ProjectsModule.SessionKey( project.Id ) ).Single();
 		var taskList = app.Slots.Get( ShellSlots.Sidebar ).Single( item => item.ModuleId == "workspaces" ).Content;
-		CoreChecks.Check( sidebar.Build() is Container { Children: [Container { Key: "content", Children: var rows }] }
-			&& rows.OfType<Container>().SingleOrDefault( row => row.Key == project.Id.ToString() ) is { Children: [Row, Container { Key: var taskKey }] } && taskKey == task.Id.ToString()
+		CoreChecks.Check( sidebar.Build() is Container { Children: [_, Container { Children: [_, Virtual list] }] } && CoreChecks.BuildRows( list ).Select( row => row is Container { Children: [var content] } ? content : row ).ToList() is var rows
+			&& rows.SkipWhile( row => row is not Container { Key: var key } || key != project.Id.ToString() ).ToList() is [Container { Children: [Row] }, Container { Key: var taskKey }, ..] && taskKey == task.Id.ToString()
 			&& rows.Any( row => row is Text { Content: "Tasks" } ) && taskList.Build() is Container { Children: [] },
 			"The project sidebar lists each project with its tasks and then the tasks outside projects, and the Workspaces list steps aside." );
 
@@ -179,13 +179,18 @@ internal static class ProjectChecks
 		app.Shutdown();
 	}
 
-	/// <summary>Walks a view's blobs, including content inside a profile slide.</summary>
+	/// <summary>Walks a view's blobs, including every row of its virtual lists and content inside a profile slide.</summary>
 	private static IEnumerable<Blob> Descendants( Blob blob )
 	{
 		yield return blob;
 		if ( blob.GetType().GetProperty( "Children" )?.GetValue( blob ) is IEnumerable<Blob> children )
 		{
 			foreach ( var child in children.SelectMany( Descendants ) )
+				yield return child;
+		}
+		if ( blob is Virtual list )
+		{
+			foreach ( var child in CoreChecks.BuildRows( list ).SelectMany( Descendants ) )
 				yield return child;
 		}
 		var fields = blob.GetType().GetFields( System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public );

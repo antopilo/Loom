@@ -225,7 +225,7 @@ internal sealed class GitSource
 		}
 	}
 
-	/// <summary>Finds a repository's git folders, which a linked worktree keeps outside its tree, and watches them with the tree.</summary>
+	/// <summary>Finds and watches a repository's Git folders, then rereads changes made before its recursive watch started.</summary>
 	private async Task UpdateGitFoldersAsync( string root )
 	{
 		_watchedRoot = root;
@@ -241,19 +241,22 @@ internal sealed class GitSource
 		}
 		_context.Post( () =>
 		{
-			if ( !_isStopped && _watchedRoot == root )
-				UpdateWatchers( root, folders );
+			if ( _isStopped || _watchedRoot != root )
+				return;
+
+			UpdateWatchers( root, folders );
+			Refresh();
 		} );
 	}
 
-	/// <summary>Replaces the watchers with one over a working tree and one over each git folder outside it.</summary>
+	/// <summary>Watches only the directory itself until Git confirms a repository, then watches its tree and any external Git folders.</summary>
 	private void UpdateWatchers( string tree, IReadOnlyList<string>? gitFolders = null )
 	{
 		foreach ( var watcher in _watchers )
 			watcher.Dispose();
 		_watchers.Clear();
 
-		var treeWatcher = TryWatch( tree, MarkTreeChanged );
+		var treeWatcher = TryWatch( tree, MarkTreeChanged, recursive: gitFolders is not null );
 		if ( treeWatcher is not null )
 			_watchers.Add( treeWatcher );
 
@@ -268,14 +271,15 @@ internal sealed class GitSource
 		}
 	}
 
-	/// <summary>Starts a recursive watch, or returns null when the folder cannot be watched.</summary>
+	/// <summary>Starts a watch, or returns null when the folder cannot be watched.</summary>
 	/// <param name="folder">The folder.</param>
 	/// <param name="changed">Receives the changed path's full path, on a watcher thread.</param>
-	private IDisposable? TryWatch( string folder, Action<string> changed )
+	/// <param name="recursive">Whether the watch includes subdirectories.</param>
+	private IDisposable? TryWatch( string folder, Action<string> changed, bool recursive = true )
 	{
 		try
 		{
-			return Host.Workspace.Watch( folder, recursive: true, ( path, kind ) =>
+			return Host.Workspace.Watch( folder, recursive, ( path, kind ) =>
 			{
 				// Lost changes; read once to catch up.
 				if ( kind == WorkspaceChange.Lost )

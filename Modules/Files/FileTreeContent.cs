@@ -51,8 +51,14 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	/// <summary>Stores the open folders by full path.</summary>
 	private readonly HashSet<string> _open = new( StringComparer.OrdinalIgnoreCase );
 
-	/// <summary>Stores folder listings read so far, by full path; a file change drops the folder's listing.</summary>
+	/// <summary>Stores folder listings read so far, by full path; a changed folder keeps its listing until it is read again.</summary>
 	private readonly Dictionary<string, Entry[]> _listings = new( StringComparer.OrdinalIgnoreCase );
+
+	/// <summary>Stores the folders whose listing changed on disk and must be read again.</summary>
+	private readonly HashSet<string> _stale = new( StringComparer.OrdinalIgnoreCase );
+
+	/// <summary>Stores the folders whose listing is being read.</summary>
+	private readonly HashSet<string> _reading = new( StringComparer.OrdinalIgnoreCase );
 
 	/// <summary>Bumps when the tree must rebuild.</summary>
 	private readonly State<int> _version = new( 0 );
@@ -78,6 +84,15 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	/// <summary>Stores the filter a header button set, or null.</summary>
 	private (string Key, Func<string, bool> Keep)? _filter;
 
+	/// <summary>Stores the folders that hold a file with a state the filter keeps.</summary>
+	private HashSet<string> _kept = [];
+
+	/// <summary>Stores the visible rows, flattened again only after the tree or its folder changed.</summary>
+	private TreeRow[] _rows = [];
+
+	/// <summary>Stores the tree version and the folder <see cref="_rows"/> was flattened for.</summary>
+	private (int Version, string? Root) _rowsFor = (-1, null);
+
 	/// <summary>Creates the side view for the current project, on the mode it showed when its state was captured.</summary>
 	internal FileTreeContent( PanelContext context )
 	{
@@ -100,6 +115,7 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	public void SetFilter( string? key, Func<string, bool>? keep )
 	{
 		_filter = key is not null && keep is not null ? (key, keep) : null;
+		_kept = _filter is { } filter ? ComputeKept( filter.Keep ) : [];
 		_version.Value++;
 	}
 
@@ -143,22 +159,20 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 			body = BuildModeBody( mode, name );
 		else
 		{
-			var rows = new List<Blob>();
-			if ( root is null )
-				rows.Add( new Text { Content = "Open a project to see its files.", Color = theme.Muted, Padding = theme.Spacing * 2 } );
-			else
-				AddRows( rows, root, 0 );
-			body = new Container
-			{
-				Key = "rows",
-				AccessibilityRole = AccessibilityRole.Group,
-				AccessibilityName = $"{name} files",
-				FlexGrow = 1,
-				MinHeight = 0,
-				OverflowY = Overflow.Scroll,
-				Padding = new Edges( theme.Spacing / 2, theme.Spacing / 2 ),
-				Children = rows,
-			};
+			body = root is null
+				? new Text { Key = "empty", Content = "Open a project to see its files.", Color = theme.Muted, Padding = theme.Spacing * 2 }
+				: new Virtual
+				{
+					Key = "rows",
+					Source = new MeasuredRowsSource<TreeRow>( ComputeRows( root ), BuildRow, static _ => RowHeight, FollowEnd: false ),
+					AccessibilityName = $"{name} files",
+					FlexGrow = 1,
+					MinWidth = 0,
+					MinHeight = 0,
+					OverflowX = Overflow.Hidden,
+					Padding = new Edges( theme.Spacing / 2, theme.Spacing / 2 ),
+					ScrollbarY = ViewStyle.GetScrollbar(),
+				};
 		}
 
 		return new Container
@@ -178,27 +192,48 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 		CloseModes();
 	}
 
-	/// <summary>Adds the rows of a folder and of its open subfolders.</summary>
-	private void AddRows( List<Blob> rows, string folder, int depth )
+	/// <summary>Gets the visible rows, flattening the open folders again only after the tree or its folder changed.</summary>
+	private TreeRow[] ComputeRows( string root )
 	{
-		var entries = List( folder );
-		foreach ( var entry in entries )
+		if ( _rowsFor == (_version.Value, root) )
+			return _rows;
+
+		var rows = new List<TreeRow>();
+		AddRows( rows, root, 0 );
+		_rows = [.. rows];
+		_rowsFor = (_version.Value, root);
+		return _rows;
+	}
+
+	/// <summary>Adds the rows of a folder and of its open subfolders.</summary>
+	private void AddRows( List<TreeRow> rows, string folder, int depth )
+	{
+		foreach ( var entry in List( folder ) )
 		{
 			// A filter keeps the files it accepts and the folders that hold a kept file with a state, and opens those folders.
-			if ( _filter is { } filter && !(entry.IsFolder ? HoldsKept( entry.Path, filter.Keep ) : filter.Keep( entry.Path )) )
+			if ( _filter is { } filter && !(entry.IsFolder ? _kept.Contains( entry.Path ) : filter.Keep( entry.Path )) )
 				continue;
 
-			rows.Add( BuildRow( entry, depth ) );
-			if ( entry.IsFolder && (_open.Contains( entry.Path ) || _filter is not null) )
+			var isOpen = entry.IsFolder && _open.Contains( entry.Path );
+			var isSelected = !entry.IsFolder && string.Equals( entry.Path, _selected, StringComparison.OrdinalIgnoreCase );
+			FileState? state = entry.IsFolder ? _folderStates.TryGetValue( entry.Path, out var held ) ? held : null : GetState( entry.Path );
+			rows.Add( new TreeRow( entry.Path, entry, depth, isOpen, isSelected, state ) );
+			if ( entry.IsFolder && (isOpen || _filter is not null) )
 				AddRows( rows, entry.Path, depth + 1 );
 		}
 	}
 
-	/// <summary>Reports whether a folder holds a file with a state that the filter keeps.</summary>
-	private bool HoldsKept( string folder, Func<string, bool> keep )
+	/// <summary>Collects the folders that hold a file with a state that the filter keeps.</summary>
+	private HashSet<string> ComputeKept( Func<string, bool> keep )
 	{
-		var prefix = folder.TrimEnd( Path.DirectorySeparatorChar ) + Path.DirectorySeparatorChar;
-		return _states.Keys.Any( path => path.StartsWith( prefix, StringComparison.OrdinalIgnoreCase ) && keep( path ) );
+		var kept = new HashSet<string>( StringComparer.OrdinalIgnoreCase );
+		foreach ( var path in _states.Keys.Where( keep ) )
+		{
+			var folder = Path.GetDirectoryName( path );
+			while ( folder is not null && kept.Add( folder ) )
+				folder = Path.GetDirectoryName( folder );
+		}
+		return kept;
 	}
 
 	/// <summary>Gets the color of a state: green for new files, yellow for changes, red for removals and conflicts, muted for ignored.</summary>
@@ -223,12 +258,10 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	};
 
 	/// <summary>Builds one row: the chevron and icon of a folder or the icon of a file, then the name.</summary>
-	private Button BuildRow( Entry entry, int depth )
+	private Button BuildRow( TreeRow row )
 	{
 		var theme = Theme.Current;
-		var isOpen = entry.IsFolder && _open.Contains( entry.Path );
-		var isSelected = !entry.IsFolder && string.Equals( entry.Path, _selected, StringComparison.OrdinalIgnoreCase );
-		FileState? state = entry.IsFolder ? _folderStates.TryGetValue( entry.Path, out var held ) ? held : null : GetState( entry.Path );
+		var (_, entry, depth, isOpen, isSelected, state) = row;
 		var nameColor = state is { } shown ? ComputeColor( shown ) : theme.Text;
 		void Activate() => _context.Run( () =>
 		{
@@ -350,46 +383,52 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	}
 
 	/// <summary>Lists a folder's folders, then its files, by name; a folder that cannot be read lists nothing.</summary>
-	/// <remarks>A host that answers later lists nothing until its answer arrives, then rebuilds the tree.</remarks>
+	/// <remarks>The listing is read off the UI thread. A folder lists nothing until its first answer arrives, and a changed folder keeps its listing
+	/// until the new one arrives, then the tree rebuilds.</remarks>
 	private Entry[] List( string folder )
 	{
-		if ( _listings.TryGetValue( folder, out var cached ) )
-			return cached;
+		var cached = _listings.GetValueOrDefault( folder );
+		if ( (cached is not null && !_stale.Contains( folder )) || _reading.Contains( folder ) )
+			return cached ?? [];
 
+		_stale.Remove( folder );
+		_reading.Add( folder );
 		var workspace = _context.Workspace;
-		var read = workspace.ListAsync( folder, _context.Lifetime );
-		if ( read.IsCompleted )
-			return _listings[folder] = BuildEntries( folder, read );
-
-		_listings[folder] = [];
-		read.WhenDone( _context.Post, done =>
+		_ = Task.Run( async () =>
 		{
-			if ( workspace != _context.Workspace || !_listings.ContainsKey( folder ) )
-				return;
+			Entry[] entries;
+			try
+			{
+				entries = BuildEntries( folder, await workspace.ListAsync( folder, _context.Lifetime ) );
+			}
+			catch ( Exception )
+			{
+				// A folder that cannot be read lists nothing.
+				entries = [];
+			}
 
-			_listings[folder] = BuildEntries( folder, done );
-			_version.Value++;
+			_context.Post( () =>
+			{
+				if ( workspace != _context.Workspace || !_reading.Remove( folder ) )
+					return;
+
+				_listings[folder] = entries;
+				_version.Value++;
+			} );
 		} );
-		return [];
+		return cached ?? [];
 	}
 
-	/// <summary>Orders a finished listing's folders, then its files, by name, leaving out <c>.git</c>; a failed listing has no entries.</summary>
-	private static Entry[] BuildEntries( string folder, Task<IReadOnlyList<WorkspaceEntry>> read )
+	/// <summary>Orders a listing's folders, then its files, by name, leaving out <c>.git</c>.</summary>
+	private static Entry[] BuildEntries( string folder, IReadOnlyList<WorkspaceEntry> items )
 	{
-		if ( !read.IsCompletedSuccessfully )
-		{
-			// A folder that cannot be read lists nothing.
-			_ = read.Exception;
-			return [];
-		}
-
 		Entry[] entries =
 		[
-			.. read.Result
+			.. items
 				.Where( item => item.IsDirectory && item.Name != ".git" )
 				.OrderBy( item => item.Name, StringComparer.OrdinalIgnoreCase )
 				.Select( item => new Entry( Path.Combine( folder, item.Name ), item.Name, IsFolder: true ) ),
-			.. read.Result
+			.. items
 				.Where( item => !item.IsDirectory )
 				.OrderBy( item => item.Name, StringComparer.OrdinalIgnoreCase )
 				.Select( item => new Entry( Path.Combine( folder, item.Name ), item.Name, IsFolder: false ) ),
@@ -410,9 +449,12 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 		_root = root;
 		_open.Clear();
 		_listings.Clear();
+		_stale.Clear();
+		_reading.Clear();
 		_states = new( StringComparer.OrdinalIgnoreCase );
 		_folderStates = new( StringComparer.OrdinalIgnoreCase );
 		_filter = null;
+		_kept = [];
 		_watcher?.Dispose();
 		_watcher = null;
 		if ( root is null )
@@ -478,6 +520,8 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 					return;
 				_states = states;
 				_folderStates = folders;
+				if ( _filter is { } filter )
+					_kept = ComputeKept( filter.Keep );
 				_version.Value++;
 			} );
 		} );
@@ -493,7 +537,7 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 		_ => 0,
 	};
 
-	/// <summary>Drops the listing of the folder that changed, on the UI thread, so it is read again, and asks for states again once changes settle.</summary>
+	/// <summary>Marks the listing of the folder that changed as stale, on the UI thread, so it is read again, and asks for states again once changes settle.</summary>
 	/// <remarks>Runs on a watcher thread.</remarks>
 	private void MarkChanged( string path, WorkspaceChange kind )
 	{
@@ -504,13 +548,16 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 		if ( kind == WorkspaceChange.Changed )
 			return;
 
-		// Lost changes drop every listing.
+		// Lost changes mark every listing stale.
 		var folder = kind == WorkspaceChange.Lost ? null : Path.GetDirectoryName( path );
 		_context.Post( () =>
 		{
 			if ( folder is null )
-				_listings.Clear();
-			else if ( !_listings.Remove( folder ) )
+			{
+				_stale.UnionWith( _listings.Keys );
+				_stale.UnionWith( _reading );
+			}
+			else if ( !(_listings.ContainsKey( folder ) || _reading.Contains( folder )) || !_stale.Add( folder ) )
 				return;
 
 			_version.Value++;
@@ -522,4 +569,13 @@ internal sealed partial class FileTreeContent : PanelContent, IFileTreeView
 	/// <param name="Name">The name shown.</param>
 	/// <param name="IsFolder">Whether it is a folder.</param>
 	private sealed record Entry( string Path, string Name, bool IsFolder );
+
+	/// <summary>One visible row of the tree: an entry at its depth, with what the row shows of it.</summary>
+	/// <param name="Key">The entry's full path, which keys the row.</param>
+	/// <param name="Entry">The folder or file.</param>
+	/// <param name="Depth">How many folders deep it is under the shown folder.</param>
+	/// <param name="IsOpen">Whether it is an open folder.</param>
+	/// <param name="IsSelected">Whether it is the file last opened from the tree.</param>
+	/// <param name="State">The state a status source reported for it, or null.</param>
+	private sealed record TreeRow( string Key, Entry Entry, int Depth, bool IsOpen, bool IsSelected, FileState? State ) : IMeasuredRow;
 }

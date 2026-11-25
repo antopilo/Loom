@@ -124,7 +124,7 @@ internal sealed class HomeLogo : GuardedCell
 		{
 			var point = Points[index];
 			var height = ComputeHeight( point.X, point.Y, time );
-			var (x, y) = Displace( point.X, point.Y, time );
+			var sway = Sway * Math.Sin( Math.Tau * (0.9 * point.Y / Size - 0.17 * time) + 3 * point.X / Size );
 			var weave = point.Kind == LogoPart.Weft ? Bell( (point.Along - crest) / WeaveWidth ) : 0;
 			var level = Math.Clamp( 0.5 + 0.5 * height + 0.6 * weave, 0, 1 );
 			// Troughs start a few steps up the ramp, so the strokes never thin out to dots and the mark keeps its shape.
@@ -136,12 +136,8 @@ internal sealed class HomeLogo : GuardedCell
 			{
 				Content = glyph.ToString(),
 				Position = PositionType.Absolute,
-				Left = Margin + x - FillSize * Advance / 2,
-				Top = Margin + y - FillSize / 2.0,
-				FontFamily = family,
-				FontSize = FillSize,
-				FontWeight = FillWeight,
-				LineHeight = 1,
+				Left = Margin + (point.X + sway) - FillSize * Advance / 2,
+				Top = Margin + (point.Y - Lift * height) - FillSize / 2.0,
 				Color = Mix( theme.Canvas, Sample( palette, ComputePosition( point.X, point.Y ) + phase ), Math.Clamp( strength, 0, 1 ) ),
 			} );
 		}
@@ -160,6 +156,10 @@ internal sealed class HomeLogo : GuardedCell
 				{
 					Width = Length.Percent( 100 ),
 					Height = Length.Percent( 100 ),
+					FontFamily = family,
+					FontSize = FillSize,
+					FontWeight = FillWeight,
+					LineHeight = 1,
 					Accessibility = new Accessibility { Hidden = true },
 					Children = glyphs,
 				},
@@ -197,13 +197,6 @@ internal sealed class HomeLogo : GuardedCell
 		return 0.55 * Math.Sin( Math.Tau * (1.3 * u - 0.35 * time) + 1.7 * v )
 			+ 0.3 * Math.Sin( Math.Tau * (0.8 * v + 0.6 * u + 0.23 * time) )
 			+ 0.15 * Math.Sin( Math.Tau * 3 * ripple - 2.1 * time );
-	}
-
-	/// <summary>Moves a resting point to its place on the displaced mesh: lifted by the wave's height and swayed sideways.</summary>
-	private static (double X, double Y) Displace( double x, double y, double time )
-	{
-		var sway = Sway * Math.Sin( Math.Tau * (0.9 * y / Size - 0.17 * time) + 3 * x / Size );
-		return (x + sway, y - Lift * ComputeHeight( x, y, time ));
 	}
 
 	/// <summary>Picks a fill character for a wave height: sparse in troughs, dense on crests.</summary>
