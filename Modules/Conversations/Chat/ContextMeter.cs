@@ -29,6 +29,12 @@ internal sealed record ContextMeterInput(
 	int AuxiliaryCalls = 0,
 	bool Economy = false );
 
+/// <summary>Describes one row of the token and cost details.</summary>
+/// <param name="Section">The group the row belongs to, such as Context or Model.</param>
+/// <param name="Label">The row's name, or empty for a note that spans the row.</param>
+/// <param name="Value">The row's value, or the note's text.</param>
+internal readonly record struct ContextDetail( string Section, string Label, string Value );
+
 /// <summary>Draws the session's context use as the prompt's top border, like Tern's composer.</summary>
 /// <remarks>
 /// The meter lies over the prompt frame's top edge, between its rounded corners, and takes no room of its own: the filled
@@ -49,8 +55,11 @@ internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
 	/// <summary>Defines the legend's text size in logical pixels.</summary>
 	private const int LabelSize = 10;
 
-	/// <summary>Defines the widest the details popup grows, in logical pixels; longer lines wrap.</summary>
+	/// <summary>Defines the details popup's width in logical pixels; its content has a fixed width, so wrapping never depends on the popup's measured size.</summary>
 	private const int DetailsWidth = 320;
+
+	/// <summary>Defines the details' context bar thickness in logical pixels.</summary>
+	private const int BarThickness = 4;
 
 	/// <summary>Anchors the details shown while pointing at the meter.</summary>
 	private readonly ElementHandle _handle = new();
@@ -137,11 +146,61 @@ internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
 
 		if ( _isHovered.Value || _isOpen.Value )
 		{
-			var lines = new List<Blob> { new Text { Content = "Token and cost", FontWeight = 600, MinWidth = 0 } };
-			foreach ( var line in Describe( input ) )
-				lines.Add( new Text { Content = line, MinWidth = 0 } );
+			// The bar repeats the meter at a readable size: the used share filled, the auto-compact point marked.
+			var bar = new List<Blob>
+			{
+				new Container
+				{
+					Height = BarThickness,
+					BorderRadius = BarThickness / 2.0,
+					BackgroundColor = theme.Border,
+					Overflow = Overflow.Hidden,
+					Children = [new Container { Width = Length.Percent( used * 100 ), Height = Length.Percent( 100 ), BackgroundColor = input.IsCompacting || isDue ? theme.Attention : theme.Accent }],
+				},
+			};
+			if ( compactAt is { } point )
+			{
+				bar.Add( new Row
+				{
+					Position = PositionType.Absolute,
+					Left = 0,
+					Top = 0,
+					Width = Length.Percent( point * 100 ),
+					JustifyContent = JustifyContent.FlexEnd,
+					Children = [new Container { Width = LineThickness, Height = TickHeight, BorderRadius = LineThickness / 2.0, BackgroundColor = theme.Text }],
+				} );
+			}
 
-			children.Add( NativePopup.BuildTooltip( _handle, "Token and cost details", lines, PortalPlacement.TopEnd, new LayoutSize( DetailsWidth, Host.Size.Height ),
+			var lines = new List<Blob> { new Text { Content = "Token and cost", FontSize = theme.FontSize, FontWeight = 600 } };
+			var section = "";
+			foreach ( var row in Describe( input ) )
+			{
+				// Each group opens with its name; the bar sits under the first, the context.
+				if ( row.Section != section )
+				{
+					lines.Add( new Text { Content = row.Section, Color = theme.Muted, FontWeight = 600, Margin = new Edges( theme.Spacing, 0, 0, 0 ) } );
+					if ( section.Length == 0 )
+						lines.Add( new Container { Height = TickHeight, JustifyContent = JustifyContent.Center, Margin = new Edges( 2, 0 ), Accessibility = new Accessibility { Hidden = true }, Children = bar } );
+					section = row.Section;
+				}
+
+				lines.Add( row.Label.Length == 0
+					? new Row
+					{
+						Gap = theme.Spacing,
+						Margin = new Edges( theme.Spacing, 0, 0, 0 ),
+						Children = [new Container { Width = LineThickness, BorderRadius = LineThickness / 2.0, BackgroundColor = theme.Attention }, new Text { Content = row.Value, FlexShrink = 1, MinWidth = 0 }],
+					}
+					: new Row
+					{
+						Gap = theme.Spacing,
+						Children = [new Text { Content = row.Label, Color = theme.Muted, FlexShrink = 0 }, new Text { Content = row.Value, FlexGrow = 1, FlexShrink = 1, MinWidth = 0, TextAlign = TextAlign.End }],
+					} );
+			}
+
+			// The shared tooltip card pads by the spacing and draws a border on each side; the column fills the rest of the details' width.
+			var column = new Container { Width = DetailsWidth - 2 * (theme.Spacing + theme.BorderWidth), Gap = 2, Children = lines };
+			children.Add( NativePopup.BuildTooltip( _handle, "Token and cost details", [column], PortalPlacement.TopEnd, new LayoutSize( DetailsWidth, Host.Size.Height ),
 				_isOpen.Value ? AccessibilityRole.Dialog : AccessibilityRole.Tooltip ) );
 		}
 
@@ -160,33 +219,38 @@ internal sealed class ContextMeter : GuardedCell<ContextMeterInput>
 		};
 	}
 
-	/// <summary>Lists context use, compaction, model list prices, observed auxiliary work, and economy guidance.</summary>
-	internal static IReadOnlyList<string> Describe( ContextMeterInput input )
+	/// <summary>Lists context use, compaction, the model, list prices, observed auxiliary work, and economy mode as rows grouped by section, context first;
+	/// economy guidance follows as a note when the context runs full.</summary>
+	internal static IReadOnlyList<ContextDetail> Describe( ContextMeterInput input )
 	{
-		var lines = new List<string>
+		var rows = new List<ContextDetail>
 		{
-			input.Tokens is { } tokens ? $"Context {Math.Round( (double)tokens / input.Window * 100 )}% used" : "Context usage unknown until the next reply",
+			new( "Context", "Used", input.Tokens is { } tokens
+				? $"{FormatTokens( tokens )} of {FormatTokens( input.Window )} · {Math.Round( (double)tokens / input.Window * 100 )}%"
+				: "Unknown until the next reply" ),
+			new( "Context", "Auto-compact", input.IsCompacting ? "Compacting now"
+				: input.CompactAt is { } at ? $"{FormatTokens( at )} · {Math.Round( (double)at / input.Window * 100 )}%"
+				: "Off" ),
+			new( "Context", "Compactions", input.Compactions.ToString( CultureInfo.InvariantCulture ) ),
 		};
-		if ( input.Tokens is { } known )
-			lines.Add( $"{FormatTokens( known )} of {FormatTokens( input.Window )} tokens" );
-		lines.Add( input.IsCompacting ? "Compacting now"
-			: input.CompactAt is { } at ? $"Auto-compact at {Math.Round( (double)at / input.Window * 100 )}% ({FormatTokens( at )})"
-			: "Auto-compact is off" );
 		if ( input.Model.Length > 0 )
-			lines.Add( "Model " + input.Model );
+			rows.Add( new( "Model", "Name", input.Model ) );
 		if ( input.Effort.Length > 0 )
-			lines.Add( "Reasoning effort " + input.Effort );
+			rows.Add( new( "Model", "Effort", input.Effort ) );
 		if ( input.InputCost is not null || input.OutputCost is not null )
-			lines.Add( $"List price {FormatRate( input.InputCost )}/M input · {FormatRate( input.OutputCost )}/M output" );
+		{
+			rows.Add( new( "List price", "Input", FormatRate( input.InputCost ) + " / M" ) );
+			rows.Add( new( "List price", "Output", FormatRate( input.OutputCost ) + " / M" ) );
+		}
 		else
-			lines.Add( "Model price unavailable" );
+			rows.Add( new( "List price", "Rates", "Unavailable" ) );
 		if ( input.Tokens is { } pricedTokens && input.InputCost is { } rate )
-			lines.Add( $"Approximate next input at list price ${(pricedTokens / 1_000_000.0 * rate).ToString( "0.####", CultureInfo.InvariantCulture )}" );
-		lines.Add( $"Compactions {input.Compactions} · Auxiliary calls {input.AuxiliaryCalls} (titles, task checks)" );
-		lines.Add( input.Economy ? "Economy mode on · extra Lokn tools load on demand" : "Economy mode off" );
+			rows.Add( new( "List price", "Next input", $"≈ ${(pricedTokens / 1_000_000.0 * rate).ToString( "0.####", CultureInfo.InvariantCulture )}" ) );
+		rows.Add( new( "Session", "Auxiliary calls (titles, task checks)", input.AuxiliaryCalls.ToString( CultureInfo.InvariantCulture ) ) );
+		rows.Add( new( "Session", "Economy mode", input.Economy ? "On · extra Lokn tools on demand" : "Off" ) );
 		if ( input.Economy && input.Tokens is { } used && used >= input.Window * 0.7 )
-			lines.Add( "Different task? Start a new chat. Same task? Use /compact." );
-		return lines;
+			rows.Add( new( "Session", "", "Different task? Start a new chat.\nSame task? Use /compact." ) );
+		return rows;
 	}
 
 	/// <summary>Formats one per-million token rate, or a question mark when the model catalog omits it.</summary>

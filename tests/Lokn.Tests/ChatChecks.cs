@@ -384,9 +384,9 @@ internal static class ChatChecks
 		CoreChecks.Check( ContextMeter.FormatTokens( 500_000 ) == "500K" && ContextMeter.FormatTokens( 1_200_000 ) == "1.2M" && ContextMeter.FormatTokens( 84_300 ) == "84.3K",
 			"Token counts read like Omp's: 500K, 1.2M." );
 		var costDetails = ContextMeter.Describe( new( 150_000, 200_000, 170_000, false, "Fixture One", "low", 3, 15, 1, 2, true ) );
-		CoreChecks.Check( costDetails.Any( line => line.Contains( "$3/M input", StringComparison.Ordinal ) )
-			&& costDetails.Any( line => line.Contains( "Auxiliary calls 2", StringComparison.Ordinal ) )
-			&& costDetails.Any( line => line.Contains( "Start a new chat", StringComparison.Ordinal ) ),
+		CoreChecks.Check( costDetails.Contains( new( "List price", "Input", "$3 / M" ) )
+			&& costDetails.Contains( new( "Session", "Auxiliary calls (titles, task checks)", "2" ) )
+			&& costDetails.Any( row => row.Label.Length == 0 && row.Value.Contains( "Start a new chat", StringComparison.Ordinal ) ),
 			"The token and cost panel reports model rates, auxiliary calls, and economy guidance." );
 		panel.Session.UpdateFrame( Parse( """{"type":"agent_start"}""" ) );
 		CoreChecks.Check( !panel.CaptureState()!.Value.Deserialize<ConversationPanelInput>().ContinueTurn, "Saving the layout outside a reload never asks a working chat to continue." );
