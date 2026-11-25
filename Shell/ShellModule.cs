@@ -31,6 +31,7 @@ internal sealed class ShellModule : ILoknModule
 			.Setting( ShellSettings.MoveDuration )
 			.Setting( ShellSettings.PanelRadius )
 			.Setting( ShellSettings.PanelGap )
+			.Setting( ShellSettings.PaneHeaders )
 			.Setting( ShellSettings.Navigation )
 			.Setting( ShellSettings.ShowSidebar )
 			.Setting( ShellSettings.SidebarWidth )
@@ -62,6 +63,12 @@ internal sealed class ShellModule : ILoknModule
 			.Command( "close", "Shell: close active panel", context => context.App.Panels.CloseActive(),
 				new( Key.W, KeyModifiers.Primary ),
 				context => context.App.Panels.ActivePanelId is not null || context.App.Panels.Panes.Count > 1 )
+			.Command( "toggle-maximize", "Shell: maximize or restore active panel", context =>
+				{
+					if ( context.App.Panels.ActivePanelId is { } panelId )
+						context.App.Panels.ToggleMaximize( panelId );
+				}, null,
+				context => context.App.Panels.ActivePanelId is not null && (context.App.Panels.Panes.Count > 1 || context.App.Panels.MaximizedPanelId is not null) )
 			.AddShellTools()
 			.AddShellSearch( this );
 	}

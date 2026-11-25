@@ -78,11 +78,17 @@ reports stay on that PC.
   neighboring pane; the palette's **Open** commands open panels.
 - Every panel occupies its own visible tile. Opening a panel fills the active empty
   pane or splits an occupied pane to the right.
-- Panels have no title bar. Hovering the top of a pane reveals a dotted grip.
-- Drag the grip near an edge of another pane to dock; drop in the center to swap panels.
-- Right-click the grip (or focus it and press Enter) for the pane's actions: open a panel, split right or down, close.
+- Every pane has a header: the panel's title, a maximize (or restore) button and a close button. A panel on a
+  paired host also names the host there. Drag the header near an edge of another pane to dock; drop in the
+  center to swap panels. Double-click it to maximize the panel, which fills the workspace while the other
+  panels keep working hidden; press the restore button, double-click again, or focus another panel to bring
+  them back. Opening, closing or moving a panel also restores them. A maximized panel is not saved with layouts.
+- Right-click the header (or focus it and press Enter) for the pane's actions: open a panel, split right or down,
+  maximize or restore, close. **Shell: maximize or restore active panel** does the same from the palette.
+- **Pane headers** (Settings › Shell, on by default) turns the headers off, which leaves panes without a title
+  bar, a dotted grip that appears when you point at the top of a pane, and the same drag and right-click.
 - Drag dividers to resize. Focus a divider with Tab and use its arrow keys to resize.
-- Close panes from the grip menu or with **Ctrl+W**. Empty source panes collapse automatically.
+- Close panes from the header, the pane menu or with **Ctrl+W**. Empty source panes collapse automatically.
 - The titlebar **search** icon, **Ctrl+K**, or **Ctrl+Shift+P** opens **Search**: tasks, projects, chats,
   open panels, commands (Actions) and settings, with a tab per type. With nothing typed it shows Recents
   and the first items of each type. Up/Down select, Enter runs, Alt+Enter opens the item's other actions,

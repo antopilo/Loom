@@ -13,8 +13,31 @@ public sealed partial class PanelWorkspace
 	/// <summary>Maps the identifier a panel had before a module reload reopened it to its new one.</summary>
 	private readonly Dictionary<Guid, Guid> _renamed = [];
 
-	/// <summary>Reports whether a panel is in a pane; open panels that are not are hidden by the current layout.</summary>
-	public bool IsShown( Guid panelId ) => FindPanelPane( Root, panelId ) is not null;
+	/// <summary>Reports whether a panel is on screen: in a pane, and not hidden behind the panel that is maximized.</summary>
+	public bool IsShown( Guid panelId ) => FindPanelPane( Root, panelId ) is not null && (MaximizedPanelId is null || MaximizedPanelId == panelId);
+
+	/// <summary>Fills the workspace with a shown panel while the others rest hidden in their panes, or brings them back when it already does.</summary>
+	/// <remarks>A workspace with one pane has nothing to hide, so the panel stays as it is.</remarks>
+	/// <param name="panelId">The panel.</param>
+	/// <returns>Whether the panel is maximized now.</returns>
+	public bool ToggleMaximize( Guid panelId )
+	{
+		if ( MaximizedPanelId == panelId )
+		{
+			MaximizedPanelId = null;
+			_app.MarkChanged();
+			return false;
+		}
+
+		if ( Panes.Count < 2 || Panes.FirstOrDefault( pane => pane.PanelId == panelId ) is not { } shown )
+			return false;
+
+		ActivePaneId = shown.Id;
+		MaximizedPanelId = panelId;
+		ClearAttention( panelId );
+		_app.MarkChanged();
+		return true;
+	}
 
 	/// <summary>Captures the current tree, the active pane, and the state of every shown panel as JSON for <see cref="ApplyLayout"/>.</summary>
 	public JsonElement CaptureLayout() => JsonSerializer.SerializeToElement( BuildLayout() );
