@@ -281,12 +281,15 @@ public sealed partial class ChatContent
 		if ( jobs.Count > 0 && status != "Running" )
 		{
 			var completed = jobs.Count( job => ReadText( job, "status" ) == "completed" );
-			var failed = jobs.Count - completed;
+			// A job the wait stopped waiting for still runs in the background; only one that ended otherwise failed.
+			var running = jobs.Count( job => IsJobRunning( ReadText( job, "status" ) ) );
+			var failed = jobs.Count - completed - running;
 			var cards = new List<Blob>();
 			foreach ( var (index, job) in jobs.Index() )
 			{
 				var id = ReadText( job, "jobId", ReadText( job, "id" ) );
 				var ok = ReadText( job, "status" ) == "completed";
+				var isRunning = IsJobRunning( ReadText( job, "status" ) );
 				var seconds = job.TryGetProperty( "durationMs", out var ms ) && ms.TryGetDouble( out var value ) ? $"  {value / 1000:0.0}s" : "";
 				var rows = new List<Blob>
 				{
@@ -297,7 +300,7 @@ public sealed partial class ChatContent
 						Gap = theme.Spacing,
 						Children =
 						[
-							new Text { Content = ok ? "✓" : "✗", Color = ok ? theme.AnsiGreen : theme.Error, FontSize = ViewStyle.SmallSize, FlexShrink = 0 },
+							new Text { Content = ok ? "✓" : isRunning ? "●" : "✗", Color = ok ? theme.AnsiGreen : isRunning ? theme.AnsiMagenta : theme.Error, FontSize = ViewStyle.SmallSize, FlexShrink = 0 },
 							new Text { Content = ReadText( job, "intent", ReadText( job, "label", id ) ), Color = theme.Text, FontWeight = 600, FlexShrink = 1, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
 							new Spacer(),
 							new Text { Content = id + seconds, Color = theme.Muted, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, FlexShrink = 0 },
@@ -327,8 +330,9 @@ public sealed partial class ChatContent
 				[
 					ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "wait" ) ),
 					new Text( [
-						new( Count( jobs.Count, "job", "jobs" ) + " settled", new Style { FontWeight = 600, Color = theme.Text } ),
+						new( Count( jobs.Count - running, "job", "jobs" ) + " settled", new Style { FontWeight = 600, Color = theme.Text } ),
 						new( completed > 0 ? $"  {completed} done" : "", new Style { Color = theme.AnsiYellow } ),
+						new( running > 0 ? $"  {running} in background" : "", new Style { Color = theme.AnsiMagenta } ),
 						new( failed > 0 ? $"  {failed} failed" : "", new Style { Color = theme.Error } ),
 					] ),
 				],
@@ -421,4 +425,7 @@ public sealed partial class ChatContent
 			Children = [pill],
 		};
 	}
+
+	/// <summary>Reports whether a job status means it still runs: running, pending or queued.</summary>
+	private static bool IsJobRunning( string status ) => status is "running" or "pending" or "queued" or "started";
 }
