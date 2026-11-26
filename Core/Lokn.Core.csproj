@@ -9,7 +9,7 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 	</PropertyGroup>
 	<ItemGroup>
-		<PackageReference Include="Goo" Version="0.32.9" />
+		<PackageReference Include="Goo" Version="0.32.10" />
 		<InternalsVisibleTo Include="Loom" />
 		<InternalsVisibleTo Include="Lokn.Tests" />
 		<InternalsVisibleTo Include="Lokn.Modules.Conversations" />
