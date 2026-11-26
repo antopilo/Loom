@@ -155,6 +155,7 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 					HitTestSelf = false,
 				} );
 		}
+		children.Add( input.Text );
 		foreach ( var (index, icon) in _icons.Value.Index() )
 		{
 			children.Add( new Text

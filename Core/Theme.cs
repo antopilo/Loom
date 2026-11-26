@@ -115,8 +115,11 @@ public sealed record Theme
 	/// <summary>Gets terminal ANSI color 15, bright white.</summary>
 	public Color AnsiBrightWhite { get; init; } = Color.Parse( "#f4f2ec" );
 
-	/// <summary>Gets the user interface font family.</summary>
-	public string FontFamily { get; init; } = OperatingSystem.IsWindows() ? "Segoe UI" : ViewStyle.FontFamily;
+	/// <summary>Gets the user interface font family, with emoji and symbol fallbacks.</summary>
+	public string FontFamily { get; init; } = ViewStyle.DefaultFontFamily;
+
+	/// <summary>Gets the font family code and commands show in before Loom's own code font, or null for Loom's own.</summary>
+	public string? CodeFont { get; init; }
 
 	/// <summary>Gets the standard text size in logical pixels.</summary>
 	public int FontSize { get; init; } = 13;

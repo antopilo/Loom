@@ -195,6 +195,7 @@ public static partial class MarkdownView
 			text.Color = Theme.Current.Muted;
 			rows.Add( new Row
 			{
+				Key = "note:" + note.Marker,
 				Gap = MarkerGap,
 				MinWidth = 0,
 				AlignItems = AlignItems.FlexStart,
@@ -426,9 +427,6 @@ public static partial class MarkdownView
 	/// <summary>Defines the most bytes a web image in Markdown may have, 20 MiB.</summary>
 	private const int MaxWebImageBytes = 20 * 1024 * 1024;
 
-	/// <summary>Defines the tallest an image in Markdown shows, in logical pixels.</summary>
-	private const int ImageMaxHeight = 480;
-
 	/// <summary>Defines how many image sources stay cached before the cache starts over.</summary>
 	private const int MaxCachedImages = 64;
 
@@ -457,18 +455,26 @@ public static partial class MarkdownView
 
 			if ( text[position..match.Index].Trim() is { Length: > 0 } before )
 				children.Add( CodeBoxes.Wrap( BuildInlineText( before, openLink ), "before:" + match.Index ) );
-			children.Add( new Image
+			// A local image names its own size from its header; a web image loads later, so its card shows no scale.
+			var size = Path.IsPathFullyQualified( key ) ? MediaCard.ReadSize( key ) : null;
+			var image = new Image
 			{
-				Key = $"image:{key}",
 				Source = source,
 				Fit = ImageFit.Contain,
 				MaxWidth = Length.Percent( 100 ),
-				MaxHeight = ImageMaxHeight,
-				AlignSelf = AlignSelf.FlexStart,
-				BorderRadius = Theme.Current.Radius,
+				Height = size is { Height: > 0 } known ? Math.Min( MediaCard.MaxImageHeight, known.Height ) : MediaCard.MaxImageHeight,
+				BorderRadius = Theme.Current.Radius / 2,
 				AccessibilityName = alt.Length > 0 ? alt : name,
 				Fallback = new Text { Content = $"Image could not load: {name}", Color = Theme.Current.Muted, FontSize = Theme.Current.FontSize - 1 },
-			} );
+			};
+			if ( size is { Width: > 0, Height: > 0 } shape )
+				image.AspectRatio = (double)shape.Width / shape.Height;
+			var target = Path.IsPathFullyQualified( key ) ? ResolveLink( key ) : ParseWebLink( key );
+			children.Add( MediaCard.Build( $"image:{key}", name, image, size, () =>
+			{
+				if ( target is not null )
+					openLink( target );
+			} ) );
 			position = match.Index + match.Length;
 		}
 		if ( children.Count == 0 )
@@ -545,6 +551,8 @@ public static partial class MarkdownView
 			var item = items[index];
 			rows.Add( new Row
 			{
+				// Keyed per item, so each item's mounted cells, such as its code boxes, stay its own.
+				Key = "item:" + index,
 				Gap = MarkerGap,
 				MinWidth = 0,
 				MarginStart = item.Depth * (markerWidth + MarkerGap),
@@ -552,7 +560,7 @@ public static partial class MarkdownView
 				Children =
 				[
 					BuildListMarker( item.Marker, markerWidth ),
-					CodeBoxes.Wrap( BuildInlineText( item.Text, openLink, grow: true, fade: fade, after: following?[first + index] ?? 0 ), "item", grow: true ),
+					CodeBoxes.Wrap( BuildInlineText( item.Text, openLink, grow: true, fade: fade, after: following?[first + index] ?? 0 ), "item-text", grow: true ),
 				],
 			} );
 		}
@@ -843,6 +851,7 @@ public static partial class MarkdownView
 
 			tableRows.Add( new Row
 			{
+				Key = "row:" + index,
 				// Open rows with a thin line under each, as Tern draws them; the header sits on the same canvas, muted.
 				BorderWidth = new Edges( 0, 0, index < rows.Length - 1 ? Theme.Current.BorderWidth : 0, 0 ),
 				BorderColor = Theme.Current.Divider,

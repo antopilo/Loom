@@ -185,6 +185,9 @@ internal static class PerfTrace
 				Click( window, name );
 			else if ( name.StartsWith( "move:", StringComparison.Ordinal ) && name.Split( ':' ) is [_, var mx, var my] )
 				window.PlatformInput.PointerMove( 1, PointerDevice.Mouse, double.Parse( mx, CultureInfo.InvariantCulture ), double.Parse( my, CultureInfo.InvariantCulture ), KeyModifiers.None, 0 );
+			else if ( name.StartsWith( "setting:", StringComparison.Ordinal ) && name[8..].Split( '=', 2 ) is [var id, var value]
+				&& app.Settings.Definitions.FirstOrDefault( definition => definition.Id == id ) is { } setting )
+				app.Settings.SetValue( setting, SettingsScope.Global, value );
 			else
 				app.OpenLink( new Uri( name ) );
 			var handler = Stopwatch.GetElapsedTime( start ).TotalMilliseconds;

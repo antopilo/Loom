@@ -2,11 +2,11 @@ using System.Buffers.Binary;
 using Goo;
 using Lokn.Core;
 
-namespace Lokn.Modules.Chat;
+namespace Lokn.Modules.Markdown;
 
-/// <summary>Builds an image in the transcript as a card, as Tern does: a header with its name, the scale it shows at and an expand button, over a
-/// dark stage that holds the image centered.</summary>
-internal static class MediaCard
+/// <summary>Builds an image as a card, as Tern does: a header with its name, the scale it shows at and an expand button, over a dark stage that
+/// holds the image centered. Images an agent sends and images a reply links in Markdown both show this way.</summary>
+public static class MediaCard
 {
 	/// <summary>Defines the stage's height in logical pixels; the image fits inside it without growing past its own pixels.</summary>
 	private const int StageHeight = 260;
@@ -17,19 +17,35 @@ internal static class MediaCard
 	/// <summary>Defines the header's height in logical pixels.</summary>
 	private const int HeaderHeight = 34;
 
-	/// <summary>Builds the card.</summary>
+	/// <summary>Gets the tallest an image shows on the stage, in logical pixels.</summary>
+	public static int MaxImageHeight => StageHeight - 2 * StageInset;
+
+	/// <summary>Builds the card around a decoded image.</summary>
 	/// <param name="key">The card's stable key.</param>
 	/// <param name="name">The image's name, such as its file name.</param>
-	/// <param name="source">The decoded thumbnail.</param>
+	/// <param name="source">The decoded image or thumbnail.</param>
 	/// <param name="original">The image's own size in pixels, which the scale counts against.</param>
 	/// <param name="open">Opens the image full size.</param>
-	internal static Container Build( string key, string name, ImageSource source, (int Width, int Height) original, Action open )
+	public static Container Build( string key, string name, ImageSource source, (int Width, int Height) original, Action open ) =>
+		Build( key, name, new Image
+		{
+			Source = source,
+			Fit = ImageFit.Contain,
+			Height = Math.Min( MaxImageHeight, original.Height ),
+			AspectRatio = (double)source.Width / source.Height,
+			MaxWidth = Length.Percent( 100 ),
+			BorderRadius = Theme.Current.Radius / 2,
+		}, original, open );
+
+	/// <summary>Builds the card around an image element, such as one that loads in the background.</summary>
+	/// <param name="key">The card's stable key.</param>
+	/// <param name="name">The image's name, such as its file name.</param>
+	/// <param name="image">The image, sized to fit <see cref="MaxImageHeight"/>.</param>
+	/// <param name="original">The image's own size in pixels when known, which the header names the scale against; null shows no scale.</param>
+	/// <param name="open">Opens the image full size.</param>
+	public static Container Build( string key, string name, Blob image, (int Width, int Height)? original, Action open )
 	{
 		var theme = Theme.Current;
-		// The image never shows larger than its own pixels, and fits the stage's height.
-		var height = Math.Min( StageHeight - 2 * StageInset, original.Height );
-		var scale = original.Height > 0 ? (double)height / original.Height : 1;
-		var percent = (int)Math.Round( scale * 100 );
 		var expand = theme.BuildButton( "\uE740", open );
 		expand.AccessibilityName = "Open image full size";
 		expand.FontFamily = ViewStyle.IconFontFamily;
@@ -39,6 +55,35 @@ internal static class MediaCard
 		expand.Height = 24;
 		expand.Padding = 0;
 		expand.FlexShrink = 0;
+		var header = new List<Blob>
+		{
+			new Text
+			{
+				Content = name,
+				FontFamily = ViewStyle.CodeFontFamily,
+				FontSize = ViewStyle.SmallSize + 1,
+				Color = theme.Text,
+				FlexShrink = 1,
+				MinWidth = 0,
+				TextWrap = TextWrap.NoWrap,
+				TextTrimming = TextTrimming.Ellipsis,
+			},
+			new Spacer(),
+		};
+		// The image never shows larger than its own pixels and fits the stage, so its scale follows from its height.
+		if ( original is { Height: > 0 } size )
+		{
+			var percent = (int)Math.Round( Math.Min( MaxImageHeight, size.Height ) * 100.0 / size.Height );
+			header.Add( new Text
+			{
+				Content = $"{percent}%",
+				FontSize = ViewStyle.SmallSize,
+				Color = theme.Muted,
+				FlexShrink = 0,
+				AccessibilityName = $"Shown at {percent}% of {size.Width} by {size.Height} pixels",
+			} );
+		}
+		header.Add( expand );
 
 		return new Container
 		{
@@ -62,30 +107,7 @@ internal static class MediaCard
 					Padding = new Edges( 0, theme.Spacing / 2, 0, theme.Spacing * 1.5 ),
 					BorderColor = theme.Border,
 					BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
-					Children =
-					[
-						new Text
-						{
-							Content = name,
-							FontFamily = ViewStyle.CodeFontFamily,
-							FontSize = ViewStyle.SmallSize + 1,
-							Color = theme.Text,
-							FlexShrink = 1,
-							MinWidth = 0,
-							TextWrap = TextWrap.NoWrap,
-							TextTrimming = TextTrimming.Ellipsis,
-						},
-						new Spacer(),
-						new Text
-						{
-							Content = $"{percent}%",
-							FontSize = ViewStyle.SmallSize,
-							Color = theme.Muted,
-							FlexShrink = 0,
-							AccessibilityName = $"Shown at {percent}% of {original.Width} by {original.Height} pixels",
-						},
-						expand,
-					],
+					Children = header,
 				},
 				new Button
 				{
@@ -100,26 +122,31 @@ internal static class MediaCard
 					Focusable = true,
 					OnClick = open,
 					KeyBindings = [new( Key.Enter, KeyModifiers.None, open ), new( Key.Space, KeyModifiers.None, open )],
-					Children =
-					[
-						new Image
-						{
-							Source = source,
-							Fit = ImageFit.Contain,
-							Height = height,
-							AspectRatio = (double)source.Width / source.Height,
-							MaxWidth = Length.Percent( 100 ),
-							BorderRadius = theme.Radius / 2,
-						},
-					],
+					Children = [image],
 				},
 			],
 		};
 	}
 
+	/// <summary>Reads the size of an image file from its header, or null when it cannot be read.</summary>
+	/// <param name="path">The image file.</param>
+	public static (int Width, int Height)? ReadSize( string path )
+	{
+		try
+		{
+			using var file = File.OpenRead( path );
+			Span<byte> header = stackalloc byte[4096];
+			return ReadSize( header[..file.Read( header )] );
+		}
+		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException )
+		{
+			return null;
+		}
+	}
+
 	/// <summary>Reads an image's size in pixels from its header: PNG, GIF, JPEG, WebP or BMP, or null for any other format.</summary>
 	/// <param name="data">The encoded image.</param>
-	internal static (int Width, int Height)? ReadSize( ReadOnlySpan<byte> data )
+	public static (int Width, int Height)? ReadSize( ReadOnlySpan<byte> data )
 	{
 		if ( data.Length >= 24 && data[..8].SequenceEqual( (ReadOnlySpan<byte>)[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] ) )
 			return (BinaryPrimitives.ReadInt32BigEndian( data[16..] ), BinaryPrimitives.ReadInt32BigEndian( data[20..] ));

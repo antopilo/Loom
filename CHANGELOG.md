@@ -3,6 +3,15 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.23
+
+- **Pick your fonts.** Settings › Theme has an Interface font and a Code font: type an installed family, such as Inter or Cascadia Code.
+- **Middle-click scrolling.** Click the middle mouse button in a chat and move the pointer to scroll, faster the farther you move.
+- **Links react to the pointer.** A file link gets a soft background under the pointer, and a web link a thicker underline.
+- **Fewer text drawings.** Agents draw diagrams as real drawings instead of boxes and arrows made of characters.
+- **Image cards for Markdown images.** Images a reply links in Markdown show in the same card as attached images.
+- **Taskbar icon fix.** A leftover Start menu shortcut from older builds no longer leaves the taskbar icon blank.
+
 ## 0.4.22
 
 - **Image cards.** Images in chats show in a card with their name, the scale they show at and a button to open them full size.

@@ -190,7 +190,7 @@ public sealed partial class ChatContent
 		if ( result is { } body && TerminalText.BuildPlain( ComputeResultText( body ) ).TrimEnd() is { Length: > 0 } output )
 		{
 			box.Add( new Container { Key = "output-rule", Height = theme.BorderWidth, BackgroundColor = theme.Divider } );
-			box.Add( new Container { Key = "output", Padding = new Edges( 0, theme.Spacing * 1.5 ), Children = [BuildCodePreview( key + ":output", output, "text" )] } );
+			box.Add( new Container { Key = "output", Padding = new Edges( 0, theme.Spacing * 1.5 ), Children = [BuildCodePreview( key + ":output", output, "text", framed: false )] } );
 		}
 		var (word, color) = status switch
 		{

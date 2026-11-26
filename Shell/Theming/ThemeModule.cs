@@ -23,6 +23,22 @@ public sealed class ThemeModule : ILoknModule
 		Editor = ThemePicker.Build,
 	};
 
+	/// <summary>Defines the installed font family the app's text shows in, or nothing for Loom's own.</summary>
+	internal static readonly Setting<string> InterfaceFont = new(
+		"theme.font",
+		"Interface font",
+		"An installed font family for the app's text, such as Inter or Segoe UI Variable. Empty uses Loom's own.",
+		defaultValue: "",
+		category: "Theme" );
+
+	/// <summary>Defines the installed font family code and commands show in, or nothing for Loom's own.</summary>
+	internal static readonly Setting<string> CodeFont = new(
+		"theme.code-font",
+		"Code font",
+		"An installed monospace font family for code and commands, such as Cascadia Code or JetBrains Mono. Empty uses Loom's own.",
+		defaultValue: "",
+		category: "Theme" );
+
 	/// <summary>Stores the watched theme file path.</summary>
 	private readonly string _path;
 
@@ -79,6 +95,8 @@ public sealed class ThemeModule : ILoknModule
 	{
 		builder
 			.Setting( Selected )
+			.Setting( InterfaceFont )
+			.Setting( CodeFont )
 			.Command( "edit", "Theme: edit theme file", _ => OpenFile() );
 	}
 
@@ -163,7 +181,19 @@ public sealed class ThemeModule : ILoknModule
 	/// <summary>Shows the previewed theme, or the applied one; assigning only on change avoids rebuilding every view.</summary>
 	private void UpdateCurrent()
 	{
+		// The fonts Settings picks apply over any theme, previewed ones too; a picked family leads, with Loom's own faces as fallbacks.
+		// Goo draws only registered faces, so a picked family is registered under an alias; one that is not installed leaves Loom's own.
 		var theme = _preview ?? _applied;
+		if ( _context is { } context )
+		{
+			var font = SystemFonts.RegisterFamily( context.App.Settings.Get( InterfaceFont ) );
+			var code = SystemFonts.RegisterFamily( context.App.Settings.Get( CodeFont ) );
+			theme = theme with
+			{
+				FontFamily = font is not null ? $"{font}, {ViewStyle.DefaultFontFamily}" : theme.FontFamily,
+				CodeFont = code,
+			};
+		}
 		if ( Theme.Current != theme )
 			Theme.Current = theme;
 	}

@@ -19,6 +19,9 @@ public sealed partial class ChatContent
 		// Omp's own notices to the model (`<system-notice>` reminders) are custom messages it does not display.
 		if ( message.Role == "custom" )
 			return message.RichContent is { } custom && ReadText( custom, "display" ) is "True" or "true";
+		// The files a prompt mentions already show as its attachments; Omp's copy of their content for the model shows nothing more.
+		if ( message.Role == "fileMention" )
+			return false;
 		if ( message.Role is not ("user" or "assistant") )
 			return true;
 		if ( ReadFailure( message ) is not null )
@@ -111,7 +114,7 @@ public sealed partial class ChatContent
 			AccessibilityName = title + " message",
 			AlignSelf = AlignSelf.Stretch,
 			MaxWidth = Length.Percent( 100 ),
-			Gap = Theme.Current.Spacing,
+			Gap = isUser ? Theme.Current.Spacing : ActionGap,
 			BorderRadius = ChatStyle.BubbleRadius,
 			OnPointerDown = BuildMessageMenuOpener( part ),
 			Children = body,
@@ -280,8 +283,7 @@ public sealed partial class ChatContent
 						TextWrap = TextWrap.NoWrap,
 						TextTrimming = TextTrimming.Ellipsis,
 					},
-					// A path line stays clean; its chevron shows only once it is open.
-					.. isPath && !expanded ? Array.Empty<Blob>() : [Theme.Current.BuildChevron( expanded )],
+					Theme.Current.BuildChevron( expanded ),
 				],
 			},
 		];
@@ -316,6 +318,14 @@ public sealed partial class ChatContent
 			OnClick = isLong ? () => context.Run( () => UpdateExpanded( key ) ) : null,
 			Children = [body],
 		};
+	}
+
+	/// <summary>Builds a fold's "more lines · Show all" or "Show less" line in small text, as an accessory under its content.</summary>
+	private static Button BuildMoreToggle( string label, bool expanded, Action action )
+	{
+		var toggle = BuildDisclosure( label, expanded, action );
+		toggle.FontSize = ViewStyle.SmallSize;
+		return toggle;
 	}
 
 	/// <summary>Indents opened disclosure content under its label.</summary>

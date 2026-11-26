@@ -47,6 +47,10 @@ internal static class ChatChecks
 		CoreChecks.Check( ChatContent.ComposePrompt( "Review these ", [@"C:\My Files\shot.png", @"C:\src\a.cs"] ) == "Review these\n\n@\"C:\\My Files\\shot.png\" @\"C:\\src\\a.cs\"", "Attachments become quoted Omp file mentions, including paths with spaces." );
 		CoreChecks.Check( ChatContent.ComposePrompt( " ", [@"C:\shot.png"] ) == "@\"C:\\shot.png\"" && ChatContent.ComposePrompt( "Hi", [] ) == "Hi", "An attachment-only prompt sends just its mentions, and plain prompts are unchanged." );
 		CheckMarkdownSyntax( Visible );
+		var parse = typeof( ChatContent ).GetMethod( "ParseGrep", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static )!;
+		var grepped = (System.Collections.IList)parse.Invoke( null, ["# Modules/Omp/\n## OmpService.cs#D3F9\n*33:  - draw it\n# Core/\n## Theme.cs#43E9\n 271:a\n*272:b"] )!;
+		CoreChecks.Check( grepped.Count == 2 && grepped[0]!.ToString()!.Contains( "Modules/Omp/OmpService.cs", StringComparison.Ordinal ),
+			"A grep that heads folders with # and files with ## reads as files with their matches." );
 		CheckDiffs();
 		CheckRichDisplay();
 

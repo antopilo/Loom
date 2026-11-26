@@ -22,6 +22,9 @@ internal static class NotificationIdentity
 	/// <summary>Defines the Start menu shortcut name.</summary>
 	private const string ShortcutName = "Loom.lnk";
 
+	/// <summary>Defines the shortcut name builds before the Loom name used, which declares the same app ID.</summary>
+	private const string FormerShortcutName = "Lokn.lnk";
+
 	/// <summary>Defines the property ID of System.AppUserModel.ID.</summary>
 	private const uint AppUserModelIdProperty = 5;
 
@@ -54,6 +57,11 @@ internal static class NotificationIdentity
 		// Goo reads a toast click from exactly these arguments and forwards it to the running instance.
 		var command = $"\"{executable}\" --goo-notification \"%1\"";
 		var shortcut = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Programs ), ShortcutName );
+		// The former shortcut declares the same app ID and opens Lokn.exe, which no build makes any more; Windows may take the taskbar icon from it,
+		// which then shows blank.
+		var former = Path.Combine( Path.GetDirectoryName( shortcut )!, FormerShortcutName );
+		if ( File.Exists( former ) )
+			File.Delete( former );
 		using var protocol = Registry.CurrentUser.CreateSubKey( $@"Software\Classes\{Scheme}" );
 		using var open = protocol.CreateSubKey( @"shell\open\command" );
 		// The command is written last, so a matching command means this executable's shortcut was saved too.

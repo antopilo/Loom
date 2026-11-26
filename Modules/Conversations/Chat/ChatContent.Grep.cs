@@ -89,7 +89,7 @@ public sealed partial class ChatContent
 			}
 			if ( folds )
 			{
-				var toggle = BuildDisclosure( expanded ? "Show less" : $"{total - GrepLines:N0} more lines · Show all", expanded,
+				var toggle = BuildMoreToggle( expanded ? "Show less" : $"{total - GrepLines:N0} more lines · Show all", expanded,
 					() => context.Run( () => UpdateExpanded( key + ":grep" ) ) );
 				toggle.Key = "grep-fold";
 				children.Add( toggle );
@@ -301,23 +301,25 @@ public sealed partial class ChatContent
 
 		foreach ( var raw in text.Replace( "\r\n", "\n" ).Split( '\n' ) )
 		{
-			if ( raw.StartsWith( "### ", StringComparison.Ordinal ) )
+			// Omp heads each folder with "#"s and a trailing slash, one more per level, and each file with one more "#" and its tag, such as
+			// "# Modules/Omp/" then "## OmpService.cs#D3F9"; a folder deeper than the root heads with "## sub/".
+			if ( HeadingPattern().Match( raw ) is { Success: true } heading )
 			{
 				Flush();
-				var name = raw[4..];
-				var tag = name.LastIndexOf( '#' );
-				path = Path.Combine( root, folder, tag > 0 ? name[..tag] : name ).Replace( '\\', '/' );
-				lines = [];
-			}
-			else if ( raw.StartsWith( "## ", StringComparison.Ordinal ) )
-			{
-				Flush();
-				folder = raw[3..].Trim();
-			}
-			else if ( raw.StartsWith( "# ", StringComparison.Ordinal ) )
-			{
-				Flush();
-				(root, folder) = (raw[2..].Trim(), "");
+				var name = heading.Groups["name"].Value.Trim();
+				if ( name.EndsWith( '/' ) || name.EndsWith( '\\' ) )
+				{
+					if ( heading.Groups["level"].Length == 1 )
+						(root, folder) = (name, "");
+					else
+						folder = name;
+				}
+				else
+				{
+					var tag = name.LastIndexOf( '#' );
+					path = Path.Combine( root, folder, tag > 0 ? name[..tag] : name ).Replace( '\\', '/' );
+					lines = [];
+				}
 			}
 			else if ( path is not null && lines is not null && OmpLinePattern().Match( raw ) is { Success: true } omp )
 			{
@@ -346,6 +348,10 @@ public sealed partial class ChatContent
 		var home = Environment.GetFolderPath( Environment.SpecialFolder.UserProfile );
 		return home.Length > 0 && path.StartsWith( home, StringComparison.OrdinalIgnoreCase ) ? "~" + path[home.Length..] : path;
 	}
+
+	/// <summary>Matches a heading of Omp's grep output: one to three "#" and a folder or a file.</summary>
+	[GeneratedRegex( @"^(?<level>#{1,3}) (?<name>.+)$" )]
+	private static partial Regex HeadingPattern();
 
 	/// <summary>Matches one row of Omp's grep output: <c>*12:text</c> for a match or <c> 11:text</c> for context.</summary>
 	[GeneratedRegex( @"^(?<m>[* ])(?<n>\d+):(?<t>.*)$" )]

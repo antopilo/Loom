@@ -30,7 +30,9 @@ public sealed partial class OmpService( SettingsService settings )
 		# Chat display
 		The user reads your replies in Lokn's chat, which renders Markdown richly: tables, task lists, LaTeX math in $…$ and $$…$$, Mermaid flowcharts and
 		sequence diagrams in ```mermaid blocks, and SVG in ```svg blocks, drawn as vector graphics. File paths and URLs in `inline code` become links.
-		- To show a layout, an architecture, a UI mockup, a data flow or any spatial idea, draw it in an ```svg block; never draw boxes or arrows in ASCII art.
+		- To show a layout, an architecture, a UI mockup, a data flow or any spatial idea, draw it in an ```svg block (or a ```mermaid flowchart or
+		  sequence diagram). Never draw boxes, frames, trees or arrows with characters such as ┌ ─ │ └ ├ ► ▼ +-- |, in a code block or outside one:
+		  they show as plain monospace text, not as a drawing. Before you send, check your reply: if it has such a drawing, replace it with an svg.
 		- Give the svg a viewBox about 600-760 wide. Use rect, line, path, circle and text; a text's x and y are its baseline start, with font-size around 13
 		  and font-weight 600 for titles. Lokn's chat is dark: use light strokes and text such as #8a8a80 and #e8e6df, and an accent such as #e0853c sparingly.
 		""";

@@ -64,6 +64,9 @@ public sealed partial class ChatContent : PanelContent
 	/// <summary>Targets the transcript scroller and keeps it on the newest message until the reader scrolls up.</summary>
 	private readonly TranscriptFollow _transcript = new();
 
+	/// <summary>Scrolls the transcript with the middle mouse button; made at the first build, which has the context to post with.</summary>
+	private MiddleScroll? _middleScroll;
+
 	/// <summary>Keeps where the user's prompts sit, for their lines along the transcript scrollbar.</summary>
 	private readonly TranscriptMarks _marks;
 
@@ -206,12 +209,17 @@ public sealed partial class ChatContent : PanelContent
 				TextWrap = TextWrap.NoWrap,
 				TextTrimming = TextTrimming.Ellipsis,
 			} );
+		_middleScroll ??= new MiddleScroll( _transcript.Handle, context.Post );
 		children.Add( new Container
 		{
 			Key = "conversation-transcript-area",
 			Handle = _transcriptArea,
 			FlexGrow = 1,
 			MinHeight = 0,
+			// The middle button scrolls the transcript, as in other Windows apps.
+			OnPointerDown = _middleScroll.OnPointerDown,
+			OnPointerMove = _middleScroll.OnPointerMove,
+			OnPointerUp = _middleScroll.OnPointerUp,
 			Children = area,
 		} );
 		// Overlays cover the whole chat, so they come last and draw on top.
@@ -271,6 +279,9 @@ public sealed partial class ChatContent : PanelContent
 		};
 	}
 
+	/// <summary>Defines the space between the agent's actions, such as two tool lines, in logical pixels, as Tern spaces them.</summary>
+	private const double ActionGap = 18;
+
 	/// <summary>Lists the visible messages as transcript rows, pairing tool results with their calls and spacing agent turns as one flow.</summary>
 	/// <remarks>
 	/// Consecutive reasoning and tool calls, across messages, become one activity row; the agent's prose between them ends a run.
@@ -315,7 +326,7 @@ public sealed partial class ChatContent : PanelContent
 				}
 			}
 			// An agent turn reads as one flow of lines; the wider gap only separates it from the user's turns.
-			var gap = previous is null ? 0 : previous == "user" || first.Message.Role == "user" ? MessageGap : Theme.Current.Spacing;
+			var gap = previous is null ? 0 : previous == "user" || first.Message.Role == "user" ? MessageGap : ActionGap;
 			rows.Add( new( $"{first.Message.Id:N}:{first.Start}", parts, isActivity, [.. results], revision, gap ) );
 			previous = first.Message.Role;
 		}

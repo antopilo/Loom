@@ -79,9 +79,16 @@ public sealed partial class ChatContent
 			return BuildGrep( key, arguments, status, result, intent );
 		// A tool on one file reads as its verb and path, the file name bold, as "Edit ~/src/view.cs:104"; others show the agent's intent.
 		var path = ComputeToolPath( arguments );
+		// A diff or a written file shows at once; clicking the line folds it away, and clicking again shows it.
+		var (code, codeLanguage) = ComputeToolCode( name, arguments );
+		var showsAtOnce = diffs.Count > 0 || (name == "write" && code.Length > 0);
+		var folded = showsAtOnce && _expanded.Contains( key + ":fold" );
+		var foldKey = showsAtOnce ? key + ":fold" : key;
+		if ( showsAtOnce )
+			expanded = !folded;
 		var toggle = path.Length > 0 && diffs.Count <= 1
-			? BuildPathDisclosure( name, path, expanded, () => context.Run( () => UpdateExpanded( key ) ), intent )
-			: BuildDisclosure( intent.Length > 0 ? intent : name, expanded, () => context.Run( () => UpdateExpanded( key ) ),
+			? BuildPathDisclosure( name, path, expanded, () => context.Run( () => UpdateExpanded( foldKey ) ), intent )
+			: BuildDisclosure( intent.Length > 0 ? intent : name, expanded, () => context.Run( () => UpdateExpanded( foldKey ) ),
 				diffs.Count > 0 ? string.Join( ", ", diffs.Select( file => Path.GetFileName( file.Path ) ) ) : ComputeToolTarget( arguments ) );
 		toggle.AccessibilityName = intent.Length > 0 ? $"{name} · {intent} · {status}" : $"{name} · {status}";
 		toggle.Key = "tool-toggle:" + key;
@@ -126,7 +133,7 @@ public sealed partial class ChatContent
 		{
 			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = Theme.Current.Spacing, Children = head, },
 		};
-		foreach ( var (index, file) in diffs.Index() )
+		foreach ( var (index, file) in folded ? [] : diffs.Index() )
 		{
 			var cardKey = key + ":diff:" + index;
 			// Several files each get a quiet line naming the file over a card that shows only the code, like the one-file edit above.
@@ -136,13 +143,13 @@ public sealed partial class ChatContent
 				() => context.Run( () => UpdateExpanded( cardKey ) ), header: false ) );
 		}
 		// A written file shows its content at once, like an edit's diff, rather than behind the fold.
-		var (code, codeLanguage) = ComputeToolCode( name, arguments );
-		if ( name == "write" && code.Length > 0 )
+		// A written file's diff already shows its content; only a write without one shows the code itself.
+		if ( name == "write" && code.Length > 0 && diffs.Count == 0 && !folded )
 			children.Add( BuildCodePreview( key + ":code", code, codeLanguage, lineNumbers: true ) );
 		// Images a tool returned, such as screenshots, stay visible like diff cards rather than waiting behind the fold.
 		children.AddRange( BuildToolImages( id, result ) );
 		// An edit's diff already shows what it did, so its text output and raw details would only repeat it.
-		if ( expanded && diffs.Count == 0 )
+		if ( expanded && !showsAtOnce )
 		{
 			var details = new List<Blob>();
 			// A written file's content already shows above.
@@ -188,15 +195,15 @@ public sealed partial class ChatContent
 		_ => ("", ""),
 	};
 
-	/// <summary>Builds highlighted code that shows its first lines, fading out, until the reader opens the rest.</summary>
-	private Blob BuildCodePreview( string key, string code, string language, bool lineNumbers = false )
+	/// <summary>Builds highlighted code that shows its first lines, fading out, until the reader opens the rest; unframed, it draws no box of its own.</summary>
+	private Blob BuildCodePreview( string key, string code, string language, bool lineNumbers = false, bool framed = true )
 	{
 		var lines = code.Replace( "\r\n", "\n" ).TrimEnd( '\n' ).Split( '\n' );
 		if ( lines.Length <= PreviewLines + PreviewSlack )
-			return MarkdownView.BuildCode( code, language, showLanguage: false, lineNumbers: lineNumbers );
+			return MarkdownView.BuildCode( code, language, showLanguage: false, lineNumbers: lineNumbers, framed: framed );
 
 		var expanded = _expanded.Contains( key );
-		var toggle = BuildDisclosure( expanded ? "Show less" : $"{lines.Length - PreviewLines:N0} more lines · Show all", expanded, () => context.Run( () => UpdateExpanded( key ) ) );
+		var toggle = BuildMoreToggle( expanded ? "Show less" : $"{lines.Length - PreviewLines:N0} more lines · Show all", expanded, () => context.Run( () => UpdateExpanded( key ) ) );
 		toggle.Key = "preview-toggle";
 		return new Container
 		{
@@ -205,8 +212,8 @@ public sealed partial class ChatContent
 			Children =
 			[
 				expanded
-					? MarkdownView.BuildCode( code, language, showLanguage: false, lineNumbers: lineNumbers )
-					: MarkdownView.BuildCode( string.Join( '\n', lines.Take( PreviewLines ) ), language, showLanguage: false, fadeLines: PreviewFadeLines, lineNumbers: lineNumbers ),
+					? MarkdownView.BuildCode( code, language, showLanguage: false, lineNumbers: lineNumbers, framed: framed )
+					: MarkdownView.BuildCode( string.Join( '\n', lines.Take( PreviewLines ) ), language, showLanguage: false, fadeLines: PreviewFadeLines, lineNumbers: lineNumbers, framed: framed ),
 				toggle,
 			],
 		};

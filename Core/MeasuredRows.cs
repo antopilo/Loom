@@ -101,6 +101,9 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 	/// <summary>Stores the context generation of the next commit.</summary>
 	private long _pendingContext;
 
+	/// <summary>Stores the theme the mounted rows were built in; rows built in another theme, such as before a font change, build again.</summary>
+	private Theme? _theme;
+
 	/// <summary>Reports whether a realization awaits <see cref="Commit"/> or <see cref="Cancel"/>.</summary>
 	private bool _isRealized;
 
@@ -126,7 +129,7 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 		var input = Pending ?? _source ?? throw new InvalidOperationException( "The list has no rows to place." );
 		var rows = input.Rows;
 		var size = viewport.Size;
-		var reuse = _source is { } committed && committed.Build == input.Build && _context == viewport.ContextVersion;
+		var reuse = _source is { } committed && committed.Build == input.Build && _context == viewport.ContextVersion && ReferenceEquals( _theme, Theme.Current );
 
 		_measured.Clear();
 		for ( var i = 0; i < viewport.ChildCount; i++ )
@@ -299,6 +302,7 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 		_range = _pendingRange;
 		_size = _pendingSize;
 		_context = _pendingContext;
+		_theme = Theme.Current;
 		_glide = _pendingGlide;
 		_scroll = _pendingScroll;
 		_isRealized = false;

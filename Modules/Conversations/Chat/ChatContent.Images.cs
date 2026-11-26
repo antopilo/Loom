@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Goo;
 using Lokn.Core;
+using Lokn.Modules.Markdown;
 
 namespace Lokn.Modules.Chat;
 
