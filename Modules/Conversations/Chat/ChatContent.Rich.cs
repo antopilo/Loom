@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Goo;
 using Lokn.Core;
@@ -291,9 +292,35 @@ public sealed partial class ChatContent
 		Children = children,
 	};
 
-	/// <summary>Opens a followed link through Lokn's link handlers, beside this conversation when the Browser module takes it.</summary>
+	/// <summary>Opens a followed link through Lokn's link handlers, beside this conversation when the Browser module takes it; a Ctrl-click opens it
+	/// in the system's default app instead: a web page in the browser, a file in the app its type opens with.</summary>
 	/// <remarks>A link to a file by relative path, such as <c>src/app.cs</c>, opens that file in the chat's folder.</remarks>
-	private void OpenLink( Uri uri ) => context.Run( () => context.App.OpenLink( ResolveFileLink( uri ), context.Id ) );
+	private void OpenLink( Uri uri )
+	{
+		var isExternal = MarkdownView.IsOpeningExternally;
+		context.Run( () =>
+		{
+			var resolved = ResolveFileLink( uri );
+			// A file link carries its path; a web page goes as it is; anything else stays in Loom.
+			var target = !isExternal ? null
+				: resolved.Scheme == LoknLinks.Scheme && resolved.Host == "editor" && resolved.Query.StartsWith( "?path=", StringComparison.Ordinal )
+					? Uri.UnescapeDataString( resolved.Query[6..] )
+				: resolved.Scheme is "http" or "https" ? resolved.AbsoluteUri : null;
+			if ( target is null )
+			{
+				context.App.OpenLink( resolved, context.Id );
+				return;
+			}
+			try
+			{
+				Process.Start( new ProcessStartInfo( target ) { UseShellExecute = true } )?.Dispose();
+			}
+			catch ( Exception error ) when ( error is System.ComponentModel.Win32Exception or InvalidOperationException )
+			{
+				context.App.ReportError( "Open link", error );
+			}
+		} );
+	}
 
 	/// <summary>Resolves the relative path of a <c>lokn://editor/open?path=…</c> link against the chat's folder; any other link stays as it is.</summary>
 	private Uri ResolveFileLink( Uri uri )

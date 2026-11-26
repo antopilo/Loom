@@ -3,6 +3,18 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.21
+
+- **Drawings in chats.** Agents can draw layouts, diagrams and mockups as SVG, and Loom shows them as drawings instead of ASCII art.
+- **Links you can see.** File paths and web addresses in a reply show with an icon and open on click: files in the editor, pages in the browser.
+  Ctrl-click opens them in your own apps instead.
+- **Clearer tool steps.** Reads show as a group of file chips, shell commands as a box with their output, searches as matching lines with
+  their context, and edits as a clean diff with the file and its counts on one line. Code in these views has syntax colors, `.mjs` included.
+- **Easier reading.** Headings, inline code, links and tables look like Tern's, inline code sits in a box, and paragraphs, lists and code have
+  more room around them.
+- **Smoother scrolling up.** Scrolling up a long chat no longer jumps or pulls you back down.
+- **Sidebar selection** stays under its row while the list scrolls, and the token and cost popup is a clearer card.
+
 ## 0.4.20
 
 - **Math and diagrams in chats.** LaTeX formulas and Mermaid flowcharts and sequence diagrams show in messages.

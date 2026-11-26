@@ -154,13 +154,11 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 		{
 			scroll = ComputeFollow( viewport.ScrollOffset.Y, end, size, isGliding );
 		}
-		else if ( viewport.ScrollOffset.Y > 0 && viewport.VisibleAnchor is { } anchor && IndexOf( rows, anchor.Key ) is var index and >= 0 )
+		else if ( viewport.ScrollOffset.Y > 0 && ComputeAnchor( rows, viewport ) is { } anchor )
 		{
 			// Move by however far the anchor row's top moved. Its reported offset is snapped to whole pixels, so
 			// deriving the scroll from that offset crept the view up by up to a pixel on every rebuild.
-			var previous = _source is { } shown ? IndexOf( shown.Rows, anchor.Key ) : -1;
-			var moved = previous >= 0 && previous < _tops.Length ? _pendingTops[index] - _tops[previous] : 0;
-			scroll = Math.Clamp( viewport.ScrollOffset.Y + moved, 0, end );
+			scroll = Math.Clamp( viewport.ScrollOffset.Y + anchor.Moved, 0, end );
 			if ( reuse )
 				output.AnchorKey = anchor.Key;
 		}
@@ -193,6 +191,34 @@ internal sealed class MeasuredRowsState<TRow> : VirtualState
 		_pendingSize = size;
 		_pendingContext = viewport.ContextVersion;
 		_isRealized = true;
+	}
+
+	/// <summary>Finds the row that holds the view in place and how far its top moved: the first row whose top is at or below the viewport's top edge.</summary>
+	/// <remarks>
+	/// Goo's visible anchor is the row crossing the top edge. Scrolling up mounts that row at its estimate, and when it is measured it grows below
+	/// its own top, so holding it pushed everything the reader looks at down by the difference: hundreds of pixels at a time. The first row that
+	/// starts inside the view has every height change above it counted. The list's own committed tops are used, in the coordinates of the offset.
+	/// </remarks>
+	private (string Key, double Moved)? ComputeAnchor( IReadOnlyList<TRow> rows, VirtualViewport viewport )
+	{
+		if ( _source is { } shown && _tops.Length == shown.Rows.Count + 1 )
+		{
+			var top = viewport.ScrollOffset.Y - Tolerance;
+			for ( var i = FindRow( _tops, top ); i < shown.Rows.Count; i++ )
+			{
+				if ( _tops[i] < top )
+					continue;
+				var key = shown.Rows[i].Key;
+				if ( IndexOf( rows, key ) is var index and >= 0 )
+					return (key, _pendingTops[index] - _tops[i]);
+				break;
+			}
+		}
+
+		return viewport.VisibleAnchor is { } visible && IndexOf( rows, visible.Key ) is var fallback and >= 0
+			&& _source is { } previous && IndexOf( previous.Rows, visible.Key ) is var old and >= 0 && old < _tops.Length
+			? (visible.Key, _pendingTops[fallback] - _tops[old])
+			: null;
 	}
 
 	/// <summary>Gets the offset that follows the end: on the way there while a glide runs, else the end itself.</summary>

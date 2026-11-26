@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Goo;
 using Lokn.Core;
+using Lokn.Modules.Git;
 using Lokn.Modules.Markdown;
 
 namespace Lokn.Modules.Chat;
@@ -229,5 +230,34 @@ public sealed partial class ChatContent
 				},
 			],
 		};
+	}
+
+	/// <summary>Builds the line over one file's diff in an edit of several files: its folder muted, its name bold, and its counts at the end.</summary>
+	private static Row BuildDiffTitle( string key, DiffFile file )
+	{
+		var theme = Theme.Current;
+		var name = Path.GetFileName( file.Path );
+		var folder = file.Path[..^name.Length];
+		var children = new List<Blob>
+		{
+			new Text( [
+				new( folder, new Style { Color = theme.Muted } ),
+				new( name, new Style { Color = theme.Text, FontWeight = 600 } ),
+			] )
+			{
+				FontFamily = ViewStyle.CodeFontFamily,
+				FontSize = ViewStyle.SmallSize,
+				FlexShrink = 1,
+				MinWidth = 0,
+				TextWrap = TextWrap.NoWrap,
+				TextTrimming = TextTrimming.Ellipsis,
+			},
+			new Spacer(),
+		};
+		if ( file.Added > 0 )
+			children.Add( new Text { Content = $"+{file.Added:N0}", Color = theme.Success, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, FlexShrink = 0 } );
+		if ( file.Removed > 0 )
+			children.Add( new Text { Content = $"−{file.Removed:N0}", Color = theme.Error, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, FlexShrink = 0 } );
+		return new Row { Key = "title:" + key, AlignItems = AlignItems.Center, Gap = theme.Spacing, Margin = new Edges( theme.Spacing / 2, 0, 0, 0 ), Children = children };
 	}
 }

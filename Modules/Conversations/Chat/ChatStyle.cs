@@ -7,7 +7,7 @@ internal static class ChatStyle
 	internal const int BodySize = 14;
 
 	/// <summary>Defines assistant prose line height as a multiple of its font size.</summary>
-	internal const double BodyLineHeight = 1.5;
+	internal const double BodyLineHeight = 1.65;
 
 	/// <summary>Defines the widest reading column for the transcript and composer in logical pixels.</summary>
 	internal const int ColumnWidth = 760;

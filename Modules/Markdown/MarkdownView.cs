@@ -12,7 +12,7 @@ public static partial class MarkdownView
 	public const int BodySize = 14;
 
 	/// <summary>Defines body line height as a multiple of its font size.</summary>
-	public const double BodyLineHeight = 1.5;
+	public const double BodyLineHeight = 1.65;
 
 	/// <summary>Defines code block text size in logical pixels.</summary>
 	private const int CodeSize = 13;
@@ -39,22 +39,25 @@ public static partial class MarkdownView
 	private const int CodeGap = 2;
 
 	/// <summary>Defines the vertical space between ordinary blocks in logical pixels.</summary>
-	private const int BlockGap = 12;
+	private const int BlockGap = 22;
+
+	/// <summary>Defines the vertical space before and after a framed block, such as code or a table, in logical pixels.</summary>
+	private const int FramedGap = 24;
 
 	/// <summary>Defines the space above first- and second-level headings in logical pixels.</summary>
-	private const int MajorHeadingGap = 22;
+	private const int MajorHeadingGap = 28;
 
 	/// <summary>Defines the space above deeper headings in logical pixels.</summary>
-	private const int MinorHeadingGap = 16;
+	private const int MinorHeadingGap = 24;
 
 	/// <summary>Defines the space between a heading and the block it introduces in logical pixels.</summary>
-	private const int HeadingBodyGap = 6;
+	private const int HeadingBodyGap = 16;
 
 	/// <summary>Defines heading line height as a multiple of its font size.</summary>
 	private const double HeadingLineHeight = 1.3;
 
 	/// <summary>Defines the vertical space between list items in logical pixels.</summary>
-	private const int ListItemGap = 4;
+	private const int ListItemGap = 6;
 
 	/// <summary>Defines the minimum list marker column width in logical pixels.</summary>
 	private const int MarkerWidth = 18;
@@ -161,7 +164,7 @@ public static partial class MarkdownView
 				index += count - 1;
 			}
 			else
-				child = BuildBlock( block, openLink, fade, following?[index] ?? 0 );
+				child = BuildBlock( block, openLink, index, fade, following?[index] ?? 0 );
 
 			// A code block, quote or formula inside a list item lines up with the item's text.
 			child.Margin = new Edges( ComputeSpacing( previous, block ), 0, 0, block.Kind == "list" ? 0 : block.Depth * (MarkerWidth + MarkerGap) );
@@ -198,7 +201,7 @@ public static partial class MarkdownView
 				Children =
 				[
 					new Text { Content = FormatFootnote( note.Marker ), FontSize = BodySize - 2, Color = Theme.Current.Accent, FlexShrink = 0 },
-					text,
+					CodeBoxes.Wrap( text, "note", grow: true ),
 				],
 			} );
 		}
@@ -253,14 +256,24 @@ public static partial class MarkdownView
 		if ( current.Kind == "heading" )
 			return current.Marker.Length <= 2 ? MajorHeadingGap : MinorHeadingGap;
 
+		// A framed block, such as code, a table or a quote, sets itself apart from the prose around it.
+		if ( IsFramed( previous.Value ) || IsFramed( current ) )
+			return FramedGap;
+
 		return BlockGap;
 	}
 
+	/// <summary>Reports whether a block draws its own frame or rules: code, a table, a quote or a formula.</summary>
+	private static bool IsFramed( MarkdownBlock block ) => block.Kind is "code" or "table" or "quote" or "math";
+
 	/// <summary>Builds one non-list block, fading its tail when <paramref name="after"/> visible characters follow it.</summary>
-	private static Blob BuildBlock( MarkdownBlock block, Action<Uri> openLink, Func<int, double>? fade = null, int after = 0 )
+	private static Blob BuildBlock( MarkdownBlock block, Action<Uri> openLink, int index, Func<int, double>? fade = null, int after = 0 )
 	{
 		if ( block.Kind == "code" && block.Marker.Equals( "mermaid", StringComparison.OrdinalIgnoreCase ) )
 			return BuildDiagram( block.Text );
+
+		if ( block.Kind == "code" && SvgView.IsSvg( block.Marker, block.Text ) )
+			return BuildDrawing( block.Text, block.Marker );
 
 		if ( block.Kind == "code" )
 			return BuildCode( block.Text, block.Marker, isRunnable: true );
@@ -309,7 +322,40 @@ public static partial class MarkdownView
 			text.LineHeight = HeadingLineHeight;
 		}
 
-		return text;
+		return CodeBoxes.Wrap( text, "text:" + index );
+	}
+
+	/// <summary>Builds an SVG block as its drawing, with its kind and a Copy button above it; SVG Goo cannot read shows its source with a note.</summary>
+	private static Blob BuildDrawing( string source, string language )
+	{
+		var header = new List<Blob>
+		{
+			new Text { Content = "svg", FontSize = CodeSize, Color = Theme.Current.Muted, },
+			new Spacer(),
+		};
+		if ( CopyText is { } copy )
+			header.Add( BuildCodeButton( "Copy", "Copy drawing source", () => copy( source ) ) );
+		var row = new Row
+		{
+			AlignItems = AlignItems.Center,
+			Padding = new Edges( CodeGap, BlockInset ),
+			BorderColor = Theme.Current.Border,
+			BorderWidth = new Edges( 0, 0, Theme.Current.BorderWidth, 0 ),
+			Children = header,
+		};
+		if ( SvgView.Build( source, row, BlockInset * 2 ) is { } drawing )
+			return drawing;
+
+		return new Container
+		{
+			MinWidth = 0,
+			Gap = CodeGap * 2,
+			Children =
+			[
+				new Text { Content = "This drawing could not be read; its source:", FontSize = BodySize - 2, Color = Theme.Current.Muted },
+				BuildCode( source, language.Length > 0 ? language : "xml" ),
+			],
+		};
 	}
 
 	/// <summary>Builds a Mermaid diagram in a framed card with its type and a Copy button: drawn natively for flowcharts and sequence diagrams;
@@ -363,7 +409,7 @@ public static partial class MarkdownView
 	}
 
 	/// <summary>Builds display math, centered and a little larger than prose, as LaTeX converted to Unicode with its colors.</summary>
-	private static Text BuildMath( string latex ) => new( [.. LatexText.Convert( latex ).Select( segment => new TextSpan( segment.Text, BuildInlineStyle( new( segment.Text, InlineKind.Math, null, segment.Color, segment.Background ), 1 )! ) )] )
+	private static Text BuildMath( string latex ) => new( [.. LatexText.Convert( latex ).Select( segment => new TextSpan( segment.Text, BuildInlineStyle( new( segment.Text, InlineKind.Math, null, segment.Color ), 1 )! ) )] )
 	{
 		Selectable = true,
 		FontFamily = ViewStyle.FontFamily,
@@ -410,7 +456,7 @@ public static partial class MarkdownView
 				continue;
 
 			if ( text[position..match.Index].Trim() is { Length: > 0 } before )
-				children.Add( BuildInlineText( before, openLink ) );
+				children.Add( CodeBoxes.Wrap( BuildInlineText( before, openLink ), "before:" + match.Index ) );
 			children.Add( new Image
 			{
 				Key = $"image:{key}",
@@ -428,7 +474,7 @@ public static partial class MarkdownView
 		if ( children.Count == 0 )
 			return null;
 		if ( text[position..].Trim() is { Length: > 0 } after )
-			children.Add( BuildInlineText( after, openLink ) );
+			children.Add( CodeBoxes.Wrap( BuildInlineText( after, openLink ), "after" ) );
 
 		return new Container
 		{
@@ -506,7 +552,7 @@ public static partial class MarkdownView
 				Children =
 				[
 					BuildListMarker( item.Marker, markerWidth ),
-					BuildInlineText( item.Text, openLink, grow: true, fade: fade, after: following?[first + index] ?? 0 ),
+					CodeBoxes.Wrap( BuildInlineText( item.Text, openLink, grow: true, fade: fade, after: following?[first + index] ?? 0 ), "item", grow: true ),
 				],
 			} );
 		}
@@ -766,10 +812,13 @@ public static partial class MarkdownView
 				text.LineHeight = CellLineHeight;
 				text.TextAlign = column < alignments.Length ? alignments[column] : TextAlign.Left;
 				text.Padding = new Edges( CellInsetY, CellInsetX );
-				text.FlexBasis = ComputeColumnWidth( preferred[column] );
-				text.FlexShrink = 1;
-				text.MinWidth = ComputeColumnWidth( minimum[column] );
-				cells.Add( text );
+				var (basis, least) = (ComputeColumnWidth( preferred[column] ), ComputeColumnWidth( minimum[column] ));
+				cells.Add( CodeBoxes.Wrap( text, "cell:" + column, layout: cell =>
+				{
+					cell.FlexBasis = basis;
+					cell.FlexShrink = 1;
+					cell.MinWidth = least;
+				} ) );
 			}
 
 			tableRows.Add( new Row

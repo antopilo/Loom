@@ -55,9 +55,6 @@ public sealed partial class ChatContent : PanelContent
 	/// <summary>Defines the composer height in logical pixels.</summary>
 	private const int ComposerHeight = 92;
 
-	/// <summary>Defines the height assumed for a transcript row until layout measures it, in logical pixels.</summary>
-	private const double EstimatedRowHeight = 80;
-
 	/// <summary>Tracks asynchronous connection, dialog, and activity changes on the UI thread.</summary>
 	private readonly State<int> _version = new( 0 );
 
@@ -142,7 +139,7 @@ public sealed partial class ChatContent : PanelContent
 				// Only rows near the viewport are built and laid out, so long transcripts stay cheap to stream into and resize.
 				Key = "conversation-transcript",
 				Handle = _transcript.Handle,
-				Source = new MeasuredRowsSource<TranscriptRow>( rows, _buildRow, static _ => EstimatedRowHeight, _transcript.IsFollowing, _placeRows ),
+				Source = new MeasuredRowsSource<TranscriptRow>( rows, _buildRow, EstimateRowHeight, _transcript.IsFollowing, _placeRows ),
 				AccessibilityName = "Conversation transcript",
 				FlexGrow = 1,
 				MinHeight = 0,

@@ -25,6 +25,16 @@ public sealed partial class OmpService( SettingsService settings )
 		- To work in a git worktree, call worktrees_enter; never create one with `git worktree add` or move into one with `cd` yourself.
 		""";
 
+	/// <summary>Defines what Lokn adds to every chat's system prompt about how its chat shows replies, so agents draw rather than type ASCII art.</summary>
+	internal const string DisplayPrompt = """
+		# Chat display
+		The user reads your replies in Lokn's chat, which renders Markdown richly: tables, task lists, LaTeX math in $…$ and $$…$$, Mermaid flowcharts and
+		sequence diagrams in ```mermaid blocks, and SVG in ```svg blocks, drawn as vector graphics. File paths and URLs in `inline code` become links.
+		- To show a layout, an architecture, a UI mockup, a data flow or any spatial idea, draw it in an ```svg block; never draw boxes or arrows in ASCII art.
+		- Give the svg a viewBox about 600-760 wide. Use rect, line, path, circle and text; a text's x and y are its baseline start, with font-size around 13
+		  and font-weight 600 for titles. Lokn's chat is dark: use light strokes and text such as #8a8a80 and #e8e6df, and an accent such as #e0853c sparingly.
+		""";
+
 	/// <summary>Defines the model an account session starts with; it never sends a prompt, so the model only lets Omp start.</summary>
 	/// <remarks>Omp refuses to start RPC for a profile without a default model, which a profile that never signed in has; any built-in model lets it start, signed in to or not.</remarks>
 	internal const string AccountSessionModel = "anthropic/claude-sonnet-4-5";
@@ -124,7 +134,7 @@ public sealed partial class OmpService( SettingsService settings )
 		}
 
 		// Omp keeps only the last --append-system-prompt, so Lokn's own part and the user's go in one.
-		string[] appended = [settings.Get( OmpModule.HostTools ) ? HostToolsPrompt : "", settings.Get( OmpModule.SystemPrompt, scope ).Trim()];
+		string[] appended = [DisplayPrompt, settings.Get( OmpModule.HostTools ) ? HostToolsPrompt : "", settings.Get( OmpModule.SystemPrompt, scope ).Trim()];
 		if ( appended.Any( part => part.Length > 0 ) )
 		{
 			start.ArgumentList.Add( "--append-system-prompt" );

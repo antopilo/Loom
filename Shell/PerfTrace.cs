@@ -152,9 +152,10 @@ internal static class PerfTrace
 	/// <summary>Runs the switches <c>LOKN_PERF_DRIVE</c> lists, for <c>scripts/bench.ps1</c>'s switch scenario, and writes one line per switch.</summary>
 	/// <remarks>
 	/// The variable is <c>&lt;interval ms&gt;|&lt;step&gt;|&lt;step&gt;…</c>: each step is <c>profile</c>, which toggles Work and Personal, a <c>lokn://</c>
-	/// link, opened as a click in Loom would, or <c>wheel:&lt;x&gt;:&lt;y&gt;:&lt;notches&gt;:&lt;count&gt;</c>, which turns the wheel at that point of the
-	/// window, in logical pixels, by <c>notches</c> (positive scrolls up) <c>count</c> times, <see cref="WheelGapMs"/> apart, as Goo's own platform input,
-	/// so a hidden pointer or another window in front cannot stop it. The steps run in a loop, one per interval. Each writes
+	/// link, opened as a click in Loom would, <c>wheel:&lt;x&gt;:&lt;y&gt;:&lt;notches&gt;:&lt;count&gt;</c>, which turns the wheel at that point of the
+	/// window, in logical pixels, by <c>notches</c> (positive scrolls up) <c>count</c> times, <see cref="WheelGapMs"/> apart, or <c>click:&lt;x&gt;:&lt;y&gt;</c>,
+	/// a primary click there. Both are Goo's own platform input, so a hidden pointer or another window in front cannot stop them. The steps run in a
+	/// loop, one per interval. Each writes
 	/// <c>switch &lt;step&gt; handler &lt;ms&gt; first &lt;ms&gt; frames &lt;n&gt; maxgap &lt;ms&gt; dropped &lt;n&gt;</c>: the time the step itself took on
 	/// the UI thread, from the step to the first presented frame, the frames presented in the next <see cref="SwitchWindowMs"/>, the longest time
 	/// between two of them (from the step for the first), and how many of those times exceed <see cref="DroppedMs"/>.
@@ -180,6 +181,8 @@ internal static class PerfTrace
 				app.Settings.ToggleProfile();
 			else if ( name.StartsWith( "wheel:", StringComparison.Ordinal ) )
 				Turn( window, name );
+			else if ( name.StartsWith( "click:", StringComparison.Ordinal ) )
+				Click( window, name );
 			else
 				app.OpenLink( new Uri( name ) );
 			var handler = Stopwatch.GetElapsedTime( start ).TotalMilliseconds;
@@ -235,6 +238,18 @@ internal static class PerfTrace
 		window.PlatformInput.PointerWheel( x, y, 0, notches, KeyModifiers.None );
 		for ( var i = 1; i < count; i++ )
 			_ = Task.Delay( i * WheelGapMs ).ContinueWith( _ => window.Post( () => window.PlatformInput.PointerWheel( x, y, 0, notches, KeyModifiers.None ) ), TaskScheduler.Default );
+	}
+
+	/// <summary>Clicks the primary button at the point a <c>click:&lt;x&gt;:&lt;y&gt;</c> step names, in logical pixels of the window.</summary>
+	private static void Click( Window window, string step )
+	{
+		var fields = step.Split( ':' );
+		var x = double.Parse( fields[1], CultureInfo.InvariantCulture );
+		var y = double.Parse( fields[2], CultureInfo.InvariantCulture );
+		var input = window.PlatformInput;
+		input.PointerMove( 1, PointerDevice.Mouse, x, y, KeyModifiers.None, 0 );
+		input.PointerPress( 1, PointerDevice.Mouse, x, y, PointerButton.Primary, KeyModifiers.None, 1 );
+		input.PointerRelease( 1, PointerDevice.Mouse, x, y, PointerButton.Primary, KeyModifiers.None, 0 );
 	}
 
 	/// <summary>Writes <c>jit &lt;methods&gt; &lt;ms&gt;</c>: how many methods the whole process compiled so far, on every thread, and for how long.</summary>

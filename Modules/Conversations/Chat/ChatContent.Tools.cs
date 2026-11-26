@@ -75,6 +75,8 @@ public sealed partial class ChatContent
 		var intent = session.Intents.GetValueOrDefault( id ) is { Length: > 0 } started ? started : ReadText( block, "intent", ReadText( arguments, "i" ) );
 		if ( name == "bash" )
 			return BuildBash( key, id, arguments, status, result, intent );
+		if ( name == "grep" )
+			return BuildGrep( key, arguments, status, result );
 		// A tool on one file reads as its verb and path, the file name bold, as "Edit ~/src/view.cs:104"; others show the agent's intent.
 		var path = ComputeToolPath( arguments );
 		var toggle = path.Length > 0 && diffs.Count <= 1
@@ -110,6 +112,16 @@ public sealed partial class ChatContent
 		// Finished tools stay quiet and running ones spin; only failures need words.
 		if ( status == "Failed" )
 			head.Add( Cell.Mount<RevealInput, Reveal>( "tool-failed", new( new Text { Content = status, Color = Theme.Current.Error, FontSize = ViewStyle.SmallSize, FlexShrink = 0, }, isMarkChanged ) ) );
+		// An edit of one file names it on this line, so its diff card below shows only the code, and its counts sit at this line's end.
+		var isOneFile = path.Length > 0 && diffs.Count == 1;
+		if ( isOneFile )
+		{
+			head.Add( new Spacer() );
+			if ( diffs[0].Added > 0 )
+				head.Add( new Text { Content = $"+{diffs[0].Added:N0}", Color = Theme.Current.Success, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, FlexShrink = 0 } );
+			if ( diffs[0].Removed > 0 )
+				head.Add( new Text { Content = $"−{diffs[0].Removed:N0}", Color = Theme.Current.Error, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, FlexShrink = 0 } );
+		}
 		var children = new List<Blob>
 		{
 			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = Theme.Current.Spacing, Children = head, },
@@ -117,7 +129,11 @@ public sealed partial class ChatContent
 		foreach ( var (index, file) in diffs.Index() )
 		{
 			var cardKey = key + ":diff:" + index;
-			children.Add( DiffView.BuildCard( cardKey, file, () => context.Run( () => OpenDiff( file.Path ) ), _expanded.Contains( cardKey ), () => context.Run( () => UpdateExpanded( cardKey ) ) ) );
+			// Several files each get a quiet line naming the file over a card that shows only the code, like the one-file edit above.
+			if ( !isOneFile )
+				children.Add( BuildDiffTitle( cardKey, file ) );
+			children.Add( DiffView.BuildCard( cardKey, file, () => context.Run( () => OpenDiff( file.Path ) ), _expanded.Contains( cardKey ),
+				() => context.Run( () => UpdateExpanded( cardKey ) ), header: false ) );
 		}
 		// A written file shows its content at once, like an edit's diff, rather than behind the fold.
 		var (code, codeLanguage) = ComputeToolCode( name, arguments );
@@ -125,7 +141,8 @@ public sealed partial class ChatContent
 			children.Add( BuildCodePreview( key + ":code", code, codeLanguage, lineNumbers: true ) );
 		// Images a tool returned, such as screenshots, stay visible like diff cards rather than waiting behind the fold.
 		children.AddRange( BuildToolImages( id, result ) );
-		if ( expanded )
+		// An edit's diff already shows what it did, so its text output and raw details would only repeat it.
+		if ( expanded && diffs.Count == 0 )
 		{
 			var details = new List<Blob>();
 			// A written file's content already shows above.

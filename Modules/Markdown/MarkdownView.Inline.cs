@@ -12,6 +12,25 @@ public static partial class MarkdownView
 	/// <summary>Defines how far, in logical pixels, the pointer may move between press and release and still count as a click on a link.</summary>
 	private const double ClickSlop = 4;
 
+	/// <summary>Defines the space added after the character before inline code and after the code's last character, in logical pixels:
+	/// the room its box's padding fills, so the box keeps a margin from the words around it.</summary>
+	internal const double CodePad = 4;
+
+	/// <summary>Stores whether the link being opened on this thread was Ctrl-clicked.</summary>
+	[ThreadStatic]
+	private static bool _isOpeningExternally;
+
+	/// <summary>Gets whether the link being opened was Ctrl-clicked, asking for the system's default app instead of Loom; true only while the
+	/// <c>openLink</c> handler a view was built with runs.</summary>
+	public static bool IsOpeningExternally
+	{
+		get => _isOpeningExternally;
+		private set => _isOpeningExternally = value;
+	}
+
+	/// <summary>Defines the room set after the character before a link to a file or a web page, in logical pixels, which its icon fills.</summary>
+	internal const double MentionGap = 18;
+
 	/// <summary>Defines the first private-use character that masks a code span, math, an escaped character or a decoded entity while emphasis is matched.</summary>
 	private const char Mask = '\uF000';
 
@@ -29,8 +48,9 @@ public static partial class MarkdownView
 	[ThreadStatic]
 	private static Dictionary<string, int>? _footnotes;
 
-	/// <summary>Stores one run of visible inline text, its emphasis, the link it opens, and the colors math gave it.</summary>
-	private readonly record struct InlineRun( string Text, InlineKind Kind, Uri? Link, Color? Color = null, Color? Background = null );
+	/// <summary>Stores one run of visible inline text, its emphasis, the link it opens, and the color math gave it.</summary>
+	/// <remarks>A math box's background is dropped: Goo draws no background behind part of a text, and fails on one.</remarks>
+	private readonly record struct InlineRun( string Text, InlineKind Kind, Uri? Link, Color? Color = null );
 
 	/// <summary>Stores one masked piece: its kind and its text.</summary>
 	/// <param name="Kind">What the piece is: code, math, or plain text such as an escaped character.</param>
@@ -65,13 +85,19 @@ public static partial class MarkdownView
 
 		/// <summary>A footnote mark.</summary>
 		Note = 64,
+
+		/// <summary>A character followed by the room an inline code box needs: the one before the code, or the code's last one.</summary>
+		Pad = 128,
+
+		/// <summary>A character followed by the room a mention's icon needs: the one before a link to a file or a web page.</summary>
+		Mention = 256,
 	}
 
 	/// <summary>Builds inline bold, italic, code, strike-through, math and link spans in prose typography, fading its tail when <paramref name="fade"/> is given.</summary>
 	/// <remarks>A click on a link's text opens it; a drag that selects text does not.</remarks>
 	private static Text BuildInlineText( string text, Action<Uri>? openLink, bool grow = false, Func<int, double>? fade = null, int after = 0 )
 	{
-		var runs = ParseInlineRuns( text );
+		var runs = PadCode( ParseInlineRuns( text ) );
 		var view = new Text( BuildInlineSpans( text, runs, fade, after ) )
 		{
 			Selectable = true,
@@ -82,23 +108,49 @@ public static partial class MarkdownView
 			MinWidth = 0,
 			FlexGrow = grow ? 1 : 0,
 		};
-		if ( openLink is null || !runs.Any( run => run.Link is not null ) )
-			return view;
-
-		// Each link's range in the shown text, which is the runs' text in order.
+		// Each boxed code range, each mention and each link in the shown text, which is the runs' text in order.
+		var marks = new List<CodeMark>();
 		var links = new List<(int Start, int End, Uri Link)>();
 		var offset = 0;
+		InlineRun? previous = null;
 		foreach ( var run in runs )
 		{
+			if ( IsBoxed( run.Kind ) && run.Text.Length > 0 )
+			{
+				// A code span split for its padded last character still gets one box.
+				if ( marks.Count > 0 && marks[^1] is { Boxed: true } box && box.Range.Start + box.Range.Length == offset )
+					marks[^1] = box with { Range = new TextRange( box.Range.Start, box.Range.Length + run.Text.Length ), Text = box.Text + run.Text };
+				else
+					marks.Add( new( new TextRange( offset, run.Text.Length ), run.Text, IsCode: true, Boxed: true, PadBefore: offset > 0, Glyph: null ) );
+			}
+			else if ( run.Link is { } target && run.Text.Length > 0 )
+			{
+				// A link's first run leads with its icon, in the room the character before it leaves; the rest of the link joins its range.
+				if ( previous is { Link: var before } && before == target && marks.Count > 0 && marks[^1] is { Glyph: not null } mention
+					&& mention.Range.Start + mention.Range.Length == offset )
+					marks[^1] = mention with { Range = new TextRange( mention.Range.Start, mention.Range.Length + run.Text.Length ), Text = mention.Text + run.Text };
+				else if ( previous is { } prior && prior.Kind.HasFlag( InlineKind.Mention ) )
+					marks.Add( new( new TextRange( offset, run.Text.Length ), run.Text, run.Kind.HasFlag( InlineKind.Code ), Boxed: false, PadBefore: false,
+						ComputeMentionGlyph( target ) ) );
+			}
 			if ( run.Link is { } link )
 				links.Add( (offset, offset + run.Text.Length, link) );
 			offset += run.Text.Length;
+			previous = run;
 		}
+		if ( marks.Count == 0 && (openLink is null || links.Count == 0) )
+			return view;
+
+		// Code boxes, mention icons and links all read this text's layout through its handle.
+		var handle = new ElementHandle();
+		view.Handle = handle;
+		if ( marks.Count > 0 )
+			CodeBoxes.Remember( view, handle, [.. marks] );
+		if ( openLink is null || links.Count == 0 )
+			return view;
 
 		// The press lives outside this declaration: a rebuild between press and release replaces these handlers, and a press
 		// remembered only in this build's closure was lost, so the link did nothing.
-		var handle = new ElementHandle();
-		view.Handle = handle;
 		view.OnPointerDown = e => _linkPress = e.Button == PointerButton.Primary ? e.WindowPosition : null;
 		view.OnPointerUp = e =>
 		{
@@ -116,13 +168,63 @@ public static partial class MarkdownView
 			{
 				if ( position.Offset >= from && position.Offset < to )
 				{
-					openLink( link );
+					// Ctrl, or Cmd on macOS, asks for the system's own app; the handler reads that while it runs.
+					IsOpeningExternally = e.Modifiers.HasPrimary;
+					try
+					{
+						openLink( link );
+					}
+					finally
+					{
+						IsOpeningExternally = false;
+					}
 					return;
 				}
 			}
 		};
 		return view;
 	}
+
+	/// <summary>Splits off the character before each inline code span and the span's last character, marked to be followed by the box's room, and the
+	/// character before each link, marked to be followed by its icon's room.</summary>
+	/// <remarks>Spacing after characters, not added characters, so copied text stays as written.</remarks>
+	private static List<InlineRun> PadCode( List<InlineRun> runs )
+	{
+		var padded = new List<InlineRun>( runs.Count + 4 );
+		void MarkBefore( InlineKind flag )
+		{
+			if ( padded.Count == 0 || padded[^1] is not { Text.Length: > 0 } before || IsBoxed( before.Kind ) )
+				return;
+			var cut = before.Text.Length - LastLength( before.Text );
+			padded[^1] = before with { Text = before.Text[..cut] };
+			padded.Add( before with { Text = before.Text[cut..], Kind = before.Kind | flag } );
+		}
+
+		foreach ( var run in runs )
+		{
+			if ( run.Text.Length > 0 && run.Link is { } link && !IsBoxed( run.Kind ) && (padded.Count == 0 || padded[^1].Link != link) )
+				MarkBefore( InlineKind.Mention );
+			if ( !IsBoxed( run.Kind ) || run.Text.Length == 0 )
+			{
+				padded.Add( run );
+				continue;
+			}
+
+			MarkBefore( InlineKind.Pad );
+			var last = run.Text.Length - LastLength( run.Text );
+			if ( last > 0 )
+				padded.Add( run with { Text = run.Text[..last] } );
+			padded.Add( run with { Text = run.Text[last..], Kind = run.Kind | InlineKind.Pad } );
+		}
+		padded.RemoveAll( run => run.Text.Length == 0 );
+		return padded;
+	}
+
+	/// <summary>Gets the length of a text's last character: two for a surrogate pair, such as most emoji.</summary>
+	private static int LastLength( string text ) => text.Length > 1 && char.IsLowSurrogate( text[^1] ) && char.IsHighSurrogate( text[^2] ) ? 2 : 1;
+
+	/// <summary>Reports whether a run is inline code drawn in a box: code that is not a link, since a mention shows by its icon instead.</summary>
+	private static bool IsBoxed( InlineKind kind ) => kind.HasFlag( InlineKind.Code ) && !kind.HasFlag( InlineKind.Link );
 
 	/// <summary>Builds inline spans; with a fade, characters split into runs of equal opacity by how many visible characters follow them.</summary>
 	private static TextSpan[] BuildInlineSpans( string text, List<InlineRun> runs, Func<int, double>? fade, int after )
@@ -521,12 +623,16 @@ public static partial class MarkdownView
 					break;
 				case InlineKind.Code:
 					Flush();
-					runs.Add( new( piece.Text, kind | InlineKind.Code, link ?? ParseBareUrl( piece.Text ) ) );
+					// Code that names a file or a web address is a mention of it, which opens it.
+					if ( link is null && (ParseBareUrl( piece.Text ) ?? ParseFileMention( piece.Text )) is { } mention )
+						runs.Add( new( piece.Text, kind | InlineKind.Code | InlineKind.Link, mention ) );
+					else
+						runs.Add( new( piece.Text, kind | InlineKind.Code, link ) );
 					break;
 				default:
 					Flush();
 					foreach ( var segment in LatexText.Convert( piece.Text, piece.IsText ) )
-						runs.Add( new( segment.Text, kind | InlineKind.Math, link, segment.Color, segment.Background ) );
+						runs.Add( new( segment.Text, kind | InlineKind.Math, link, segment.Color ) );
 					break;
 			}
 		}
@@ -560,6 +666,16 @@ public static partial class MarkdownView
 
 	/// <summary>Reads a code span that is exactly one web address, such as <c>`https://example.com`</c>, or null.</summary>
 	private static Uri? ParseBareUrl( string code ) => BareUrlPattern().Match( code ) is { Success: true } match && match.Length == code.Length ? ParseWebLink( code ) : null;
+
+	/// <summary>Gets a link that opens the file a piece of code names, such as <c>src/view.cs</c> or <c>Core/Rows.cs:42</c>, or null when it names none.</summary>
+	/// <remarks>Only a known file extension counts, so member access such as <c>node.id</c> or <c>Theme.Current</c> stays code.</remarks>
+	private static Uri? ParseFileMention( string code ) =>
+		FileMentionPattern().Match( code.Trim() ) is { Success: true } match && FileExtensions.Contains( match.Groups["e"].Value )
+			? ResolveLink( match.Groups["p"].Value )
+			: null;
+
+	/// <summary>Gets the icon a mention leads with: a globe for a web page, a page for a file.</summary>
+	private static string ComputeMentionGlyph( Uri target ) => target.Scheme is "http" or "https" ? "\uE774" : "\uE7C3";
 
 	/// <summary>Reads an absolute http or https address, or null.</summary>
 	private static Uri? ParseWebLink( string destination ) =>
@@ -601,7 +717,7 @@ public static partial class MarkdownView
 	private static Style? BuildInlineStyle( InlineRun run, double alpha )
 	{
 		var kind = run.Kind;
-		if ( kind == InlineKind.Plain && alpha >= 1 && run.Color is null && run.Background is null )
+		if ( kind == InlineKind.Plain && alpha >= 1 && run.Color is null )
 			return null;
 
 		var style = new Style();
@@ -611,15 +727,16 @@ public static partial class MarkdownView
 			style.FontStyle = FontStyle.Italic;
 		if ( kind.HasFlag( InlineKind.Code ) )
 			style.FontFamily = ViewStyle.CodeFontFamily;
-		if ( kind.HasFlag( InlineKind.Link ) )
+		if ( kind.HasFlag( InlineKind.Pad ) )
+			style.LetterSpacing = CodePad;
+		else if ( kind.HasFlag( InlineKind.Mention ) )
+			style.LetterSpacing = MentionGap;
+		// A mention, code that opens what it names, reads by its icon and color rather than an underline.
+		if ( kind.HasFlag( InlineKind.Link ) && !kind.HasFlag( InlineKind.Code ) )
 			style.TextDecoration = TextDecoration.Underline;
 		else if ( kind.HasFlag( InlineKind.Strike ) )
 			style.TextDecoration = TextDecoration.LineThrough;
-		// Code shows in a box with the theme's red, links in its green, as Tern draws them; a run's own color still wins.
-		if ( run.Background is { } background )
-			style.BackgroundColor = background;
-		else if ( kind.HasFlag( InlineKind.Code ) )
-			style.BackgroundColor = Theme.Current.Raised;
+		// Code shows in the theme's red and links in its green, as Tern draws them; a run's own color still wins.
 		var color = run.Color ?? (kind.HasFlag( InlineKind.Link ) ? Theme.Current.AnsiGreen
 			: kind.HasFlag( InlineKind.Code ) ? Theme.Current.AnsiRed
 			: kind.HasFlag( InlineKind.Note ) ? Theme.Current.Accent : Theme.Current.Text);
@@ -638,6 +755,23 @@ public static partial class MarkdownView
 	/// <summary>Matches a bare web address in prose; trailing sentence punctuation is trimmed after the match.</summary>
 	[GeneratedRegex( @"https?://[^\s<>()\[\]{}""'`]+" )]
 	private static partial Regex BareUrlPattern();
+
+	/// <summary>Matches a file path in code: a name with an extension, after any folders and a drive, then an optional line such as <c>:42</c>,
+	/// <c>:10-20</c> or <c>#L42</c>, which the link leaves out.</summary>
+	[GeneratedRegex( @"^(?<p>(?:[A-Za-z]:)?[\w.\-~/\\@+]*?[\w\-]+\.(?<e>[A-Za-z0-9]{1,10}))(?::\d+(?:-\d+)?|#L\d+(?:-L?\d+)?)?$" )]
+	private static partial Regex FileMentionPattern();
+
+	/// <summary>Holds the file extensions that make code a file mention.</summary>
+	private static readonly HashSet<string> FileExtensions = new( StringComparer.OrdinalIgnoreCase )
+	{
+		"cs", "csproj", "sln", "slnx", "props", "targets", "razor", "xaml", "gs",
+		"js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "json", "jsonc", "jsonl", "css", "scss", "html", "htm", "vue", "svelte",
+		"py", "rs", "go", "java", "kt", "swift", "c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx", "lua", "rb", "php", "sql",
+		"md", "mdx", "txt", "log", "csv", "xml", "yml", "yaml", "toml", "ini", "cfg", "conf", "env", "lock",
+		"sh", "bash", "zsh", "ps1", "psm1", "bat", "cmd",
+		"png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "pdf",
+		"shader", "hlsl", "glsl", "vmat", "vmdl", "prefab", "scene", "sbproj",
+	};
 
 	/// <summary>Matches an HTML entity: named, decimal or hexadecimal.</summary>
 	[GeneratedRegex( @"&(?:[A-Za-z][A-Za-z0-9]{1,31}|#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6});" )]

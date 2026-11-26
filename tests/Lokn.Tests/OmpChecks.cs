@@ -154,14 +154,16 @@ internal static class OmpChecks
 		static string[] Appended( System.Diagnostics.ProcessStartInfo start ) =>
 			[.. start.ArgumentList.Select( ( argument, index ) => (argument, index) ).Where( item => item.argument == "--append-system-prompt" ).Select( item => start.ArgumentList[item.index + 1] )];
 		var instructed = Appended( module.Service.BuildStartInfo( SettingsProfile.Work, Environment.CurrentDirectory, directory ) );
-		CoreChecks.Check( instructed is [var both] && both.StartsWith( OmpService.HostToolsPrompt, StringComparison.Ordinal ) && both.EndsWith( "\n\nAnswer briefly.\nUse British spelling.", StringComparison.Ordinal ),
+		var lokn = OmpService.DisplayPrompt + "\n\n" + OmpService.HostToolsPrompt;
+		CoreChecks.Check( instructed is [var both] && both.StartsWith( lokn, StringComparison.Ordinal ) && both.EndsWith( "\n\nAnswer briefly.\nUse British spelling.", StringComparison.Ordinal ),
 			"A profile's chat system prompt follows Lokn's own in one appended prompt, trimmed." );
-		CoreChecks.Check( Appended( module.Service.BuildStartInfo( SettingsProfile.Personal, Environment.CurrentDirectory, directory ) ) is [OmpService.HostToolsPrompt],
+		CoreChecks.Check( Appended( module.Service.BuildStartInfo( SettingsProfile.Personal, Environment.CurrentDirectory, directory ) ) is [var own] && own == lokn,
 			"Another profile's chat system prompt stays out of a chat." );
 		app.Settings.Set( OmpModule.HostTools, SettingsScope.Global, false );
-		CoreChecks.Check( Appended( module.Service.BuildStartInfo( SettingsProfile.Work, Environment.CurrentDirectory, directory ) ) is ["Answer briefly.\nUse British spelling."]
-			&& Appended( module.Service.BuildStartInfo( SettingsProfile.Personal, Environment.CurrentDirectory, directory ) ).Length == 0,
-			"Without Lokn's tools a chat gets only the user's system prompt, and nothing when it is blank." );
+		CoreChecks.Check( Appended( module.Service.BuildStartInfo( SettingsProfile.Work, Environment.CurrentDirectory, directory ) ) is [var display]
+			&& display == OmpService.DisplayPrompt + "\n\nAnswer briefly.\nUse British spelling."
+			&& Appended( module.Service.BuildStartInfo( SettingsProfile.Personal, Environment.CurrentDirectory, directory ) ) is [OmpService.DisplayPrompt],
+			"Without Lokn's tools a chat still learns how Lokn shows replies, then the user's system prompt when there is one." );
 		app.Shutdown();
 	}
 

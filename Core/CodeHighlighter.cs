@@ -70,8 +70,8 @@ public static class CodeHighlighter
 	/// <summary>Gets the grammar for a fenced-code or tool language name, or null to show it uncolored.</summary>
 	public static Grammar? Find( string language ) => language.Trim().ToLowerInvariant() switch
 	{
-		"cs" or "csharp" or "c#" or "js" or "javascript" or "jsx" or "ts" or "typescript" or "tsx" or "java" or "go" or "rust"
-			or "rs" or "c" or "cpp" or "c++" or "h" or "hpp" or "kotlin" or "swift" => CFamily,
+		"cs" or "csharp" or "c#" or "js" or "javascript" or "jsx" or "mjs" or "cjs" or "ts" or "typescript" or "tsx" or "mts" or "cts" or "java" or "go"
+			or "rust" or "rs" or "c" or "cpp" or "c++" or "cc" or "cxx" or "h" or "hpp" or "hh" or "hxx" or "kotlin" or "kt" or "swift" => CFamily,
 		"py" or "python" => Python,
 		"sh" or "bash" or "shell" or "zsh" or "ps1" or "powershell" or "pwsh" => Shell,
 		"json" or "jsonc" or "jsonl" => Json,

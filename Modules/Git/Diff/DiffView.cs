@@ -33,10 +33,13 @@ internal static class DiffView
 	/// <param name="open">Opens the file in the diff panel.</param>
 	/// <param name="expanded">Whether the card shows every row rather than the first <see cref="CardLines"/>.</param>
 	/// <param name="toggle">Shows or folds the rows past the first <see cref="CardLines"/>.</param>
-	internal static Container BuildCard( string key, DiffFile file, Action open, bool expanded, Action toggle )
+	/// <param name="header">Whether the card names its file and counts; false when the tool line above it already does.</param>
+	internal static Container BuildCard( string key, DiffFile file, Action open, bool expanded, Action toggle, bool header = true )
 	{
 		var grammar = CodeHighlighter.FindForPath( file.Path );
-		var body = new List<Blob> { BuildHeader( file, expanded: null, open ) };
+		var body = new List<Blob>();
+		if ( header )
+			body.Add( BuildHeader( file, expanded: null, open ) );
 		body.Add( BuildLines( file.Lines, expanded ? file.Lines.Count : CardLines, selectable: false, grammar ) );
 		var card = new Button
 		{
@@ -49,7 +52,8 @@ internal static class DiffView
 			BackgroundColor = Theme.Current.Panel,
 			BorderColor = Theme.Current.Border,
 			BorderWidth = Theme.Current.BorderWidth,
-			BorderRadius = Theme.Current.Radius,
+			// Without its own header the card is part of the tool line above it, rounded like the chat's other code.
+			BorderRadius = header ? Theme.Current.Radius : Theme.Current.Radius * 2,
 			Cursor = Cursor.Pointer,
 			Focusable = true,
 			OnClick = open,
@@ -234,7 +238,10 @@ internal static class DiffView
 		if ( line.Kind == DiffLineKind.Gap )
 			return new Row
 			{
-				Padding = new Edges( 2, Theme.Current.Spacing ),
+				Padding = new Edges( 3, Theme.Current.Spacing ),
+				// Rules above and below set the skipped lines apart from the code around them.
+				BorderWidth = new Edges( Theme.Current.BorderWidth, 0 ),
+				BorderColor = Theme.Current.Divider,
 				Children =
 				[
 					new Text

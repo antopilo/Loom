@@ -39,9 +39,10 @@ internal sealed class TranscriptFollow
 
 	/// <summary>Tracks whether the reader left or returned to the end; the transcript list keeps the end in view while following.</summary>
 	/// <remarks>
-	/// Growth and following never move the offset backwards, so an offset that went back while the content did not shrink, and is not at the
-	/// end, is the reader's. Content that shrank pulls the offset back on its own: a fold closing, or rows of a chat opened again measured
-	/// shorter than their estimate, so that never releases the pin. A scroll down aims at the end it saw when it was asked for; rows
+	/// Growth and following never move the offset backwards, and content that shrank pulls the offset back by at most what it lost: a fold
+	/// closing, or rows of a chat opened again measured shorter than their estimate. So an offset that went back by more than the content
+	/// shrank, and is not at the end, is the reader's. Rows scrolled into view also shrink the content while the reader scrolls up, so
+	/// requiring no shrink at all kept the pin and pulled the view back down. A scroll down aims at the end it saw when it was asked for; rows
 	/// streaming in meanwhile leave it short of the new end, so reaching an end seen during the scroll counts as returning. The range
 	/// changes on almost every report while rows stream in, so no report is skipped.
 	/// </remarks>
@@ -61,7 +62,7 @@ internal sealed class TranscriptFollow
 		_aimedEnd = offset > _offset ? Math.Min( _aimedEnd, range ) : range;
 		if ( metrics.IsAtEndY || (offset > _offset && offset >= _aimedEnd - 1) )
 			_isFollowing.Value = true;
-		else if ( offset < _offset && range >= _range )
+		else if ( _offset - offset > Math.Max( 0, _range - range ) + 1 )
 			_isFollowing.Value = false;
 		_offset = offset;
 		_range = range;
