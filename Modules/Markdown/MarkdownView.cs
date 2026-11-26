@@ -379,8 +379,8 @@ public static partial class MarkdownView
 				AccessibilityName = "Diagram",
 				MinWidth = 0,
 				Overflow = Overflow.Hidden,
-				BackgroundColor = Theme.Current.Panel,
-				BorderColor = Theme.Current.Border,
+				BackgroundColor = Theme.Current.Text.WithAlpha( 0.035 ),
+				BorderColor = Theme.Current.Border.WithAlpha( 0.45 ),
 				BorderWidth = Theme.Current.BorderWidth,
 				BorderRadius = Theme.Current.Radius,
 				Children =
@@ -389,7 +389,7 @@ public static partial class MarkdownView
 					{
 						AlignItems = AlignItems.Center,
 						Padding = new Edges( CodeGap, BlockInset ),
-						BorderColor = Theme.Current.Border,
+						BorderColor = Theme.Current.Border.WithAlpha( 0.45 ),
 						BorderWidth = new Edges( 0, 0, Theme.Current.BorderWidth, 0 ),
 						Children = header,
 					},

@@ -72,7 +72,9 @@ public sealed partial class ChatContent
 
 		var expanded = _expanded.Contains( key );
 		var diffs = DiffParser.ParseTool( name, arguments, result, store.GetDirectory( conversationId ) );
-		var intent = session.Intents.GetValueOrDefault( id ) is { Length: > 0 } started ? started : ReadText( block, "intent", ReadText( arguments, "i" ) );
+		var intent = session.Intents.GetValueOrDefault( id ) is { Length: > 0 } started ? started
+			: result is { ValueKind: JsonValueKind.Object } saved && ReadText( saved, "intent" ) is { Length: > 0 } kept ? kept
+			: ReadText( block, "intent", ReadText( arguments, "i" ) );
 		if ( name == "bash" )
 			return BuildBash( key, id, arguments, status, result, intent );
 		if ( name == "grep" )

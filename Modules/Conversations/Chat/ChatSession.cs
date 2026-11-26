@@ -871,7 +871,7 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 			var exists = _messageIds.TryGetValue( key, out var id );
 			if ( !exists )
 				_messageIds.Add( key, id = Guid.NewGuid() );
-			var stored = BuildStoredMessage( id, message );
+			var stored = WithIntent( BuildStoredMessage( id, message ) );
 			if ( exists )
 				store.UpdateMessage( conversationId, stored, persist: type == "message_end" );
 			else
@@ -987,6 +987,19 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 
 		UpdateAttention( wasBusy, dialogCount );
 		MarkChanged();
+	}
+
+	/// <summary>Saves a tool's intent into its result message, so the tool keeps naming what it did after a reload or restart.</summary>
+	/// <remarks>Omp sends a tool's intent only in its live start frame, and keeps it out of the call it stores.</remarks>
+	private ConversationMessage WithIntent( ConversationMessage message )
+	{
+		if ( message.Role != "toolResult" || message.RichContent is not { ValueKind: JsonValueKind.Object } rich
+			|| !_intents.TryGetValue( ReadText( rich, "toolCallId" ), out var intent ) || intent.Length == 0 || ReadText( rich, "intent" ).Length > 0 )
+			return message;
+
+		var node = System.Text.Json.Nodes.JsonNode.Parse( rich.GetRawText() )!.AsObject();
+		node["intent"] = intent;
+		return message with { RichContent = JsonSerializer.SerializeToElement( node ) };
 	}
 
 	/// <summary>Remembers a starting tool's intent, which later progress frames no longer carry.</summary>

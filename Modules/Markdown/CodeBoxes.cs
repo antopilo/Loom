@@ -261,13 +261,27 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 				handle.TryCopyTextRangeRects( mark.Range, TextCoordinateSpace.Element, _scratch, out count );
 			}
 
-			var rects = Math.Min( count, _scratch.Length );
-			var first = true;
-			for ( var i = 0; i < rects; i++ )
+			// Goo returns one rectangle per styled run, and code split for its padded last character is two runs on one line: join them per line,
+			// or the code's width is counted once per run and everything after it on the line moves too far.
+			var merged = new List<ElementRect>( 2 );
+			for ( var i = 0; i < Math.Min( count, _scratch.Length ); i++ )
 			{
-				var rect = _scratch[i];
-				if ( rect.Width <= 0 )
+				var part = _scratch[i];
+				if ( part.Width <= 0 )
 					continue;
+				if ( merged.Count > 0 && Math.Abs( merged[^1].Y - part.Y ) < 1 )
+				{
+					var last = merged[^1];
+					var left = Math.Min( last.X, part.X );
+					merged[^1] = last with { X = left, Width = Math.Max( last.X + last.Width, part.X + part.Width ) - left };
+				}
+				else
+					merged.Add( part );
+			}
+			var rects = merged.Count;
+			var first = true;
+			foreach ( var rect in merged )
+			{
 				if ( rect.Y != line )
 					(line, shift) = (rect.Y, 0);
 				if ( first )

@@ -101,7 +101,7 @@ public sealed partial class ChatContent
 			Key = key,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = $"grep tool {status}",
-			Gap = theme.Spacing / 2,
+			Gap = theme.Spacing * 1.25,
 			Children = children,
 		};
 	}
@@ -116,7 +116,8 @@ public sealed partial class ChatContent
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
-			BorderColor = theme.Border,
+			BorderColor = theme.Border.WithAlpha( 0.45 ),
+			BackgroundColor = theme.Text.WithAlpha( 0.035 ),
 			BorderWidth = theme.BorderWidth,
 			BorderRadius = theme.Radius * 2,
 			Children =

@@ -186,11 +186,11 @@ public sealed partial class ChatContent
 			"Failed" => ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "bash" ), theme.Error ),
 			_ => ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "bash" ) ),
 		};
-		var box = new List<Blob> { new Container { Key = "command", Padding = new Edges( theme.Spacing, theme.Spacing * 1.5, 0, theme.Spacing * 1.5 ), Children = [MarkdownView.BuildCode( command, "bash", framed: false, showLanguage: false )] } };
+		var box = new List<Blob> { new Container { Key = "command", Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2, 0, theme.Spacing * 2 ), Children = [MarkdownView.BuildCode( command, "bash", framed: false, showLanguage: false )] } };
 		if ( result is { } body && TerminalText.BuildPlain( ComputeResultText( body ) ).TrimEnd() is { Length: > 0 } output )
 		{
 			box.Add( new Container { Key = "output-rule", Height = theme.BorderWidth, BackgroundColor = theme.Divider } );
-			box.Add( new Container { Key = "output", Padding = new Edges( 0, theme.Spacing * 1.5 ), Children = [BuildCodePreview( key + ":output", output, "text", framed: false )] } );
+			box.Add( new Container { Key = "output", Padding = new Edges( 0, theme.Spacing * 2 ), Children = [BuildCodePreview( key + ":output", output, "text", framed: false )] } );
 		}
 		var (word, color) = status switch
 		{
@@ -205,7 +205,7 @@ public sealed partial class ChatContent
 			Content = word,
 			Color = color,
 			FontSize = ViewStyle.SmallSize,
-			Padding = new Edges( theme.Spacing / 2, theme.Spacing * 1.5, theme.Spacing, theme.Spacing * 1.5 ),
+			Padding = new Edges( theme.Spacing / 2, theme.Spacing * 2, theme.Spacing * 1.5, theme.Spacing * 2 ),
 		} );
 
 		return new Container
@@ -213,7 +213,7 @@ public sealed partial class ChatContent
 			Key = key,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = $"bash tool {status}",
-			Gap = theme.Spacing / 2,
+			Gap = theme.Spacing * 1.25,
 			Children =
 			[
 				new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = [mark, BuildToolTitle( "Bash", intent )] },
@@ -221,9 +221,9 @@ public sealed partial class ChatContent
 				{
 					Key = "bash-box:" + id,
 					Gap = theme.Spacing,
-					BackgroundColor = theme.Panel,
+					BackgroundColor = theme.Text.WithAlpha( 0.035 ),
 					BorderWidth = theme.BorderWidth,
-					BorderColor = theme.Border,
+					BorderColor = theme.Border.WithAlpha( 0.45 ),
 					BorderRadius = theme.Radius * 2,
 					Overflow = Overflow.Hidden,
 					Children = box,

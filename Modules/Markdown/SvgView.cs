@@ -96,14 +96,20 @@ internal static partial class SvgView
 			Children =
 			[
 				header,
-				// Wider than the chat, the drawing scrolls sideways rather than shrinking its labels out of place.
+				// Wider than the chat, the drawing scrolls sideways rather than shrinking its labels out of place. Growing spacers center a narrow
+				// one: centering by alignment pushed a wide one past both edges, where scrolling could not reach its left part.
 				new Row
 				{
 					MinWidth = 0,
 					Padding = inset,
-					JustifyContent = JustifyContent.Center,
 					Overflow = Overflow.Scroll,
-					Children = [new Container { Key = "drawing", Width = drawing.Width, Height = drawing.Height, FlexShrink = 0, Children = layers }],
+					ScrollbarX = ViewStyle.GetScrollbar( horizontal: true ),
+					Children =
+					[
+						new Container { FlexGrow = 1, MinWidth = 0, },
+						new Container { Key = "drawing", Width = drawing.Width, Height = drawing.Height, FlexShrink = 0, Children = layers },
+						new Container { FlexGrow = 1, MinWidth = 0, },
+					],
 				},
 			],
 		};
