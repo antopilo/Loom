@@ -289,7 +289,6 @@ public sealed partial class SidebarRows( PanelContext context )
 		return new Container
 		{
 			Key = "sidebar-rows",
-			Handle = _surface,
 			FlexGrow = 1,
 			MinHeight = 0,
 			OverflowX = Overflow.Hidden,
@@ -300,6 +299,7 @@ public sealed partial class SidebarRows( PanelContext context )
 				new Virtual
 				{
 					Key = "list",
+					Handle = _surface,
 					Source = new MeasuredRowsSource<SidebarRow>( rows, BuildListRow, static _ => EstimatedRowHeight, FollowEnd: false ),
 					FlexGrow = 1,
 					MinHeight = 0,
@@ -455,7 +455,7 @@ public sealed partial class SidebarRows( PanelContext context )
 }
 
 /// <summary>Supplies the sidebar content and selected row that its moving selection rectangle follows.</summary>
-/// <param name="Surface">The content that owns the absolute selection rectangle.</param>
+/// <param name="Surface">The scrolling list that holds the selected row.</param>
 /// <param name="Target">The selected row, or null when none is visible.</param>
 /// <param name="Duration">The movement duration in milliseconds.</param>
 internal sealed record SidebarSelectionInput( ElementHandle Surface, ElementHandle? Target, int Duration );
@@ -485,6 +485,12 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 	/// <summary>Tracks whether geometry subscriptions are active.</summary>
 	private bool _mounted;
 
+	/// <summary>Stores the height the selection layer scrolls through: the list's viewport height plus its scroll range.</summary>
+	private readonly State<double> _extent = new( 0 );
+
+	/// <summary>Targets the selection layer, which follows the list's scroll offset.</summary>
+	private readonly ElementHandle _layer = new();
+
 	/// <summary>Stores when the selection last changed rows, in <see cref="Environment.TickCount64"/> milliseconds.</summary>
 	/// <remarks>The rectangle animates only during that move, so it stays fixed to its row while the list scrolls.</remarks>
 	private long _movedAt = long.MinValue / 2;
@@ -500,6 +506,7 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 	protected override void Mounted()
 	{
 		_mounted = true;
+		_layer.MetricsChanged += UpdateMetrics;
 		Follow( Input );
 	}
 
@@ -507,27 +514,43 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 	protected override void Unmounting()
 	{
 		_mounted = false;
+		_layer.MetricsChanged -= UpdateMetrics;
 		Unfollow();
 	}
 
-	/// <summary>Builds the selected row's rectangle, or an empty keyed declaration until its geometry exists.</summary>
+	/// <summary>Builds the selected row's rectangle, or an empty keyed declaration until its geometry exists, in a layer under the list. The layer is a second
+	/// scroll viewport that jumps to the list's offset before each frame paints, so the rectangle never trails its row.</summary>
 	protected override Blob BuildView( SidebarSelectionInput input )
 	{
-		if ( _bounds.Value is not { } bounds )
-			return new Container { Key = "empty-selection", Position = PositionType.Absolute, Width = 0, Height = 0, HitTestSelf = false };
+		var highlight = _bounds.Value is { } bounds
+			? new Container
+			{
+				Key = "selection",
+				Position = PositionType.Absolute,
+				Left = bounds.Left,
+				Top = bounds.Top,
+				Width = bounds.Width,
+				Height = bounds.Height,
+				BorderRadius = Theme.Current.Radius,
+				BackgroundColor = Theme.Current.Hover,
+				HitTestSelf = false,
+				LayoutTransition = input.Duration > 0 && Environment.TickCount64 - _movedAt < input.Duration ? new( input.Duration, Easing.EaseOut ) : null,
+			}
+			: new Container { Key = "empty-selection", Position = PositionType.Absolute, Width = 0, Height = 0, HitTestSelf = false };
 
 		return new Container
 		{
-			Key = "selection",
+			Key = "selection-layer",
+			Handle = _layer,
 			Position = PositionType.Absolute,
-			Left = bounds.Left,
-			Top = bounds.Top,
-			Width = bounds.Width,
-			Height = bounds.Height,
-			BorderRadius = Theme.Current.Radius,
-			BackgroundColor = Theme.Current.Hover,
+			Left = 0,
+			Top = 0,
+			Right = 0,
+			Bottom = 0,
+			OverflowY = Overflow.Scroll,
+			ScrollbarVisibilityY = ScrollbarVisibility.Hidden,
 			HitTestSelf = false,
-			LayoutTransition = input.Duration > 0 && Environment.TickCount64 - _movedAt < input.Duration ? new( input.Duration, Easing.EaseOut ) : null,
+			Children = [new Container { Height = _extent.Value, Children = [highlight] }],
 		};
 	}
 
@@ -560,15 +583,24 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 	/// <summary>Updates the selection bounds after either followed element moves.</summary>
 	private void UpdateMetrics( ElementMetrics _ ) => UpdateBounds();
 
-	/// <summary>Stores the selected row's bounds relative to the sidebar content.</summary>
+	/// <summary>Stores the selected row's bounds relative to the sidebar content and moves the selection layer to the list's scroll offset.</summary>
 	private void UpdateBounds()
 	{
 		SidebarSelectionBounds? bounds = null;
-		if ( _surface is { IsMounted: true } surface && _target is { IsMounted: true } target )
+		if ( _surface is { IsMounted: true } surface )
 		{
 			var surfaceBox = surface.BorderBox;
-			var targetBox = target.BorderBox;
-			bounds = new( targetBox.X - surfaceBox.X, targetBox.Y - surfaceBox.Y, targetBox.Width, targetBox.Height );
+			var scrollY = surface.ScrollOffset.Y;
+			var extent = surfaceBox.Height + surface.ScrollRange.Y;
+			if ( _extent.Value != extent )
+				_extent.Value = extent;
+			if ( _layer.ScrollOffset.Y != scrollY )
+				_layer.JumpTo( y: scrollY );
+			if ( _target is { IsMounted: true } target )
+			{
+				var targetBox = target.BorderBox;
+				bounds = new( targetBox.X - surfaceBox.X, targetBox.Y - surfaceBox.Y + scrollY, targetBox.Width, targetBox.Height );
+			}
 		}
 
 		if ( _bounds.Value != bounds )
