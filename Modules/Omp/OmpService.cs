@@ -125,6 +125,9 @@ public sealed partial class OmpService( SettingsService settings )
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
 		};
+		// Omp turns intent tracing off in RPC sessions unless it is set, and the chat shows each tool call's intent beside it.
+		if ( Environment.GetEnvironmentVariable( "PI_INTENT_TRACING" ) is null )
+			start.Environment["PI_INTENT_TRACING"] = "1";
 		foreach ( var argument in new[] { "--mode", "rpc-ui", "--profile", profileName, "--session-dir", Path.GetFullPath( sessionDirectory ), "--continue", "--config", WriteChatConfig() } )
 			start.ArgumentList.Add( argument );
 

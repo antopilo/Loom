@@ -12,7 +12,8 @@ namespace Lokn.Modules.Markdown;
 /// <param name="PadBefore">Whether the character before the range is followed by a box's room, <see cref="MarkdownView.CodePad"/>.</param>
 /// <param name="Glyph">The icon drawn in the room before the range, <see cref="MarkdownView.MentionGap"/>, or null.</param>
 /// <param name="IsLink">Whether the range is a link, which shows a hover effect under the pointer: a background for a mention, a thicker underline for others.</param>
-internal sealed record CodeMark( TextRange Range, string Text, bool IsCode, bool Boxed, bool PadBefore, string? Glyph, bool IsLink = false );
+/// <param name="Weight">The font weight of bold text that draws nothing and only moves what follows it on its line; else 0.</param>
+internal sealed record CodeMark( TextRange Range, string Text, bool IsCode, bool Boxed, bool PadBefore, string? Glyph, bool IsLink = false, int Weight = 0 );
 
 /// <summary>Supplies a text, the handle its layout is read through, and what to draw under or beside it.</summary>
 /// <param name="Text">The text.</param>
@@ -44,8 +45,11 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 	/// <summary>Defines how far a box reaches past its code on the left and right, in logical pixels: about the room set beside the code.</summary>
 	private const double InsetX = 4;
 
-	/// <summary>Defines how far a box reaches past its code above and below, in logical pixels.</summary>
-	private const double InsetY = 2;
+	/// <summary>Defines a box's height in logical pixels: the glyphs with a little room, not the whole line, which is taller.</summary>
+	private const double BoxHeight = 19;
+
+	/// <summary>Defines how far below the line's middle a box's middle sits, in logical pixels: glyphs sit low in their line, over its descent.</summary>
+	private const double BoxDrop = 1.5;
 
 	/// <summary>Defines a mention icon's size in logical pixels.</summary>
 	private const int IconSize = 13;
@@ -127,9 +131,9 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 				Key = "box:" + index,
 				Position = PositionType.Absolute,
 				Left = box.X - InsetX,
-				Top = box.Y - InsetY,
+				Top = box.Y + (box.Height - BoxHeight) / 2 + BoxDrop,
 				Width = box.Width + 2 * InsetX,
-				Height = box.Height + 2 * InsetY,
+				Height = BoxHeight,
 				// A soft fill without an outline, as Tern draws it.
 				BorderRadius = theme.Radius + 1,
 				BackgroundColor = theme.Raised,
@@ -138,38 +142,50 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 		}
 		var hovered = _hovered.Value is var mark and >= 0 && mark < input.Marks.Length ? input.Marks[mark] : null;
 		var hoveredRects = hovered is null ? [] : _links.Value.Where( link => link.Mark == _hovered.Value ).Select( link => link.Rect ).ToArray();
-		// A mention, such as a file, gets a background under the pointer, as a chip does.
-		if ( hovered is { Glyph: not null } )
+		// A mention, such as a file, sits in a soft pill like a read's file chip, brighter under the pointer.
+		foreach ( var (index, (markIndex, rect)) in _links.Value.Index() )
 		{
-			foreach ( var (index, rect) in hoveredRects.Index() )
-				children.Add( new Container
-				{
-					Key = "hover:" + index,
-					Position = PositionType.Absolute,
-					Left = rect.X - InsetX,
-					Top = rect.Y - InsetY,
-					Width = rect.Width + 2 * InsetX,
-					Height = rect.Height + 2 * InsetY,
-					BorderRadius = theme.Radius + 1,
-					BackgroundColor = theme.Hover,
-					HitTestSelf = false,
-				} );
+			if ( markIndex >= input.Marks.Length || input.Marks[markIndex].Glyph is null )
+				continue;
+			children.Add( new Container
+			{
+				Key = "pill:" + index,
+				Position = PositionType.Absolute,
+				Left = rect.X - InsetX,
+				Top = rect.Y + (rect.Height - BoxHeight) / 2 + BoxDrop,
+				Width = rect.Width + 2 * InsetX,
+				Height = BoxHeight,
+				BorderRadius = BoxHeight / 2,
+				BackgroundColor = markIndex == _hovered.Value ? theme.Hover : theme.Text.WithAlpha( 0.045 ),
+				HitTestSelf = false,
+			} );
 		}
 		children.Add( input.Text );
 		foreach ( var (index, icon) in _icons.Value.Index() )
 		{
-			children.Add( new Text
+			// The icon centers in a box the pill's height and place, so it sits in the pill's middle whatever the line height.
+			children.Add( new Container
 			{
 				Key = "icon:" + index,
-				Content = icon.Glyph,
 				Position = PositionType.Absolute,
 				Left = icon.X,
-				Top = icon.Y + (icon.Height - IconSize) / 2,
-				Height = IconSize,
-				FontFamily = ViewStyle.IconFontFamily,
-				FontSize = IconSize - 1,
-				LineHeight = 1,
-				Color = theme.Muted,
+				Top = icon.Y + (icon.Height - BoxHeight) / 2 + BoxDrop,
+				Width = IconSize,
+				Height = BoxHeight,
+				AlignItems = AlignItems.Center,
+				JustifyContent = JustifyContent.Center,
+				HitTestSelf = false,
+				Children =
+				[
+					new Text
+					{
+						Content = icon.Glyph,
+						FontFamily = ViewStyle.IconFontFamily,
+						FontSize = IconSize - 1,
+						LineHeight = 1,
+						Color = theme.Muted,
+					},
+				],
 			} );
 		}
 		// Another link already underlined gets a thicker underline under the pointer.
@@ -237,9 +253,10 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 
 	/// <summary>Stores the box rectangles and icon places of every mark, rebuilding only when they changed.</summary>
 	/// <remarks>
-	/// Goo 0.32.9 measures a range's rectangles, and its caret positions, in the text's own font rather than in a span's code font, and leaves out
-	/// letter spacing. So each range on a line is moved right by what Goo left out before it on that line: the extra width of earlier code, the room
-	/// after the character before a box, and the room before a mention; and code is widened by its width in the code font over its width in the text's.
+	/// Goo 0.32.9 measures a range's rectangles, and its caret positions, in the text's own font rather than in a span's code font or bold weight,
+	/// and leaves out letter spacing. So each range on a line is moved right by what Goo left out before it on that line: the extra width of earlier
+	/// code and bold text, the room after the character before a box, and the room before a mention; and code is widened by its width in the code
+	/// font over its width in the text's.
 	/// </remarks>
 	private void UpdateBoxes()
 	{
@@ -293,15 +310,18 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 					if ( mark.Glyph is { } glyph && IsOnLine( handle, mark.Range.Start - 1, rect.Y ) )
 					{
 						shift += MarkdownView.MentionGap;
-						icons.Add( new( rect.X + shift - MarkdownView.MentionGap + 2, rect.Y, rect.Height, glyph ) );
+						icons.Add( new( rect.X + shift - MarkdownView.MentionGap + 3, rect.Y, rect.Height, glyph ) );
 						// The hover background covers the icon too.
 						if ( mark.IsLink )
 							links.Add( (markIndex, rect with { X = rect.X + shift - MarkdownView.MentionGap, Width = MarkdownView.MentionGap }) );
 					}
 				}
 				first = false;
-				// Goo measures the code font narrower than it draws it, so code's width comes from its characters on this line.
-				var width = mark.IsCode ? ComputeCodeWidth( handle, mark, rect, rects ) : rect.Width;
+				// Goo measures the code font narrower than it draws it, so code's width comes from its characters on this line; bold text's from
+				// the window's measure of it in both weights.
+				var width = mark.IsCode ? ComputeCodeWidth( handle, mark, rect, rects )
+					: mark.Weight > 0 ? rect.Width + ComputeBoldExtra( handle, mark, rect, rects )
+					: rect.Width;
 				if ( mark.Boxed )
 					boxes.Add( rect with { X = rect.X + shift, Width = width } );
 				if ( mark.IsLink )
@@ -345,17 +365,30 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 	/// every character of a monospace font is equally wide.</remarks>
 	private static double ComputeCodeWidth( ElementHandle handle, CodeMark mark, ElementRect rect, int rects )
 	{
-		var text = mark.Text;
-		if ( rects > 1 )
-		{
-			var onLine = new System.Text.StringBuilder();
-			for ( var index = 0; index < text.Length; index++ )
-			{
-				if ( IsOnLine( handle, mark.Range.Start + index, rect.Y ) )
-					onLine.Append( text[index] );
-			}
-			text = onLine.ToString().TrimEnd();
-		}
+		var text = ComputeTextOnLine( handle, mark, rect, rects );
 		return new System.Globalization.StringInfo( text ).LengthInTextElements * CodeAdvanceEms * MarkdownView.BodySize;
+	}
+
+	/// <summary>Gets how much wider bold text on one line is drawn than Goo placed it: its width in its weight less its width in the regular one.</summary>
+	private double ComputeBoldExtra( ElementHandle handle, CodeMark mark, ElementRect rect, int rects )
+	{
+		var text = ComputeTextOnLine( handle, mark, rect, rects );
+		var regular = new Style { FontFamily = ViewStyle.FontFamily, FontSize = MarkdownView.BodySize };
+		var bold = new Style { FontFamily = ViewStyle.FontFamily, FontSize = MarkdownView.BodySize, FontWeight = mark.Weight };
+		return Host.MeasureText( text, bold ) - Host.MeasureText( text, regular );
+	}
+
+	/// <summary>Gets a mark's characters on one line, trailing spaces of a wrapped line left out.</summary>
+	private static string ComputeTextOnLine( ElementHandle handle, CodeMark mark, ElementRect rect, int rects )
+	{
+		if ( rects <= 1 )
+			return mark.Text;
+		var onLine = new System.Text.StringBuilder();
+		for ( var index = 0; index < mark.Text.Length; index++ )
+		{
+			if ( IsOnLine( handle, mark.Range.Start + index, rect.Y ) )
+				onLine.Append( mark.Text[index] );
+		}
+		return onLine.ToString().TrimEnd();
 	}
 }

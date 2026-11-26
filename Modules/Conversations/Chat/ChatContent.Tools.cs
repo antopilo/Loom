@@ -81,6 +81,8 @@ public sealed partial class ChatContent
 			return BuildWait( key, status, result );
 		if ( name == "grep" )
 			return BuildGrep( key, arguments, status, result, intent );
+		if ( name == "web_search" )
+			return BuildWebSearch( key, arguments, status, result );
 		// A tool on one file reads as its verb and path, the file name bold, as "Edit ~/src/view.cs:104"; others show the agent's intent.
 		var path = ComputeToolPath( arguments );
 		// A diff or a written file shows at once; clicking the line folds it away, and clicking again shows it.
@@ -245,7 +247,7 @@ public sealed partial class ChatContent
 		return "";
 	}
 
-	/// <summary>Gets the file path a tool works on, with any line selector, or empty when it has none.</summary>
+	/// <summary>Gets the file path a tool works on, with any line selector, or empty when it has none; a hashline edit names it in its input's header.</summary>
 	private static string ComputeToolPath( JsonElement arguments )
 	{
 		foreach ( var property in new[] { "path", "file_path", "filePath" } )
@@ -254,7 +256,7 @@ public sealed partial class ChatContent
 			if ( value.Length > 0 && !value.Contains( '\n' ) )
 				return value;
 		}
-		return "";
+		return DiffParser.ComputeInputPath( arguments );
 	}
 
 	/// <summary>Builds a tool head as its verb, then the path's folder, its file name in bold, any line selector, and the agent's intent after it.</summary>

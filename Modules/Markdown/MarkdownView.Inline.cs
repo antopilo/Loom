@@ -134,11 +134,17 @@ public static partial class MarkdownView
 					marks.Add( new( new TextRange( offset, run.Text.Length ), run.Text, run.Kind.HasFlag( InlineKind.Code ), Boxed: false, PadBefore: false,
 						previous is { } prior && prior.Kind.HasFlag( InlineKind.Mention ) ? ComputeMentionGlyph( target ) : null, IsLink: true ) );
 			}
+			// Goo places ranges after bold text as if it were regular, so bold runs are marked to move what follows them on their line.
+			else if ( run.Kind.HasFlag( InlineKind.Bold ) && !run.Kind.HasFlag( InlineKind.Code ) && run.Text.Length > 0 )
+				marks.Add( new( new TextRange( offset, run.Text.Length ), run.Text, IsCode: false, Boxed: false, PadBefore: false, Glyph: null, Weight: EmphasisWeight ) );
 			if ( run.Link is { } link )
 				links.Add( (offset, offset + run.Text.Length, link) );
 			offset += run.Text.Length;
 			previous = run;
 		}
+		// Bold alone draws nothing, so it needs no layout reading.
+		if ( marks.TrueForAll( mark => mark.Weight > 0 ) )
+			marks.Clear();
 		if ( marks.Count == 0 && (openLink is null || links.Count == 0) )
 			return view;
 
@@ -750,7 +756,7 @@ public static partial class MarkdownView
 
 	/// <summary>Matches inline emphasis, deletion, italics, footnote marks, links and reference links; masked pieces are hidden from it.</summary>
 	/// <remarks>Underscores mark emphasis only at word edges, so names such as <c>snake_case_name</c> stay as they are.</remarks>
-	[GeneratedRegex( @"\*\*\*(?<bi>[^*\s](?:.*?[^*\s])?)\*\*\*|(?<!\w)___(?<bi>[^_\s](?:.*?[^_\s])?)___(?!\w)|\*\*(?<b>[^*\s](?:.*?[^\s])?)\*\*|(?<!\w)__(?<b>[^_\s](?:.*?[^\s])?)__(?!\w)|~~(?<s>.+?)~~|\*(?<i>[^*\s](?:[^*]*?[^*\s])?)\*|(?<!\w)_(?<i>[^_\s](?:[^_]*?[^_\s])?)_(?!\w)|\[\^(?<fn>[^\]\s]+)\]|\[(?<l>[^\]]+)\]\((?<href><[^>]*>|[^()\s]*(?:\([^()\s]*\)[^()\s]*)*(?:\s+(?:""[^""]*""|'[^']*'))?)\)|\[(?<rl>[^\]]+)\](?:\[(?<ref>[^\]]*)\])?" )]
+	[GeneratedRegex( @"\*\*\*(?<bi>[^*\s](?:.*?[^*\s])??)\*\*\*|(?<!\w)___(?<bi>[^_\s](?:.*?[^_\s])??)___(?!\w)|\*\*(?<b>[^*\s](?:.*?[^\s])??)\*\*|(?<!\w)__(?<b>[^_\s](?:.*?[^\s])??)__(?!\w)|~~(?<s>.+?)~~|\*(?<i>[^*\s](?:[^*]*?[^*\s])?)\*|(?<!\w)_(?<i>[^_\s](?:[^_]*?[^_\s])?)_(?!\w)|\[\^(?<fn>[^\]\s]+)\]|\[(?<l>[^\]]+)\]\((?<href><[^>]*>|[^()\s]*(?:\([^()\s]*\)[^()\s]*)*(?:\s+(?:""[^""]*""|'[^']*'))?)\)|\[(?<rl>[^\]]+)\](?:\[(?<ref>[^\]]*)\])?" )]
 	private static partial Regex InlinePattern();
 
 	/// <summary>Matches a bare web address in prose; trailing sentence punctuation is trimmed after the match.</summary>

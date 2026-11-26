@@ -280,7 +280,7 @@ public sealed partial class ChatContent : PanelContent
 	}
 
 	/// <summary>Defines the space between the agent's actions, such as two tool lines, in logical pixels, as Tern spaces them.</summary>
-	private const double ActionGap = 18;
+	private const double ActionGap = 28;
 
 	/// <summary>Lists the visible messages as transcript rows, pairing tool results with their calls and spacing agent turns as one flow.</summary>
 	/// <remarks>

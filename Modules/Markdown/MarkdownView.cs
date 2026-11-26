@@ -653,9 +653,10 @@ public static partial class MarkdownView
 	/// <param name="framed">Whether the block draws its own raised background and inset.</param>
 	/// <param name="showLanguage">Whether the language badge is shown; a tool head that already names it leaves it out.</param>
 	/// <param name="fadeLines">How many trailing lines fade out, marking a cut preview.</param>
+	/// <param name="fadeHeadLines">How many leading lines fade in, marking a preview cut at its start, such as a command's last output lines.</param>
 	/// <param name="isRunnable">Whether a shell snippet gets a Run button; written code blocks do, tool output does not.</param>
 	/// <param name="lineNumbers">Whether a muted line number column runs beside the code, as for a written file.</param>
-	public static Blob BuildCode( string code, string language = "", bool framed = true, bool showLanguage = true, int fadeLines = 0, bool isRunnable = false, bool lineNumbers = false )
+	public static Blob BuildCode( string code, string language = "", bool framed = true, bool showLanguage = true, int fadeLines = 0, bool isRunnable = false, bool lineNumbers = false, int fadeHeadLines = 0 )
 	{
 		var lines = code.Replace( "\r\n", "\n" ).Split( '\n' );
 		var children = new List<Blob>();
@@ -681,6 +682,8 @@ public static partial class MarkdownView
 			// Opacity is per element and all lines share one text, so the fade goes into the span colors; Goo styles are
 			// write-only, so a faded line cannot tint its token colors and shows in the plain line color instead.
 			var alpha = shown - index <= fadeLines ? (double)(shown - index) / (fadeLines + 1) : 1.0;
+			if ( index < fadeHeadLines )
+				alpha = Math.Min( alpha, (double)(index + 1) / (fadeHeadLines + 1) );
 			var lineSpans = grammar is null || line.Length == 0 ? new[] { new TextSpan( ViewStyle.CutCodeLine( line ), null! ) } : BuildHighlightedLine( line, grammar, ref isInComment );
 			foreach ( var span in lineSpans )
 				spans.Add( span.Style is null || alpha < 1.0 ? new TextSpan( span.Text, new Style { Color = color.WithAlpha( alpha ) } ) : span );
@@ -840,7 +843,7 @@ public static partial class MarkdownView
 				text.LineHeight = CellLineHeight;
 				text.TextAlign = column < alignments.Length ? alignments[column] : TextAlign.Left;
 				text.Padding = new Edges( CellInsetY, CellInsetX );
-				var (basis, least) = (ComputeColumnWidth( preferred[column] ), ComputeColumnWidth( minimum[column] ));
+				var (basis, least) = (ComputeColumnWidth( preferred[column] ), ComputeMinimumWidth( minimum[column] ));
 				cells.Add( CodeBoxes.Wrap( text, "cell:" + column, layout: cell =>
 				{
 					cell.FlexBasis = basis;
@@ -878,7 +881,7 @@ public static partial class MarkdownView
 					FontSize = BodySize,
 					FlexBasis = ComputeTableWidth( preferred ),
 					FlexShrink = 1,
-					MinWidth = ComputeTableWidth( minimum ),
+					MinWidth = Length.Em( minimum.Sum( characters => Math.Max( characters, 1 ) ) * CharacterEms * BoldWidthFactor ) + 2 * (CellInsetX * minimum.Length + Theme.Current.BorderWidth),
 					BorderWidth = 0,
 					Overflow = Overflow.Hidden,
 					Children = tableRows,
@@ -889,6 +892,12 @@ public static partial class MarkdownView
 
 	/// <summary>Computes a table column width from its estimated character count, including cell insets.</summary>
 	private static Length ComputeColumnWidth( int characters ) => Length.Em( Math.Max( characters, 1 ) * CharacterEms ) + 2 * CellInsetX;
+
+	/// <summary>Defines how much wider bold text, as a header or a bold first column, runs than the character estimate, so its longest word never breaks.</summary>
+	private const double BoldWidthFactor = 1.2;
+
+	/// <summary>Computes a table column's narrowest width from its longest word, with room for bold, so a word such as "Header" never breaks inside.</summary>
+	private static Length ComputeMinimumWidth( int characters ) => Length.Em( Math.Max( characters, 1 ) * CharacterEms * BoldWidthFactor ) + 2 * CellInsetX;
 
 	/// <summary>Computes a table width from its estimated column character counts, including cell insets and borders.</summary>
 	private static Length ComputeTableWidth( int[] columns ) =>

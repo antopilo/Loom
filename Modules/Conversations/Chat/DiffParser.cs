@@ -112,7 +112,7 @@ internal static partial class DiffParser
 	}
 
 	/// <summary>Reads the first <c>[path#TAG]</c> header of a hashline edit's input.</summary>
-	private static string ComputeInputPath( JsonElement arguments )
+	internal static string ComputeInputPath( JsonElement arguments )
 	{
 		var match = InputPathPattern().Match( ChatContent.ReadText( arguments, "input" ) );
 		return match.Success ? match.Groups[1].Value : "";

@@ -192,8 +192,22 @@ public sealed partial class ChatContent
 			&& details.ValueKind == JsonValueKind.Object && details.TryGetProperty( "async", out var background ) ? ReadText( background, "jobId" ) : "";
 		if ( job.Length == 0 && result is { } body && TerminalText.BuildPlain( ComputeResultText( body ) ).TrimEnd() is { Length: > 0 } output )
 		{
-			box.Add( new Container { Key = "output-rule", Height = theme.BorderWidth, BackgroundColor = theme.Divider } );
-			box.Add( new Container { Key = "output", Padding = new Edges( 0, theme.Spacing * 2 ), Children = [BuildCodePreview( key + ":output", output, "text", framed: false )] } );
+			// Long output shows its last lines, fading in at the top, with Expand on the rule above them; expanded, all of it and Collapse.
+			var outputLines = output.Split( '\n' );
+			var isLong = outputLines.Length > PreviewLines + PreviewSlack;
+			var outputKey = key + ":output";
+			var isOpen = _expanded.Contains( outputKey );
+			var rule = new Container { Key = "output-rule", Height = theme.BorderWidth, BackgroundColor = theme.Divider };
+			if ( isLong )
+				rule.Children = [BuildExpandPill( isOpen, () => context.Run( () => UpdateExpanded( outputKey ) ) )];
+			box.Add( rule );
+			var shownOutput = isLong && !isOpen ? string.Join( '\n', outputLines[^PreviewLines..] ) : output;
+			box.Add( new Container
+			{
+				Key = "output",
+				Padding = new Edges( isLong ? theme.Spacing : 0, theme.Spacing * 2, 0, theme.Spacing * 2 ),
+				Children = [MarkdownView.BuildCode( shownOutput, "text", framed: false, showLanguage: false, fadeHeadLines: isLong && !isOpen ? PreviewFadeLines : 0 )],
+			} );
 		}
 		var (word, color) = status switch
 		{
@@ -203,14 +217,23 @@ public sealed partial class ChatContent
 			"Requested" => ("Waiting", theme.Muted),
 			_ => ("✓ Done", theme.AnsiGreen),
 		};
-		box.Add( new Text( [
-			new( word, new Style { Color = color } ),
-			new( job.Length > 0 ? "   Job " + job : "", new Style { Color = theme.Muted } ),
-		] )
+		// The footer shows how long the command ran, counting up while it runs.
+		var footer = new List<Blob>
+		{
+			new Text( [
+				new( word, new Style { Color = color } ),
+				new( job.Length > 0 ? "   Job " + job : "", new Style { Color = theme.Muted } ),
+			] ) { FontSize = ViewStyle.SmallSize },
+		};
+		if ( job.Length == 0 && ComputeToolTimes( id ) is var (started, ended) && status != "Requested" )
+			footer.Add( Cell.Mount<ToolClockInput, ToolClock>( "clock", new( started, ended ) ) );
+		box.Add( new Row
 		{
 			Key = "outcome",
-			FontSize = ViewStyle.SmallSize,
+			AlignItems = AlignItems.Center,
+			Gap = theme.Spacing,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing * 2, theme.Spacing * 1.5, theme.Spacing * 2 ),
+			Children = footer,
 		} );
 
 		return new Container
@@ -352,5 +375,36 @@ public sealed partial class ChatContent
 		if ( file.Removed > 0 )
 			children.Add( new Text { Content = $"−{file.Removed:N0}", Color = theme.Error, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, FlexShrink = 0 } );
 		return new Row { Key = "title:" + key, AlignItems = AlignItems.Center, Gap = theme.Spacing, Margin = new Edges( theme.Spacing / 2, 0, 0, 0 ), Children = children };
+	}
+
+	/// <summary>Gets when a tool started, its call's message time, and when it ended, its result's time, or null while it runs; null when its call is unknown.</summary>
+	private (DateTime Started, DateTime? Ended)? ComputeToolTimes( string id )
+	{
+		if ( !_toolOwners.TryGetValue( id, out var owner ) || store.GetMessages( conversationId ).FirstOrDefault( message => message.Id == owner ) is not { } call )
+			return null;
+		return (call.CreatedAt.UtcDateTime, _toolResults.TryGetValue( id, out var result ) ? result.CreatedAt.UtcDateTime : null);
+	}
+
+	/// <summary>Builds the small Expand or Collapse pill centered on the rule between a command and its output.</summary>
+	private static Container BuildExpandPill( bool isOpen, Action action )
+	{
+		var theme = Theme.Current;
+		var pill = BuildMoreToggle( isOpen ? "Collapse" : "Expand", isOpen, action );
+		pill.Padding = new Edges( 1, theme.Spacing );
+		pill.Margin = 0;
+		pill.BackgroundColor = theme.Panel;
+		pill.BorderColor = theme.Border.WithAlpha( 0.6 );
+		pill.BorderWidth = theme.BorderWidth;
+		pill.BorderRadius = theme.Radius;
+		return new Container
+		{
+			Key = "expand",
+			Position = PositionType.Absolute,
+			Left = 0,
+			Right = 0,
+			Top = -11,
+			AlignItems = AlignItems.Center,
+			Children = [pill],
+		};
 	}
 }
