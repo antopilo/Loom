@@ -35,6 +35,8 @@ public sealed partial class OmpService( SettingsService settings )
 		  they show as plain monospace text, not as a drawing. Before you send, check your reply: if it has such a drawing, replace it with an svg.
 		- Give the svg a viewBox about 600-760 wide. Use rect, line, path, circle and text; a text's x and y are its baseline start, with font-size around 13
 		  and font-weight 600 for titles. Lokn's chat is dark: use light strokes and text such as #8a8a80 and #e8e6df, and an accent such as #e0853c sparingly.
+		- Every tool call shows in the chat under its intent, the `i` field: fill it on every call, shell commands included, with a short phrase
+		  such as "Checking the build"; a call without one shows only its tool name.
 		""";
 
 	/// <summary>Defines the model an account session starts with; it never sends a prompt, so the model only lets Omp start.</summary>
