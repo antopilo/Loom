@@ -118,6 +118,9 @@ public sealed partial class ConversationsModule
 		if ( conversation.Profile != app.Settings.ActiveProfile )
 			throw new InvalidOperationException( "Switch to this conversation's profile before opening it." );
 		UpdateSeen( app, chat );
+		// Its messages start reading off the UI thread now, so they are often ready by the time its chat first builds.
+		if ( conversation.HasChat )
+			shown.Host.Store.StartReadingMessages( chat.ConversationId );
 		// The host is current before the layout opens, so panels it opens without a host of their own open on it.
 		app.Hosts.SetCurrent( chat.HostId );
 		if ( FindWorkspaces( app ) is not { } workspaces )

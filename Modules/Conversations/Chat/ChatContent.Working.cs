@@ -28,7 +28,7 @@ public sealed partial class ChatContent
 	/// <summary>Names the current phase from the newest assistant message: a running tool's intent, thinking, writing, or working.</summary>
 	internal string ComputeWorkingLabel()
 	{
-		var messages = store.GetMessages( conversationId );
+		var messages = store.PeekMessages( conversationId );
 		var last = messages.Count > 0 ? messages[^1] : null;
 		if ( last?.Role != "assistant" || last.RichContent is not { ValueKind: JsonValueKind.Object } rich
 			|| !rich.TryGetProperty( "content", out var content ) || content.ValueKind != JsonValueKind.Array )

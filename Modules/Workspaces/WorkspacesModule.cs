@@ -130,9 +130,10 @@ public sealed partial class WorkspacesModule : ILoknModule, IPanelPlaces
 		ReportFailure();
 	}
 
-	/// <summary>Releases the store; the live layout is saved by the workspace itself.</summary>
+	/// <summary>Writes what the store has not written yet and releases it; the live layout is saved by the workspace itself.</summary>
 	public void Stop()
 	{
+		_store?.Flush();
 		_store = null;
 		_context = null;
 	}

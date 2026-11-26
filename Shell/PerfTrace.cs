@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime;
 using Goo;
+using Lokn.Core;
 
 namespace Lokn;
 
@@ -117,6 +118,11 @@ internal static class PerfTrace
 		window.PresentationAccepted += _ =>
 		{
 			Interlocked.Increment( ref _frames );
+			if ( Volatile.Read( ref _switchStart ) != 0 )
+			{
+				lock ( _switchPresents )
+					_switchPresents.Add( Stopwatch.GetTimestamp() );
+			}
 			if ( Interlocked.Increment( ref _presented ) != 1 )
 				return;
 
@@ -130,6 +136,86 @@ internal static class PerfTrace
 		window.VisibilityChanged += isVisible => Mark( isVisible ? "visible" : "hidden" );
 		_counter = new Timer( _ => Mark( "frames " + Interlocked.Exchange( ref _frames, 0 ) ), null, CountMs, CountMs );
 	}
+
+	/// <summary>Defines how long after a switch its frames are measured, in milliseconds.</summary>
+	private const int SwitchWindowMs = 900;
+
+	/// <summary>Defines the frame interval above which a frame counts as dropped, in milliseconds: one and a half 60 Hz frames.</summary>
+	private const double DroppedMs = 25;
+
+	/// <summary>Holds when the switch being measured started, or zero while none is.</summary>
+	private static long _switchStart;
+
+	/// <summary>Holds the times the frames after the measured switch were presented.</summary>
+	private static readonly List<long> _switchPresents = [];
+
+	/// <summary>Runs the switches <c>LOKN_PERF_DRIVE</c> lists, for <c>scripts/bench.ps1</c>'s switch scenario, and writes one line per switch.</summary>
+	/// <remarks>
+	/// The variable is <c>&lt;interval ms&gt;|&lt;step&gt;|&lt;step&gt;…</c>: each step is <c>profile</c>, which toggles Work and Personal, or a <c>lokn://</c>
+	/// link, opened as a click in Loom would. The steps run in a loop, one per interval. Each writes
+	/// <c>switch &lt;step&gt; handler &lt;ms&gt; first &lt;ms&gt; frames &lt;n&gt; maxgap &lt;ms&gt; dropped &lt;n&gt;</c>: the time the step itself took on
+	/// the UI thread, from the step to the first presented frame, the frames presented in the next <see cref="SwitchWindowMs"/>, the longest time
+	/// between two of them (from the step for the first), and how many of those times exceed <see cref="DroppedMs"/>.
+	/// </remarks>
+	internal static void Drive( LoknApplication app, Window window )
+	{
+		if ( _writer is null || Environment.GetEnvironmentVariable( "LOKN_PERF_DRIVE" ) is not { Length: > 0 } drive )
+			return;
+
+		var parts = drive.Split( '|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries );
+		if ( parts.Length < 2 || !int.TryParse( parts[0], CultureInfo.InvariantCulture, out var interval ) )
+			return;
+
+		var step = 0;
+		_driver = new Timer( _ => window.Post( () =>
+		{
+			var name = parts[1 + step++ % (parts.Length - 1)];
+			lock ( _switchPresents )
+				_switchPresents.Clear();
+			var start = Stopwatch.GetTimestamp();
+			Volatile.Write( ref _switchStart, start );
+			if ( name == "profile" )
+				app.Settings.ToggleProfile();
+			else
+				app.OpenLink( new Uri( name ) );
+			var handler = Stopwatch.GetElapsedTime( start ).TotalMilliseconds;
+			_ = Task.Delay( SwitchWindowMs ).ContinueWith( _ => WriteSwitch( name, start, handler ), TaskScheduler.Default );
+		} ), null, interval, interval );
+	}
+
+	/// <summary>Writes the line of one measured switch and stops collecting its frames.</summary>
+	private static void WriteSwitch( string name, long start, double handler )
+	{
+		long[] presents;
+		lock ( _switchPresents )
+		{
+			presents = [.. _switchPresents];
+			_switchPresents.Clear();
+		}
+
+		Interlocked.CompareExchange( ref _switchStart, 0, start );
+		var previous = start;
+		var longest = 0.0;
+		var dropped = 0;
+		var gaps = new List<string>( presents.Length );
+		foreach ( var present in presents )
+		{
+			var gap = Stopwatch.GetElapsedTime( previous, present ).TotalMilliseconds;
+			longest = Math.Max( longest, gap );
+			if ( gap > DroppedMs )
+				dropped++;
+			gaps.Add( gap.ToString( "F0", CultureInfo.InvariantCulture ) );
+			previous = present;
+		}
+
+		var first = presents.Length > 0 ? Stopwatch.GetElapsedTime( start, presents[0] ).TotalMilliseconds : -1;
+		var label = name == "profile" ? "profile" : name[(name.LastIndexOf( '/' ) + 1)..];
+		Write( string.Create( CultureInfo.InvariantCulture,
+			$"switch {label} handler {handler:F1} first {first:F1} frames {presents.Length} maxgap {longest:F1} dropped {dropped} gaps {string.Join( ',', gaps )}" ) );
+	}
+
+	/// <summary>Runs the switches while driving; kept so it is not collected.</summary>
+	private static Timer? _driver;
 
 	/// <summary>Writes <c>jit &lt;methods&gt; &lt;ms&gt;</c>: how many methods the whole process compiled so far, on every thread, and for how long.</summary>
 	private static void WriteCompiled()

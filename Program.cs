@@ -186,6 +186,7 @@ internal static class Program
 			app.MarkStarted();
 
 		PerfTrace.Mark( "started" );
+		PerfTrace.Drive( app, window );
 		Application.Run( window );
 		return ShellRestart.IsRequested;
 	}

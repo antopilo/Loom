@@ -301,29 +301,35 @@ public sealed partial class SidebarRows( PanelContext context )
 	/// <param name="id">The row.</param>
 	/// <param name="children">The row's content and actions.</param>
 	/// <param name="order">The row's place among rows the user reorders by dragging, which then drop on it; null for a row that stays put.</param>
-	public Row BuildHoverRow( Guid id, List<Blob> children, RowOrder? order = null ) => new()
+	public Row BuildHoverRow( Guid id, List<Blob> children, RowOrder? order = null )
 	{
-		Handle = _rows.TryGetValue( id, out var known ) ? known : _rows[id] = new ElementHandle(),
-		AlignItems = AlignItems.Center,
-		BorderRadius = Theme.Current.Radius,
-		BackgroundColor = _hovered.Value == id || _menu.Value == id || _starters.Value == id ? Theme.Current.Hover : Color.Transparent,
-		DropTarget = order is null ? null : BuildRowDrop( id, order ),
-		OnPointerEnter = _ => UpdateHovered( id ),
-		OnPointerLeave = _ =>
+		var row = new Row
 		{
-			if ( _hovered.Value == id )
-				UpdateHovered( Guid.Empty );
-		},
-		OnPointerDown = pointer => context.Run( () =>
-		{
-			if ( pointer.Button != PointerButton.Secondary )
-				return;
+			Handle = _rows.TryGetValue( id, out var known ) ? known : _rows[id] = new ElementHandle(),
+			AlignItems = AlignItems.Center,
+			BorderRadius = Theme.Current.Radius,
+			BackgroundColor = _hovered.Value == id || _menu.Value == id || _starters.Value == id ? Theme.Current.Hover : Color.Transparent,
+			DropTarget = order is null ? null : BuildRowDrop( order ),
+			OnPointerEnter = _ => UpdateHovered( id ),
+			OnPointerLeave = _ =>
+			{
+				if ( _hovered.Value == id )
+					UpdateHovered( Guid.Empty );
+			},
+			OnPointerDown = pointer => context.Run( () =>
+			{
+				if ( pointer.Button != PointerButton.Secondary )
+					return;
 
-			_menuAt = new ElementRect { X = pointer.Position.X, Y = pointer.Position.Y };
-			_menu.Value = id;
-		} ),
-		Children = order is not null && _dropAt.Value.Row == id ? [.. children, BuildDropLine( _dropAt.Value.IsBelow )] : children,
-	};
+				_menuAt = new ElementRect { X = pointer.Position.X, Y = pointer.Position.Y };
+				_menu.Value = id;
+			} ),
+			Children = children,
+		};
+		if ( order is not null )
+			ApplyDrag( row, id, order );
+		return row;
+	}
 
 	/// <summary>Builds a row's … button, which opens the row's menu below it.</summary>
 	public Button BuildMoreButton( Guid id, string accessibilityName, bool isVisible )

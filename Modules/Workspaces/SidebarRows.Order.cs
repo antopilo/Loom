@@ -9,77 +9,145 @@ namespace Lokn.Modules.Workspaces;
 /// <param name="MoveHere">Moves a dropped row of the group to this row's place, the rows between shifting toward where it was.</param>
 public sealed record RowOrder( string Group, int Index, Action<Guid> MoveHere );
 
-/// <summary>Lets the user drag rows to another place among their group's rows, with a line showing where a dragged row lands.</summary>
+/// <summary>Lets the user drag rows to another place among their group's rows: the dragged row follows the pointer up and down, and the rows it
+/// passes slide aside to open the place it lands in.</summary>
 public sealed partial class SidebarRows
 {
-	/// <summary>Defines the drop line's thickness in logical pixels.</summary>
-	private const int DropLineThickness = 2;
+	/// <summary>Defines how long a row takes to slide aside for the dragged row, in milliseconds.</summary>
+	private const double MakeRoomMs = 160;
 
-	/// <summary>Tracks the row a dragged row is over and whether it lands below it, or an empty row when none is.</summary>
-	private readonly State<(Guid Row, bool IsBelow)> _dropAt = new( (Guid.Empty, false) );
+	/// <summary>Defines how much the dragged row grows while it is held.</summary>
+	private const double LiftScale = 1.02;
+
+	/// <summary>Defines the space between two rows of a group, in logical pixels, which a row slides by with the dragged row's height.</summary>
+	private const double RowGap = 2;
+
+	/// <summary>Holds the drag in progress, or null while no row is dragged.</summary>
+	private readonly State<RowDragState?> _drag = new( null );
+
+	/// <summary>Holds the place of each reorderable row from the latest build, by row.</summary>
+	private readonly Dictionary<Guid, RowOrder> _orders = [];
 
 	/// <summary>Builds the drag that starts on a row's main button, carrying the row to another place in its group.</summary>
 	/// <param name="id">The row.</param>
 	/// <param name="order">The row's place among its group's rows.</param>
-	public DragSource BuildRowDrag( Guid id, RowOrder order ) =>
-		new( _ => new DragData( new RowDrag( this, order.Group, id, order.Index ), DragEffect.Move ), _ => context.Run( ClearDrop ) );
-
-	/// <summary>Builds what a row does with a row dragged over it: a row of its group shows the drop line and takes this row's place when dropped.</summary>
-	private DropTarget BuildRowDrop( Guid id, RowOrder order ) => new(
-		drop => drop.Data.Value is RowDrag dragged && dragged.Owner == this && dragged.Group == order.Group && dragged.Id != id ? DragEffect.Move : DragEffect.None,
-		drop => context.Run( () => UpdateDrop( drop, id, order ) ) );
-
-	/// <summary>Builds the accent line in the gap above or below a row, where a row dropped on it lands.</summary>
-	/// <remarks>Only the edge the line hangs from is set: Goo rejects <see cref="Length.Auto"/> as a position offset, and an unset one stays free.</remarks>
-	private static Container BuildDropLine( bool isBelow )
+	public DragSource BuildRowDrag( Guid id, RowOrder order ) => new( start =>
 	{
-		var line = new Container
+		context.Run( () => _drag.Value = StartDrag( id, order, start.WindowPosition.Y ) );
+		return new DragData( new RowDrag( this, order.Group, id, order.Index ), DragEffect.Move );
+	}, _ => context.Run( () => _drag.Value = null ) );
+
+	/// <summary>Builds what a row does with a row of its group dragged over it, the dragged row itself included, since it stays under the pointer:
+	/// it follows the pointer, and a drop moves the dragged row to the place it shows.</summary>
+	private DropTarget BuildRowDrop( RowOrder order ) => new(
+		drop => drop.Data.Value is RowDrag dragged && dragged.Owner == this && dragged.Group == order.Group ? DragEffect.Move : DragEffect.None,
+		drop => context.Run( () => UpdateDrop( drop ) ) );
+
+	/// <summary>Records where every row of the dragged row's group sits, so the place it lands can be found from the pointer alone.</summary>
+	private RowDragState? StartDrag( Guid id, RowOrder order, double pointerY )
+	{
+		var rows = new List<(Guid Id, int Index, double Center)>();
+		var height = 0.0;
+		foreach ( var (rowId, rowOrder) in _orders )
 		{
-			Key = "drop-line",
-			Position = PositionType.Absolute,
-			Left = 0,
-			Right = 0,
-			Height = DropLineThickness,
-			BorderRadius = DropLineThickness / 2.0,
-			BackgroundColor = Theme.Current.Accent,
-		};
-		if ( isBelow )
-			line.Bottom = -DropLineThickness;
-		else
-			line.Top = -DropLineThickness;
-		return line;
+			if ( rowOrder.Group != order.Group || !_rows.TryGetValue( rowId, out var handle ) || !handle.IsMounted )
+				continue;
+			var box = handle.BorderBox;
+			rows.Add( (rowId, rowOrder.Index, box.Y + box.Height / 2) );
+			if ( rowId == id )
+				height = box.Height;
+		}
+		if ( height <= 0 )
+			return null;
+		rows.Sort( ( a, b ) => a.Index.CompareTo( b.Index ) );
+		return new( id, order.Group, order.Index, pointerY, pointerY, height + RowGap, order.Index, rows );
 	}
 
-	/// <summary>Follows a row of the group over this one: the line shows on the side the dragged row lands, which is below when it comes from above; a drop moves it here.</summary>
-	private void UpdateDrop( DragEvent drop, Guid id, RowOrder order )
+	/// <summary>Follows the pointer: moves the dragged row and finds the place it lands, the last row whose middle it passed; a drop moves it there.</summary>
+	private void UpdateDrop( DragEvent drop )
 	{
-		if ( drop.Data.Value is not RowDrag dragged )
+		if ( drop.Data.Value is not RowDrag dragged || _drag.Value is not { } drag || drag.Id != dragged.Id )
 			return;
 
 		switch ( drop.Kind )
 		{
 			case DragEventKind.Enter or DragEventKind.Move:
-				var at = (id, dragged.Index < order.Index);
-				if ( _dropAt.Value != at )
-					_dropAt.Value = at;
+			{
+				var pointerY = drop.WindowPosition.Y;
+				var target = ComputeTarget( drag, pointerY );
+				if ( pointerY != drag.PointerY || target != drag.Target )
+					_drag.Value = drag with { PointerY = pointerY, Target = target };
 				break;
-			case DragEventKind.Leave:
-				if ( _dropAt.Value.Row == id )
-					ClearDrop();
-				break;
+			}
 			case DragEventKind.Drop:
-				ClearDrop();
-				order.MoveHere( dragged.Id );
+			{
+				_drag.Value = null;
+				if ( drag.Target != drag.Index && drag.Rows.FirstOrDefault( row => row.Index == drag.Target ).Id is var targetId && _orders.TryGetValue( targetId, out var targetOrder ) )
+					targetOrder.MoveHere( drag.Id );
 				break;
+			}
 		}
 	}
 
-	/// <summary>Hides the drop line.</summary>
-	private void ClearDrop()
+	/// <summary>Finds the place the dragged row lands: below every row whose middle its own middle passed going down, or above every one it passed going up.</summary>
+	private static int ComputeTarget( RowDragState drag, double pointerY )
 	{
-		if ( _dropAt.Value.Row != Guid.Empty )
-			_dropAt.Value = (Guid.Empty, false);
+		var self = drag.Rows.FirstOrDefault( row => row.Id == drag.Id );
+		var center = self.Center + ClampOffset( drag, pointerY - drag.StartY );
+		var target = drag.Index;
+		foreach ( var row in drag.Rows )
+		{
+			if ( row.Index > drag.Index && center > row.Center )
+				target = Math.Max( target, row.Index );
+			else if ( row.Index < drag.Index && center < row.Center )
+				target = Math.Min( target, row.Index );
+		}
+		return target;
 	}
+
+	/// <summary>Keeps the dragged row's offset within its group, from its first row's place to its last.</summary>
+	private static double ClampOffset( RowDragState drag, double offset )
+	{
+		var self = drag.Rows.FirstOrDefault( row => row.Id == drag.Id ).Center;
+		return Math.Clamp( offset, drag.Rows[0].Center - self, drag.Rows[^1].Center - self );
+	}
+
+	/// <summary>Moves a reorderable row while a row of its group is dragged: the dragged row follows the pointer, held above the others, and each row
+	/// between its old place and the new one slides aside by one row; rows snap back without motion once the drag ends, as the list then shows the new order.</summary>
+	private void ApplyDrag( Row row, Guid id, RowOrder order )
+	{
+		_orders[id] = order;
+		if ( _drag.Value is not { } drag || drag.Group != order.Group )
+			return;
+
+		if ( id == drag.Id )
+		{
+			row.Transform = new PanelTransform { TranslateY = ClampOffset( drag, drag.PointerY - drag.StartY ), Scale = LiftScale };
+			row.ZIndex = 1;
+			row.BackgroundColor = Theme.Current.Hover;
+			row.BoxShadow = new BoxShadow { OffsetY = 4, Blur = 12, Color = Color.Black.WithAlpha( 0.35 ) };
+			return;
+		}
+
+		var shift = order.Index > drag.Index && order.Index <= drag.Target ? -drag.Slot
+			: order.Index < drag.Index && order.Index >= drag.Target ? drag.Slot
+			: 0;
+		row.Transform = new PanelTransform { TranslateY = shift };
+		row.TransitionMs = MakeRoomMs;
+		row.TransitionEasing = Easing.EaseOut;
+		row.TransitionProperties = [TransitionProperty.Transform];
+	}
+
+	/// <summary>Holds a drag in progress.</summary>
+	/// <param name="Id">The dragged row.</param>
+	/// <param name="Group">Its group.</param>
+	/// <param name="Index">Its place when the drag started.</param>
+	/// <param name="StartY">The pointer's height in the window when the drag started.</param>
+	/// <param name="PointerY">The pointer's latest height in the window.</param>
+	/// <param name="Slot">The height of one row's place: the dragged row's height and the gap after it.</param>
+	/// <param name="Target">The place it lands if dropped now.</param>
+	/// <param name="Rows">Each row of the group with its place and the middle of its box when the drag started, top first.</param>
+	private sealed record RowDragState( Guid Id, string Group, int Index, double StartY, double PointerY, double Slot, int Target, IReadOnlyList<(Guid Id, int Index, double Center)> Rows );
 
 	/// <summary>Identifies a row being dragged among its group's rows.</summary>
 	/// <param name="Owner">The sidebar view that started the drag; another view's rows do not take it.</param>

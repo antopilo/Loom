@@ -189,7 +189,7 @@ public sealed partial class DesignModule : ILoknModule
 			if ( !MarkShown( session, store ) )
 				return Describe( store, address, null );
 		}
-		var shown = await ShowStudioAsync( context.App.Tools, store, address, context.Caller, context.Cancellation, context.Conversation, context.Host );
+		var shown = await ShowStudioAsync( context.App.Tools, address, context.Caller, context.Cancellation, context.Conversation, context.Host );
 		return Describe( store, address, shown );
 	}
 
@@ -246,8 +246,10 @@ public sealed partial class DesignModule : ILoknModule
 		var server = StartServer();
 		var studio = server.Serve( store );
 		var tools = context.App.Tools;
-		// The studio's own tab renders the page, so no other tab the user has open changes.
-		var studioTab = await FindStudioTabAsync( tools, store, context.Caller, context.Cancellation, context.Conversation, context.Host );
+		// The studio's own tab renders the page, so no other tab the user has open changes: one on screen first, else one open in this window. A studio tab
+		// of the session that no panel here shows is skipped, since it may hold an address from before a restart.
+		var studioTab = await FindStudioTabAsync( tools, studio, context.Caller, context.Cancellation, context.Conversation, context.Host, isOnScreen: true )
+			?? await FindStudioTabAsync( tools, studio, context.Caller, context.Cancellation, context.Conversation, context.Host, isInWindow: true );
 		var shotAddress = server.GetShotAddress( store, variant, width, height, selector );
 		var shown = await tools.InvokeAsync( "browser_navigate",
 			studioTab is null ? JsonSerializer.SerializeToElement( new { url = shotAddress, newTab = true } ) : JsonSerializer.SerializeToElement( new { tab = studioTab, url = shotAddress } ),
@@ -256,12 +258,19 @@ public sealed partial class DesignModule : ILoknModule
 			return AgentToolResult.Error( $"The browser could not show the design: {shown.Text} Call design_open first." );
 		if ( TabPattern().Match( shown.Text ) is not { Success: true } match )
 			return AgentToolResult.Error( $"The browser did not name the tab it used: {shown.Text}" );
-		if ( shown.Text.Contains( "\"missing\"", StringComparison.Ordinal ) )
-			return AgentToolResult.Error( $"No element of variant {Describe( variant )} matches {selector}." );
 
 		var tab = match.Groups[1].Value;
 		try
 		{
+			// The tab must show the snapshot page before anything reads it: a navigation that did not start leaves the studio there, which has no designCheck.
+			if ( !shown.Text.StartsWith( "Loaded", StringComparison.Ordinal ) )
+				return AgentToolResult.Error( $"The browser did not load the snapshot page: {shown.Text}" );
+			var ready = await tools.InvokeAsync( "browser_eval", JsonSerializer.SerializeToElement( new { tab, script = ReadyScript } ),
+				context.Caller, context.Cancellation, conversation: context.Conversation, host: context.Host );
+			if ( ready.IsError )
+				return AgentToolResult.Error( $"The snapshot page did not load the design: {ready.Text}" );
+			if ( ready.Text.Trim() == "false" )
+				return AgentToolResult.Error( $"No element of variant {Describe( variant )} matches {selector}." );
 			return await run( tools, tab );
 		}
 		finally
@@ -272,23 +281,37 @@ public sealed partial class DesignModule : ILoknModule
 	}
 
 	/// <summary>Shows a design's studio: in a tab a panel shows on screen, else in a new tab beside the chat, since a tab without a visible panel stays out of sight.</summary>
-	private static async Task<AgentToolResult> ShowStudioAsync( AgentToolRegistry tools, DesignStore store, string address, Guid? caller, CancellationToken cancellation, Guid? conversation, string? host )
+	private static async Task<AgentToolResult> ShowStudioAsync( AgentToolRegistry tools, string address, Guid? caller, CancellationToken cancellation, Guid? conversation, string? host )
 	{
-		var tab = await FindStudioTabAsync( tools, store, caller, cancellation, conversation, host, isOnScreen: true );
+		var tab = await FindStudioTabAsync( tools, address, caller, cancellation, conversation, host, isOnScreen: true );
 		var arguments = tab is null ? JsonSerializer.SerializeToElement( new { url = address, newTab = true } ) : JsonSerializer.SerializeToElement( new { tab, url = address } );
 		return await tools.InvokeAsync( "browser_navigate", arguments, caller, cancellation, conversation: conversation, host: host );
 	}
 
-	/// <summary>Finds the short id of a browser tab that shows a design's studio or one of its snapshot pages, or null.</summary>
+	/// <summary>Finds the short id of a browser tab that shows a design's studio or one of its snapshot pages at its current address, or null.</summary>
+	/// <param name="studio">The studio's address, which its snapshot pages share; a tab at another port, left from before a restart, does not count.</param>
 	/// <param name="isOnScreen">Whether only a tab that a panel shows on screen counts.</param>
-	private static async Task<string?> FindStudioTabAsync( AgentToolRegistry tools, DesignStore store, Guid? caller, CancellationToken cancellation, Guid? conversation, string? host,
-		bool isOnScreen = false )
+	/// <param name="isInWindow">Whether only a tab that a panel in this window shows counts.</param>
+	private static async Task<string?> FindStudioTabAsync( AgentToolRegistry tools, string studio, Guid? caller, CancellationToken cancellation, Guid? conversation, string? host,
+		bool isOnScreen = false, bool isInWindow = false )
 	{
 		var listed = await tools.InvokeAsync( "browser_tabs", JsonSerializer.SerializeToElement( new { } ), caller, cancellation, conversation: conversation, host: host );
 		return listed.IsError ? null
-			: StudioTabPattern().Matches( listed.Text ).FirstOrDefault( found => found.Groups["url"].Value.Contains( $"/d/{store.Token}/", StringComparison.Ordinal )
-				&& ( !isOnScreen || found.Groups["rest"].Value.Contains( "(on screen", StringComparison.Ordinal ) ) )?.Groups[1].Value;
+			: StudioTabPattern().Matches( listed.Text ).FirstOrDefault( found => found.Groups["url"].Value.StartsWith( studio, StringComparison.Ordinal )
+				&& ( !isOnScreen || found.Groups["rest"].Value.Contains( "(on screen", StringComparison.Ordinal ) )
+				&& ( !isInWindow || found.Groups["rest"].Value.Contains( "in browser panel", StringComparison.Ordinal ) ) )?.Groups[1].Value;
 	}
+
+	/// <summary>Waits on the snapshot page until the design has loaded and returns whether the selector found its element; it throws on any other page.</summary>
+	private const string ReadyScript = """
+		(async () => {
+			for ( let i = 0; i < 100 && typeof window.designReady === "undefined"; i++ )
+				await new Promise( resolve => setTimeout( resolve, 50 ) );
+			if ( typeof window.designReady === "undefined" )
+				throw new Error( "The tab shows " + location.href + ", not the snapshot page." );
+			return await Promise.race( [ window.designReady, new Promise( ( _, reject ) => setTimeout( () => reject( new Error( "The design did not load in 10 seconds." ) ), 10000 ) ) ] );
+		})()
+		""";
 
 	/// <summary>Reads the screen a call names: a viewport's width and height, or an exact width with a desktop height.</summary>
 	private static (int Width, int Height) ReadViewport( JsonElement arguments )

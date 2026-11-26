@@ -115,7 +115,8 @@ internal static class ConversationChecks
 		CheckMirrorStarts();
 		CheckTidy( directory );
 		CheckArchive( directory );
-		Console.WriteLine( "PASS conversation profile isolation, project management, message replacement, rich history restart, chat folders, invalid-file preservation, conversation workspaces per profile, the notification feed workspace, chats no panel shows, deletes by store operation, chats started over a mirror, tidying a project's chats, and archiving idle chats." );
+		CheckBackgroundMessages( directory );
+		Console.WriteLine( "PASS conversation profile isolation, project management, message replacement, rich history restart, chat folders, invalid-file preservation, conversation workspaces per profile, the notification feed workspace, chats no panel shows, deletes by store operation, chats started over a mirror, tidying a project's chats, archiving idle chats, and reading a chat's messages in the background." );
 	}
 
 	/// <summary>Checks which folder each chat works in, that a chosen folder survives restart, and that history from before chats chose folders loads.</summary>
@@ -430,6 +431,7 @@ internal static class ConversationChecks
 		Check( app.Panels.IsShown( workPanel ) && !app.Panels.IsShown( firstPanel ) && module.GetSelected( app ) == work,
 			"Switching to Work returns to Work's own conversation." );
 
+		workspaces.Store.Flush();
 		var saved = new WorkspaceStore( path );
 		saved.Load();
 		Check( saved.SessionFor( SettingsProfile.Work ) == ConversationsModule.ConversationSession( work )
@@ -553,6 +555,55 @@ internal static class ConversationChecks
 		module.SelectConversation( app, module.Hosts.Local.Ref( old ) );
 		Check( !store.Get( old ).IsArchived, "Opening an archived chat brings it back to its list." );
 		app.Shutdown();
+	}
+
+	/// <summary>Checks that a view's messages file is read off the UI thread: none and loading until the read is applied, all of them after; and that
+	/// a message appended meanwhile, which reads the file at once, survives the background result arriving.</summary>
+	private static void CheckBackgroundMessages( string directory )
+	{
+		var path = Path.Combine( directory, "background.json" );
+		var seed = new ConversationStore( path );
+		var chat = seed.CreateConversation( SettingsProfile.Personal );
+		var other = seed.CreateConversation( SettingsProfile.Personal );
+		foreach ( var id in (Guid[])[chat.Id, other.Id] )
+		{
+			foreach ( var text in (string[])["first", "second"] )
+				seed.AppendMessage( id, new ConversationMessage( Guid.NewGuid(), "user", text, DateTimeOffset.UtcNow ) );
+		}
+		seed.Flush();
+
+		var posted = new Queue<Action>();
+		var store = new ConversationStore( path ) { Post = action =>
+		{
+			lock ( posted )
+				posted.Enqueue( action );
+			return true;
+		} };
+		void Pump()
+		{
+			lock ( posted )
+			{
+				while ( posted.TryDequeue( out var action ) )
+					action();
+			}
+		}
+
+		Check( store.PeekMessages( chat.Id ).Count == 0 && store.IsLoadingMessages( chat.Id ),
+			"A chat's messages file is read in the background: a view gets none and sees it loading until the read is applied." );
+		store.WaitForMessagesAsync( chat.Id ).Wait();
+		Check( store.IsLoadingMessages( chat.Id ), "A finished read waits for the UI thread to apply it." );
+		Pump();
+		Check( !store.IsLoadingMessages( chat.Id ) && store.PeekMessages( chat.Id ).Select( message => message.Text ).SequenceEqual( ["first", "second"] ),
+			"Once applied, a view gets every message of the chat." );
+
+		Check( store.PeekMessages( other.Id ).Count == 0 && store.IsLoadingMessages( other.Id ), "Another chat starts loading in the background." );
+		store.AppendMessage( other.Id, new ConversationMessage( Guid.NewGuid(), "user", "third", DateTimeOffset.UtcNow ) );
+		store.WaitForMessagesAsync( other.Id ).Wait();
+		Pump();
+		Check( !store.IsLoadingMessages( other.Id ) && store.PeekMessages( other.Id ).Select( message => message.Text ).SequenceEqual( ["first", "second", "third"] ),
+			"A message appended while the chat loaded reads the file at once and survives the background result arriving." );
+		store.Flush();
+		Check( new ConversationStore( path ).GetMessages( other.Id ).Count == 3, "The appended message is saved with the ones read." );
 	}
 
 	/// <summary>Checks that a chat no panel shows reaches the user when its agent asks or finishes, and that a delete by store operation stops its session and empties its panel.</summary>

@@ -48,7 +48,7 @@ public sealed partial class ChatContent
 		if ( session.IsBusy )
 			return false;
 
-		var messages = store.GetMessages( conversationId );
+		var messages = store.PeekMessages( conversationId );
 		for ( var i = messages.Count - 1; i >= 0; i-- )
 		{
 			var message = messages[i];

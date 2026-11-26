@@ -272,7 +272,18 @@ public sealed partial class ChatContent
 	};
 
 	/// <summary>Opens a followed link through Lokn's link handlers, beside this conversation when the Browser module takes it.</summary>
-	private void OpenLink( Uri uri ) => context.Run( () => context.App.OpenLink( uri, context.Id ) );
+	/// <remarks>A link to a file by relative path, such as <c>src/app.cs</c>, opens that file in the chat's folder.</remarks>
+	private void OpenLink( Uri uri ) => context.Run( () => context.App.OpenLink( ResolveFileLink( uri ), context.Id ) );
+
+	/// <summary>Resolves the relative path of a <c>lokn://editor/open?path=…</c> link against the chat's folder; any other link stays as it is.</summary>
+	private Uri ResolveFileLink( Uri uri )
+	{
+		if ( uri.Scheme != LoknLinks.Scheme || uri.Host != "editor" || !uri.Query.StartsWith( "?path=", StringComparison.Ordinal ) )
+			return uri;
+		var path = Uri.UnescapeDataString( uri.Query[6..] );
+		return Path.IsPathFullyQualified( path ) ? uri
+			: new Uri( $"{LoknLinks.Create( "editor", "open" )}?path={Uri.EscapeDataString( Path.GetFullPath( path, store.GetDirectory( conversationId ) ) )}" );
+	}
 
 	/// <summary>Opens or closes one disclosure by its stable key, which starts with its message identifier.</summary>
 	private void UpdateExpanded( string key )

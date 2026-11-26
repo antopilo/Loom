@@ -104,22 +104,51 @@ public static partial class MarkdownView
 		FontSize = Theme.Current.FontSize,
 	};
 
-	/// <summary>Builds headings, paragraphs, lists, checklists, quotes, tables, and fenced code with block-specific spacing.</summary>
+	/// <summary>Builds headings, paragraphs, lists, checklists, quotes, tables, math, images, footnotes and fenced code with block-specific spacing.</summary>
 	/// <param name="markdown">The Markdown source.</param>
-	/// <param name="openLink">Opens a web link the reader follows.</param>
+	/// <param name="openLink">Opens a link the reader follows: a web address, or a <c>lokn://editor/open</c> link to a file.</param>
 	/// <param name="fade">The opacity of a visible character by how many visible characters follow it, so freshly streamed words fade in; it must not fall as the count grows. Null renders everything at rest.</param>
-	public static Blob Build( string markdown, Action<Uri> openLink, Func<int, double>? fade = null ) => BuildBlocks( markdown, openLink, fade, 0 );
-
-	/// <summary>Builds the blocks of <paramref name="markdown"/>, fading its tail when <paramref name="after"/> more visible characters follow it.</summary>
-	private static Container BuildBlocks( string markdown, Action<Uri> openLink, Func<int, double>? fade, int after )
+	public static Blob Build( string markdown, Action<Uri> openLink, Func<int, double>? fade = null )
 	{
 		var blocks = Parse( markdown );
+		// Reference links and footnote marks anywhere in the document, quotes included, read the definitions of the whole document.
+		var (references, footnotes) = (_references, _footnotes);
+		_references = blocks.Where( block => block.Kind == "reference" ).GroupBy( block => block.Marker.Trim().ToLowerInvariant() )
+			.ToDictionary( group => group.Key, group => group.First().Text );
+		_footnotes = blocks.Where( block => block.Kind == "footnote" ).Select( block => block.Marker.Trim().ToLowerInvariant() ).Distinct()
+			.Select( ( label, index ) => (label, index) ).ToDictionary( pair => pair.label, pair => pair.index + 1 );
+		try
+		{
+			return BuildBlocks( blocks, openLink, fade, 0 );
+		}
+		finally
+		{
+			(_references, _footnotes) = (references, footnotes);
+		}
+	}
+
+	/// <summary>Builds the blocks of <paramref name="markdown"/>, fading its tail when <paramref name="after"/> more visible characters follow it.</summary>
+	private static Container BuildBlocks( string markdown, Action<Uri> openLink, Func<int, double>? fade, int after ) => BuildBlocks( Parse( markdown ), openLink, fade, after );
+
+	/// <summary>Builds parsed blocks, fading their tail when <paramref name="after"/> more visible characters follow them; footnotes gather at the end
+	/// under a rule, and reference definitions show nothing.</summary>
+	private static Container BuildBlocks( IReadOnlyList<MarkdownBlock> blocks, Action<Uri> openLink, Func<int, double>? fade, int after )
+	{
 		var following = ComputeFollowing( blocks, fade, after );
 		var children = new List<Blob>();
+		var notes = new List<MarkdownBlock>();
 		MarkdownBlock? previous = null;
 		for ( var index = 0; index < blocks.Count; index++ )
 		{
 			var block = blocks[index];
+			if ( block.Kind == "reference" )
+				continue;
+			if ( block.Kind == "footnote" )
+			{
+				notes.Add( block );
+				continue;
+			}
+
 			Blob child;
 			if ( block.Kind == "list" )
 			{
@@ -134,15 +163,52 @@ public static partial class MarkdownView
 			else
 				child = BuildBlock( block, openLink, fade, following?[index] ?? 0 );
 
-			child.Margin = new Edges( ComputeSpacing( previous, block ), 0, 0, 0 );
+			// A code block, quote or formula inside a list item lines up with the item's text.
+			child.Margin = new Edges( ComputeSpacing( previous, block ), 0, 0, block.Kind == "list" ? 0 : block.Depth * (MarkerWidth + MarkerGap) );
 			children.Add( child );
 			previous = block;
 		}
+		if ( notes.Count > 0 )
+			children.Add( BuildFootnotes( notes, openLink, children.Count > 0 ) );
 
 		return new Container
 		{
 			MinWidth = 0,
 			Children = children,
+		};
+	}
+
+	/// <summary>Builds the footnotes under a short rule, each led by its number, in smaller muted text.</summary>
+	private static Container BuildFootnotes( IReadOnlyList<MarkdownBlock> notes, Action<Uri> openLink, bool isAfterContent )
+	{
+		var rows = new List<Blob>
+		{
+			new Container { Key = "footnotes-rule", Width = 48, Height = 1, BackgroundColor = Theme.Current.Border },
+		};
+		foreach ( var note in notes )
+		{
+			var text = BuildInlineText( note.Text, openLink, grow: true );
+			text.FontSize = BodySize - 2;
+			text.Color = Theme.Current.Muted;
+			rows.Add( new Row
+			{
+				Gap = MarkerGap,
+				MinWidth = 0,
+				AlignItems = AlignItems.FlexStart,
+				Children =
+				[
+					new Text { Content = FormatFootnote( note.Marker ), FontSize = BodySize - 2, Color = Theme.Current.Accent, FlexShrink = 0 },
+					text,
+				],
+			} );
+		}
+		return new Container
+		{
+			Key = "footnotes",
+			Gap = ListItemGap,
+			MinWidth = 0,
+			Margin = new Edges( isAfterContent ? BlockGap * 2 : 0, 0, 0, 0 ),
+			Children = rows,
 		};
 	}
 
@@ -164,10 +230,13 @@ public static partial class MarkdownView
 		return following;
 	}
 
-	/// <summary>Computes how many characters a block shows: its inline text without markup, or its source for code, tables and quotes.</summary>
-	private static int ComputeVisibleLength( MarkdownBlock block ) => block.Kind is "paragraph" or "heading" or "list"
-		? ParseInlineRuns( block.Text ).Sum( run => run.Text.Length )
-		: block.Text.Length;
+	/// <summary>Computes how many characters a block shows: its inline text without markup, or its source for code, tables, quotes and math.</summary>
+	private static int ComputeVisibleLength( MarkdownBlock block ) => block.Kind switch
+	{
+		"paragraph" or "heading" or "list" => ParseInlineRuns( block.Text ).Sum( run => run.Text.Length ),
+		"reference" or "footnote" => 0,
+		_ => block.Text.Length,
+	};
 
 	/// <summary>Computes a fading character's opacity, rounded to <see cref="FadeSteps"/> levels.</summary>
 	private static double ComputeFade( Func<int, double> fade, int distance ) => Math.Round( Math.Clamp( fade( distance ), 0, 1 ) * FadeSteps ) / FadeSteps;
@@ -190,6 +259,9 @@ public static partial class MarkdownView
 	/// <summary>Builds one non-list block, fading its tail when <paramref name="after"/> visible characters follow it.</summary>
 	private static Blob BuildBlock( MarkdownBlock block, Action<Uri> openLink, Func<int, double>? fade = null, int after = 0 )
 	{
+		if ( block.Kind == "code" && block.Marker.Equals( "mermaid", StringComparison.OrdinalIgnoreCase ) )
+			return BuildDiagram( block.Text );
+
 		if ( block.Kind == "code" )
 			return BuildCode( block.Text, block.Marker, isRunnable: true );
 
@@ -217,6 +289,12 @@ public static partial class MarkdownView
 			};
 		}
 
+		if ( block.Kind == "math" )
+			return BuildMath( block.Text );
+
+		if ( block.Kind == "paragraph" && BuildParagraphWithImages( block.Text, openLink ) is { } withImages )
+			return withImages;
+
 		var text = BuildInlineText( block.Text, openLink, fade: fade, after: after );
 		if ( block.Kind == "heading" )
 		{
@@ -227,6 +305,146 @@ public static partial class MarkdownView
 		}
 
 		return text;
+	}
+
+	/// <summary>Builds a Mermaid diagram: drawn natively for flowcharts and sequence diagrams; other types, and sources it cannot read, show their source with a note.</summary>
+	private static Blob BuildDiagram( string source )
+	{
+		if ( MermaidView.Build( source ) is { } diagram )
+			return diagram;
+		return new Container
+		{
+			MinWidth = 0,
+			Gap = CodeGap * 2,
+			Children =
+			[
+				new Text { Content = "This Mermaid diagram type is not drawn yet; its source:", FontSize = BodySize - 2, Color = Theme.Current.Muted },
+				BuildCode( source, "mermaid" ),
+			],
+		};
+	}
+
+	/// <summary>Builds display math, centered and a little larger than prose, as LaTeX converted to Unicode with its colors.</summary>
+	private static Text BuildMath( string latex ) => new( [.. LatexText.Convert( latex ).Select( segment => new TextSpan( segment.Text, BuildInlineStyle( new( segment.Text, InlineKind.Math, null, segment.Color, segment.Background ), 1 )! ) )] )
+	{
+		Selectable = true,
+		FontFamily = ViewStyle.FontFamily,
+		FontSize = BodySize + 2,
+		LineHeight = BodyLineHeight,
+		Color = Theme.Current.Text,
+		TextAlign = TextAlign.Center,
+		MinWidth = 0,
+	};
+
+	/// <summary>Defines the largest side, in pixels, an image in Markdown is decoded at.</summary>
+	private const int ImagePixels = 1600;
+
+	/// <summary>Defines the most bytes a web image in Markdown may have, 20 MiB.</summary>
+	private const int MaxWebImageBytes = 20 * 1024 * 1024;
+
+	/// <summary>Defines the tallest an image in Markdown shows, in logical pixels.</summary>
+	private const int ImageMaxHeight = 480;
+
+	/// <summary>Defines how many image sources stay cached before the cache starts over.</summary>
+	private const int MaxCachedImages = 64;
+
+	/// <summary>Holds each image's shared source by full path or web address, so rebuilt messages reuse the decoded image; on the UI thread.</summary>
+	private static readonly Dictionary<string, AsyncImageSource> _images = new( StringComparer.OrdinalIgnoreCase );
+
+	/// <summary>Downloads web images; shared, as one client per request would exhaust sockets.</summary>
+	private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds( 30 ) };
+
+	/// <summary>Builds a paragraph that holds images, <c>![alt](source)</c> or <c>&lt;img src alt&gt;</c>, as its text and its images in order, each image
+	/// on its own line; a source is an existing local file, by full path or <c>file:</c> URI, or an http or https address. Null for a paragraph
+	/// without an image that shows, which builds as text, where an image shows its alt text as a link.</summary>
+	private static Container? BuildParagraphWithImages( string text, Action<Uri> openLink )
+	{
+		if ( !text.Contains( "![", StringComparison.Ordinal ) && !text.Contains( "<img", StringComparison.OrdinalIgnoreCase ) )
+			return null;
+
+		var children = new List<Blob>();
+		var position = 0;
+		foreach ( Match match in ImagePattern().Matches( text ) )
+		{
+			var destination = match.Groups["path"].Success ? match.Groups["path"].Value : match.Groups["src"].Value;
+			var alt = match.Groups["alt"].Success ? match.Groups["alt"].Value : match.Groups["imgalt"].Value;
+			if ( FindImageSource( System.Net.WebUtility.HtmlDecode( destination ) ) is not var (key, source, name) )
+				continue;
+
+			if ( text[position..match.Index].Trim() is { Length: > 0 } before )
+				children.Add( BuildInlineText( before, openLink ) );
+			children.Add( new Image
+			{
+				Key = $"image:{key}",
+				Source = source,
+				Fit = ImageFit.Contain,
+				MaxWidth = Length.Percent( 100 ),
+				MaxHeight = ImageMaxHeight,
+				AlignSelf = AlignSelf.FlexStart,
+				BorderRadius = Theme.Current.Radius,
+				AccessibilityName = alt.Length > 0 ? alt : name,
+				Fallback = new Text { Content = $"Image could not load: {name}", Color = Theme.Current.Muted, FontSize = Theme.Current.FontSize - 1 },
+			} );
+			position = match.Index + match.Length;
+		}
+		if ( children.Count == 0 )
+			return null;
+		if ( text[position..].Trim() is { Length: > 0 } after )
+			children.Add( BuildInlineText( after, openLink ) );
+
+		return new Container
+		{
+			MinWidth = 0,
+			Gap = Theme.Current.Spacing,
+			Children = children,
+		};
+	}
+
+	/// <summary>Finds the shared source of an image: a local file that exists, by full path or <c>file:</c> URI, or a web address; null for anything else.</summary>
+	private static (string Key, AsyncImageSource Source, string Name)? FindImageSource( string destination )
+	{
+		var value = destination.Trim();
+		if ( ParseWebLink( value ) is { } web )
+		{
+			var address = web.AbsoluteUri;
+			return (address, GetImageSource( address, cancellation => LoadWebImageAsync( web, cancellation ) ), Path.GetFileName( web.AbsolutePath ) is { Length: > 0 } file ? file : web.Host);
+		}
+
+		var path = Uri.TryCreate( value, UriKind.Absolute, out var uri ) && uri.IsFile ? uri.LocalPath : value;
+		if ( !Path.IsPathFullyQualified( path ) || !File.Exists( path ) )
+			return null;
+		return (path, GetImageSource( path, cancellation => Task.Run( () => ImageSource.LoadThumbnail( path, ImagePixels, ImagePixels, cancellation ), cancellation ) ), Path.GetFileName( path ));
+	}
+
+	/// <summary>Gets the cached source of an image by its key, creating it with a loader the first time.</summary>
+	private static AsyncImageSource GetImageSource( string key, Func<CancellationToken, Task<ImageSource>> load )
+	{
+		if ( _images.TryGetValue( key, out var source ) )
+			return source;
+		if ( _images.Count >= MaxCachedImages )
+			_images.Clear();
+		return _images[key] = new AsyncImageSource( load );
+	}
+
+	/// <summary>Downloads a web image of at most <see cref="MaxWebImageBytes"/> and decodes it.</summary>
+	/// <exception cref="InvalidDataException">The image is larger than the limit.</exception>
+	private static async Task<ImageSource> LoadWebImageAsync( Uri address, CancellationToken cancellation )
+	{
+		using var response = await _http.GetAsync( address, HttpCompletionOption.ResponseHeadersRead, cancellation ).ConfigureAwait( false );
+		response.EnsureSuccessStatusCode();
+		if ( response.Content.Headers.ContentLength > MaxWebImageBytes )
+			throw new InvalidDataException( "The image is too large." );
+		await using var stream = await response.Content.ReadAsStreamAsync( cancellation ).ConfigureAwait( false );
+		using var buffer = new MemoryStream();
+		var chunk = new byte[81920];
+		int read;
+		while ( (read = await stream.ReadAsync( chunk, cancellation ).ConfigureAwait( false )) > 0 )
+		{
+			if ( buffer.Length + read > MaxWebImageBytes )
+				throw new InvalidDataException( "The image is too large." );
+			buffer.Write( chunk, 0, read );
+		}
+		return ImageSource.Decode( buffer.GetBuffer().AsMemory( 0, (int)buffer.Length ), cancellation );
 	}
 
 	/// <summary>Builds consecutive list items with a shared marker column and hanging, nested indentation.</summary>
@@ -585,304 +803,12 @@ public static partial class MarkdownView
 		return cells;
 	}
 
-	/// <summary>Builds inline bold, italic, code, strike-through and link spans in prose typography, fading its tail when <paramref name="fade"/> is given.</summary>
-	/// <remarks>A click on a link's text opens it; a drag that selects text does not.</remarks>
-	private static Text BuildInlineText( string text, Action<Uri>? openLink, bool grow = false, Func<int, double>? fade = null, int after = 0 )
-	{
-		var runs = ParseInlineRuns( text );
-		var view = new Text( BuildInlineSpans( text, runs, fade, after ) )
-		{
-			Selectable = true,
-			FontFamily = ViewStyle.FontFamily,
-			FontSize = BodySize,
-			LineHeight = BodyLineHeight,
-			Color = Theme.Current.Text,
-			MinWidth = 0,
-			FlexGrow = grow ? 1 : 0,
-		};
-		if ( openLink is null || !runs.Any( run => run.Link is not null ) )
-			return view;
-
-		// Each link's range in the shown text, which is the runs' text in order.
-		var links = new List<(int Start, int End, Uri Link)>();
-		var offset = 0;
-		foreach ( var run in runs )
-		{
-			if ( run.Link is { } link )
-				links.Add( (offset, offset + run.Text.Length, link) );
-			offset += run.Text.Length;
-		}
-
-		// The press lives outside this declaration: a rebuild between press and release replaces these handlers, and a press
-		// remembered only in this build's closure was lost, so the link did nothing.
-		var handle = new ElementHandle();
-		view.Handle = handle;
-		view.OnPointerDown = e => _linkPress = e.Button == PointerButton.Primary ? e.WindowPosition : null;
-		view.OnPointerUp = e =>
-		{
-			var pressed = _linkPress;
-			_linkPress = null;
-			if ( pressed is not { } start || e.Button != PointerButton.Primary )
-				return;
-
-			var end = e.WindowPosition;
-			if ( Math.Abs( end.X - start.X ) > ClickSlop || Math.Abs( end.Y - start.Y ) > ClickSlop
-				|| !handle.TryGetTextPositionAt( end, TextCoordinateSpace.Window, out var position ) )
-				return;
-
-			foreach ( var (from, to, link) in links )
-			{
-				if ( position.Offset >= from && position.Offset < to )
-				{
-					openLink( link );
-					return;
-				}
-			}
-		};
-		return view;
-	}
-
-	/// <summary>Builds inline spans; with a fade, characters split into runs of equal opacity by how many visible characters follow them.</summary>
-	private static TextSpan[] BuildInlineSpans( string text, List<InlineRun> runs, Func<int, double>? fade, int after )
-	{
-		if ( fade is null || fade( after ) >= 1 )
-			return [.. runs.Select( run => new TextSpan( run.Text, BuildInlineStyle( run.Kind, 1 )! ) )];
-
-		var spans = new List<TextSpan>();
-		var remaining = runs.Sum( run => run.Text.Length );
-		foreach ( var (value, kind, _) in runs )
-		{
-			if ( value.Length == 0 )
-				continue;
-			var start = 0;
-			var alpha = ComputeFade( fade, after + remaining - 1 );
-			for ( var index = 1; index <= value.Length; index++ )
-			{
-				// The halves of a surrogate pair stay in one span.
-				if ( index < value.Length && char.IsLowSurrogate( value[index] ) )
-					continue;
-				var next = index < value.Length ? ComputeFade( fade, after + remaining - 1 - index ) : -1;
-				if ( next == alpha )
-					continue;
-				spans.Add( new( value[start..index], BuildInlineStyle( kind, alpha )! ) );
-				start = index;
-				alpha = next;
-			}
-			remaining -= value.Length;
-		}
-		if ( spans.Count == 0 )
-			spans.Add( new( text, null! ) );
-		return [.. spans];
-	}
-
-	/// <summary>Parses inline Markdown without interpreting embedded HTML or escape sequences.</summary>
-	public static IReadOnlyList<TextSpan> ParseInline( string text ) => [.. ParseInlineRuns( text ).Select( run => new TextSpan( run.Text, BuildInlineStyle( run.Kind, 1 )! ) )];
-
-	/// <summary>Splits inline Markdown into visible text runs and their emphasis.</summary>
-	/// <remarks>
-	/// Code spans are found first, as CommonMark does: a run of backticks closes at the next run of the same length, so <c>``a`b``</c> works.
-	/// Each span is masked by one private-use character before emphasis is matched, so emphasis around code, such as <c>**`file.cs`**</c>,
-	/// and link labels with code keep their formatting instead of showing the backticks.
-	/// </remarks>
-	private static List<InlineRun> ParseInlineRuns( string text )
-	{
-		var codes = new List<string>();
-		var masked = new StringBuilder( text.Length );
-		var index = 0;
-		while ( index < text.Length )
-		{
-			if ( text[index] != '`' || codes.Count >= CodeMaskCount )
-			{
-				masked.Append( text[index++] );
-				continue;
-			}
-
-			var length = 1;
-			while ( index + length < text.Length && text[index + length] == '`' )
-				length++;
-			var close = FindBacktickRun( text, index + length, length );
-			if ( close < 0 )
-			{
-				// An unclosed run is literal text, such as a lone backtick or a span still streaming.
-				masked.Append( text, index, length );
-				index += length;
-				continue;
-			}
-
-			var content = text[(index + length)..close];
-			// One space on both sides is padding that lets a span start or end with a backtick.
-			if ( content.Length > 2 && content[0] == ' ' && content[^1] == ' ' && content.Trim().Length > 0 )
-				content = content[1..^1];
-			masked.Append( (char)(CodeMask + codes.Count) );
-			codes.Add( content );
-			index = close + length;
-		}
-
-		var runs = new List<InlineRun>();
-		AddEmphasisRuns( masked.ToString(), InlineKind.Plain, null, codes, runs );
-		if ( runs.Count == 0 )
-			runs.Add( new( text, InlineKind.Plain, null ) );
-		return runs;
-	}
-
-	/// <summary>Finds the next run of exactly a number of backticks at or after a position, or -1.</summary>
-	private static int FindBacktickRun( string text, int start, int length )
-	{
-		for ( var index = start; index < text.Length; index++ )
-		{
-			if ( text[index] != '`' )
-				continue;
-			var end = index;
-			while ( end < text.Length && text[end] == '`' )
-				end++;
-			if ( end - index == length )
-				return index;
-			index = end - 1;
-		}
-		return -1;
-	}
-
-	/// <summary>Adds the runs of masked text, matching emphasis and links and parsing their contents again with the outer emphasis and link added.</summary>
-	private static void AddEmphasisRuns( string text, InlineKind outer, Uri? link, List<string> codes, List<InlineRun> runs )
-	{
-		var position = 0;
-		foreach ( Match match in InlinePattern().Matches( text ) )
-		{
-			if ( match.Index > position )
-				AddCodeRuns( text[position..match.Index], outer, link, codes, runs );
-			// Groups one through five capture the visible text of each alternative; a link's destination follows in six.
-			var group = 1;
-			while ( !match.Groups[group].Success )
-				group++;
-			var kind = group switch
-			{
-				1 or 2 => InlineKind.Bold,
-				3 => InlineKind.Strike,
-				4 => InlineKind.Italic,
-				_ => InlineKind.Link,
-			};
-			var inner = kind == InlineKind.Link ? ParseWebLink( match.Groups[6].Value ) ?? link : link;
-			AddEmphasisRuns( match.Groups[group].Value, outer | kind, inner, codes, runs );
-			position = match.Index + match.Length;
-		}
-		if ( position < text.Length )
-			AddCodeRuns( text[position..], outer, link, codes, runs );
-	}
-
-	/// <summary>Adds text with its masked code spans restored as code runs, and bare web addresses outside a link as link runs.</summary>
-	private static void AddCodeRuns( string text, InlineKind kind, Uri? link, List<string> codes, List<InlineRun> runs )
-	{
-		var start = 0;
-		for ( var index = 0; index < text.Length; index++ )
-		{
-			var code = text[index] - CodeMask;
-			if ( code < 0 || code >= codes.Count )
-				continue;
-			if ( index > start )
-				AddUrlRuns( text[start..index], kind, link, runs );
-			runs.Add( new( codes[code], kind | InlineKind.Code, link ?? ParseBareUrl( codes[code] ) ) );
-			start = index + 1;
-		}
-		if ( start < text.Length )
-			AddUrlRuns( text[start..], kind, link, runs );
-	}
-
-	/// <summary>Adds plain text, splitting out each bare web address as a link run unless the text already belongs to a link.</summary>
-	private static void AddUrlRuns( string text, InlineKind kind, Uri? link, List<InlineRun> runs )
-	{
-		if ( link is not null )
-		{
-			runs.Add( new( text, kind, link ) );
-			return;
-		}
-
-		var position = 0;
-		foreach ( Match match in BareUrlPattern().Matches( text ) )
-		{
-			// Closing punctuation after an address ends the sentence, not the address.
-			var value = match.Value.TrimEnd( '.', ',', ';', ':', '!', '?', '\'', '"' );
-			if ( ParseWebLink( value ) is not { } uri )
-				continue;
-			if ( match.Index > position )
-				runs.Add( new( text[position..match.Index], kind, null ) );
-			runs.Add( new( value, kind | InlineKind.Link, uri ) );
-			position = match.Index + value.Length;
-		}
-		if ( position < text.Length )
-			runs.Add( new( text[position..], kind, null ) );
-	}
-
-	/// <summary>Reads a code span that is exactly one web address, such as <c>`https://example.com`</c>, or null.</summary>
-	private static Uri? ParseBareUrl( string code ) => BareUrlPattern().Match( code ) is { Success: true } match && match.Length == code.Length ? ParseWebLink( code ) : null;
-
-	/// <summary>Reads an absolute http or https address, the only links a click opens, or null.</summary>
-	private static Uri? ParseWebLink( string destination ) =>
-		Uri.TryCreate( destination.Trim(), UriKind.Absolute, out var uri ) && uri.Scheme is "https" or "http" ? uri : null;
-
-	/// <summary>Defines how far, in logical pixels, the pointer may move between press and release and still count as a click on a link.</summary>
-	private const double ClickSlop = 4;
-
-	/// <summary>Stores where the primary pointer pressed link text, in window coordinates, until it is released; shared by every link text, since one pointer presses at a time.</summary>
-	private static Point? _linkPress;
-
-	/// <summary>Stores one run of visible inline text, its emphasis, and the web address it links to, if any.</summary>
-	private readonly record struct InlineRun( string Text, InlineKind Kind, Uri? Link );
-
-	/// <summary>Builds the style of one inline run at an opacity; plain text at full opacity needs none.</summary>
-	private static Style? BuildInlineStyle( InlineKind kind, double alpha )
-	{
-		if ( kind == InlineKind.Plain && alpha >= 1 )
-			return null;
-
-		var style = new Style();
-		if ( kind.HasFlag( InlineKind.Bold ) )
-			style.FontWeight = EmphasisWeight;
-		if ( kind.HasFlag( InlineKind.Italic ) )
-			style.FontStyle = FontStyle.Italic;
-		if ( kind.HasFlag( InlineKind.Code ) )
-			style.FontFamily = ViewStyle.CodeFontFamily;
-		if ( kind.HasFlag( InlineKind.Link ) )
-			style.TextDecoration = TextDecoration.Underline;
-		else if ( kind.HasFlag( InlineKind.Strike ) )
-			style.TextDecoration = TextDecoration.LineThrough;
-		var color = kind.HasFlag( InlineKind.Code ) || kind.HasFlag( InlineKind.Link ) ? Theme.Current.Accent : Theme.Current.Text;
-		if ( alpha < 1 )
-			style.Color = color.WithAlpha( color.A * alpha );
-		else if ( color != Theme.Current.Text )
-			style.Color = color;
-		return style;
-	}
-
-	/// <summary>Defines the first private-use character that masks a code span while emphasis is matched.</summary>
-	private const char CodeMask = '\uF000';
-
-	/// <summary>Defines how many code spans one text can mask; further backticks stay literal.</summary>
-	private const int CodeMaskCount = 0x800;
-
-	/// <summary>Names the emphasis of one inline run; nested emphasis combines.</summary>
-	[Flags]
-	private enum InlineKind
-	{
-		/// <summary>Unformatted text.</summary>
-		Plain = 0,
-
-		/// <summary>Strong emphasis.</summary>
-		Bold = 1,
-
-		/// <summary>An inline code span.</summary>
-		Code = 2,
-
-		/// <summary>Struck-through text.</summary>
-		Strike = 4,
-
-		/// <summary>Italic emphasis.</summary>
-		Italic = 8,
-
-		/// <summary>A link label.</summary>
-		Link = 16,
-	}
-
 	/// <summary>Parses block structure, list nesting, and soft line breaks while keeping code bodies and incomplete streaming fences intact.</summary>
+	/// <remarks>
+	/// Besides the usual blocks it reads underlined (setext) headings, code indented by four spaces, fences of any length, display math in
+	/// <c>$$…$$</c> or <c>\[…\]</c>, link reference and footnote definitions, and lines that are only HTML block tags such as <c>&lt;details&gt;</c>.
+	/// A fence or quote indented under a list item stays inside the item, at its depth.
+	/// </remarks>
 	public static IReadOnlyList<MarkdownBlock> Parse( string markdown )
 	{
 		var lines = markdown.Replace( "\r\n", "\n" ).Split( '\n' );
@@ -895,6 +821,10 @@ public static partial class MarkdownView
 		{
 			var line = lines[index];
 			var trimmed = line.TrimStart();
+			var indent = ComputeIndent( line );
+			// A block indented under a list item belongs to it, one level deeper.
+			var isInItem = listIndents.Count > 0 && indent > 0;
+			var itemDepth = isInItem ? listIndents.Count : 0;
 			if ( string.IsNullOrWhiteSpace( line ) )
 			{
 				FlushParagraph( paragraph, blocks );
@@ -902,16 +832,44 @@ public static partial class MarkdownView
 				continue;
 			}
 
-			if ( trimmed.StartsWith( "```", StringComparison.Ordinal ) || trimmed.StartsWith( "~~~", StringComparison.Ordinal ) )
+			if ( FencePattern().Match( line ) is { Success: true } fence )
 			{
 				FlushParagraph( paragraph, blocks );
-				listIndents.Clear();
-				var fence = trimmed[..3];
-				var language = trimmed[3..].Trim();
+				if ( !isInItem )
+					listIndents.Clear();
+				// A fence closes at a run of the same character at least as long, so a longer fence can hold a shorter one.
+				var mark = fence.Groups["mark"].Value;
+				var language = fence.Groups["info"].Value.Trim();
 				var code = new List<string>();
-				while ( ++index < lines.Length && !lines[index].TrimStart().StartsWith( fence, StringComparison.Ordinal ) )
-					code.Add( lines[index] );
-				blocks.Add( new( "code", string.Join( "\n", code ), language ) );
+				while ( ++index < lines.Length && !IsFenceClose( lines[index], mark ) )
+					code.Add( RemoveIndent( lines[index], indent ) );
+				blocks.Add( new( "code", string.Join( "\n", code ), language, itemDepth ) );
+			}
+			else if ( listIndents.Count == 0 && paragraph.Length == 0 && indent >= TabWidth )
+			{
+				// Code indented by four columns keeps its lines; blank lines inside it stay, trailing ones do not.
+				var code = new List<string> { RemoveIndent( line, TabWidth ) };
+				while ( index + 1 < lines.Length && (string.IsNullOrWhiteSpace( lines[index + 1] ) || ComputeIndent( lines[index + 1] ) >= TabWidth) )
+					code.Add( RemoveIndent( lines[++index], TabWidth ) );
+				while ( code.Count > 0 && string.IsNullOrWhiteSpace( code[^1] ) )
+					code.RemoveAt( code.Count - 1 );
+				blocks.Add( new( "code", string.Join( "\n", code ), "" ) );
+			}
+			else if ( trimmed.StartsWith( "$$", StringComparison.Ordinal ) || trimmed.StartsWith( "\\[", StringComparison.Ordinal ) )
+			{
+				FlushParagraph( paragraph, blocks );
+				if ( !isInItem )
+					listIndents.Clear();
+				var close = trimmed[0] == '$' ? "$$" : "\\]";
+				var math = new StringBuilder( trimmed[2..] );
+				var end = math.ToString().IndexOf( close, StringComparison.Ordinal );
+				while ( end < 0 && index + 1 < lines.Length )
+				{
+					math.Append( '\n' ).Append( lines[++index].Trim() );
+					end = math.ToString().IndexOf( close, StringComparison.Ordinal );
+				}
+				var formula = end < 0 ? math.ToString() : math.ToString()[..end];
+				blocks.Add( new( "math", formula.Trim(), "", itemDepth ) );
 			}
 			else if ( index + 1 < lines.Length && line.Contains( '|' ) && TableRulePattern().IsMatch( lines[index + 1] ) )
 			{
@@ -928,16 +886,39 @@ public static partial class MarkdownView
 				listIndents.Clear();
 				blocks.Add( new( "heading", heading.Groups[2].Value, heading.Groups[1].Value ) );
 			}
+			else if ( paragraph.Length > 0 && SetextPattern().Match( line ) is { Success: true } underline )
+			{
+				// A line of = or - under a paragraph makes it a heading of level one or two.
+				var title = paragraph.ToString();
+				paragraph.Clear();
+				listIndents.Clear();
+				blocks.Add( new( "heading", title, underline.Groups[1].Value[0] == '=' ? "#" : "##" ) );
+			}
 			else if ( RulePattern().IsMatch( trimmed ) )
 			{
 				FlushParagraph( paragraph, blocks );
 				listIndents.Clear();
 				blocks.Add( new( "rule", "", "" ) );
 			}
+			else if ( FootnotePattern().Match( trimmed ) is { Success: true } footnote && indent < TabWidth )
+			{
+				FlushParagraph( paragraph, blocks );
+				listIndents.Clear();
+				// Indented lines after a footnote continue it.
+				var note = new StringBuilder( footnote.Groups[2].Value.Trim() );
+				while ( index + 1 < lines.Length && lines[index + 1].Trim().Length > 0 && ComputeIndent( lines[index + 1] ) > 0 )
+					note.Append( ' ' ).Append( lines[++index].Trim() );
+				blocks.Add( new( "footnote", note.ToString(), footnote.Groups[1].Value ) );
+			}
+			else if ( paragraph.Length == 0 && indent < TabWidth && ReferencePattern().Match( trimmed ) is { Success: true } reference )
+			{
+				listIndents.Clear();
+				blocks.Add( new( "reference", reference.Groups[2].Value, reference.Groups[1].Value ) );
+			}
 			else if ( ListPattern().Match( trimmed ) is { Success: true } item )
 			{
 				FlushParagraph( paragraph, blocks );
-				var depth = ComputeDepth( listIndents, ComputeIndent( line ) );
+				var depth = ComputeDepth( listIndents, indent );
 				var text = item.Groups[2].Value;
 				var marker = char.IsDigit( item.Groups[1].Value[0] ) ? item.Groups[1].Value : Bullets[depth % Bullets.Length];
 				if ( text.StartsWith( "[ ] ", StringComparison.Ordinal ) || text.StartsWith( "[x] ", StringComparison.OrdinalIgnoreCase ) )
@@ -950,13 +931,24 @@ public static partial class MarkdownView
 			else if ( trimmed.StartsWith( '>' ) )
 			{
 				FlushParagraph( paragraph, blocks );
-				listIndents.Clear();
+				if ( !isInItem )
+					listIndents.Clear();
 				var quote = new List<string> { ComputeQuoteLine( trimmed ) };
 				while ( index + 1 < lines.Length && lines[index + 1].TrimStart().StartsWith( '>' ) )
 					quote.Add( ComputeQuoteLine( lines[++index].TrimStart() ) );
-				blocks.Add( new( "quote", string.Join( "\n", quote ), "" ) );
+				blocks.Add( new( "quote", string.Join( "\n", quote ), "", itemDepth ) );
 			}
-			else if ( listIndents.Count > 0 && (!isAfterBlank || ComputeIndent( line ) > 0) )
+			else if ( HtmlBlockPattern().IsMatch( trimmed ) )
+			{
+				// A line of only block tags, such as <details> or </div>, holds no text; a summary shows as a bold line and <hr> as a rule.
+				FlushParagraph( paragraph, blocks );
+				listIndents.Clear();
+				if ( SummaryPattern().Match( trimmed ) is { Success: true } summary )
+					blocks.Add( new( "paragraph", $"**{summary.Groups[1].Value.Trim()}**", "" ) );
+				else if ( HrPattern().IsMatch( trimmed ) )
+					blocks.Add( new( "rule", "", "" ) );
+			}
+			else if ( listIndents.Count > 0 && (!isAfterBlank || indent > 0) )
 			{
 				// Lazy and indented continuation lines belong to the preceding list item.
 				var last = blocks[^1];
@@ -991,6 +983,26 @@ public static partial class MarkdownView
 		}
 		FlushParagraph( paragraph, blocks );
 		return blocks;
+	}
+
+	/// <summary>Reports whether a line closes a fence: only a run of its character at least as long as its opening, and spaces.</summary>
+	private static bool IsFenceClose( string line, string mark )
+	{
+		var trimmed = line.Trim();
+		return trimmed.Length >= mark.Length && trimmed.All( character => character == mark[0] );
+	}
+
+	/// <summary>Removes up to a number of columns of leading whitespace from a line.</summary>
+	private static string RemoveIndent( string line, int columns )
+	{
+		var width = 0;
+		var index = 0;
+		while ( index < line.Length && width < columns && line[index] is ' ' or '\t' )
+		{
+			width += line[index] == '\t' ? TabWidth : 1;
+			index++;
+		}
+		return line[index..];
 	}
 
 	/// <summary>Reports whether a line draws a diagram: it holds box-drawing characters or triangle arrowheads.</summary>
@@ -1054,13 +1066,33 @@ public static partial class MarkdownView
 	[GeneratedRegex( @"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$" )]
 	private static partial Regex TableRulePattern();
 
-	/// <summary>Matches inline emphasis, deletion, italics, and link labels; code spans are masked before it runs.</summary>
-	[GeneratedRegex( @"\*\*(.+?)\*\*|__(.+?)__|~~(.+?)~~|\*([^*]+)\*|\[([^\]]+)\]\(([^)]+)\)" )]
-	private static partial Regex InlinePattern();
+	/// <summary>Matches a fence's opening: three or more backticks or tildes, then its info string such as the language.</summary>
+	[GeneratedRegex( @"^\s*(?<mark>`{3,}|~{3,})(?<info>[^`]*)$" )]
+	private static partial Regex FencePattern();
 
-	/// <summary>Matches a bare web address in prose; trailing sentence punctuation is trimmed after the match.</summary>
-	[GeneratedRegex( @"https?://[^\s<>()\[\]{}""'`]+" )]
-	private static partial Regex BareUrlPattern();
+	/// <summary>Matches the underline of a setext heading: a run of = or - alone on its line.</summary>
+	[GeneratedRegex( @"^ {0,3}(=+|-+)\s*$" )]
+	private static partial Regex SetextPattern();
+
+	/// <summary>Matches a footnote definition: its label, then its text.</summary>
+	[GeneratedRegex( @"^\[\^([^\]\s]+)\]:\s*(.*)$" )]
+	private static partial Regex FootnotePattern();
+
+	/// <summary>Matches a link reference definition: its label, then its destination and an optional title.</summary>
+	[GeneratedRegex( @"^\[([^\]^][^\]]*)\]:\s*(<[^>]+>|\S+)(?:\s+(?:""[^""]*""|'[^']*'|\([^)]*\)))?\s*$" )]
+	private static partial Regex ReferencePattern();
+
+	/// <summary>Matches a line of only HTML block tags, summaries and comments, such as <c>&lt;details&gt;&lt;summary&gt;More&lt;/summary&gt;</c>.</summary>
+	[GeneratedRegex( @"^(?:(?:<summary[^>]*>.*?</summary\s*>|<!--.*?-->|</?(?:details|summary|div|p|section|article|header|footer|nav|aside|figure|figcaption|center|table|thead|tbody|tfoot|tr|td|th|ul|ol|li|dl|dt|dd|br|hr|picture|source|span)(?:\s[^<>]*)?/?>)\s*)+$", RegexOptions.IgnoreCase )]
+	private static partial Regex HtmlBlockPattern();
+
+	/// <summary>Matches a summary element's text.</summary>
+	[GeneratedRegex( @"<summary[^>]*>(.*?)</summary\s*>", RegexOptions.IgnoreCase )]
+	private static partial Regex SummaryPattern();
+
+	/// <summary>Matches a horizontal rule tag.</summary>
+	[GeneratedRegex( @"<hr\b", RegexOptions.IgnoreCase )]
+	private static partial Regex HrPattern();
 }
 
 /// <summary>Stores one parsed Markdown block, its semantic prefix or language, and its list nesting depth.</summary>

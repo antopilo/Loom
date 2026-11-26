@@ -86,6 +86,7 @@ internal static class WorkspaceChecks
 		module.OpenSession( app, "project:a", "Alpha renamed", () => Fill( "never" ) );
 		CoreChecks.Check( changes == 3 && created == 2, "SessionChanged is raised each time another session opens, and not when the open one is opened again." );
 
+		module.Store.Flush();
 		var reloaded = new WorkspaceStore( path );
 		reloaded.Load();
 		CoreChecks.Check( reloaded.SessionKey == "project:a" && reloaded.Items.Count == 2 && reloaded.Sessions.Any( session => session.Key == "project:b" ), "Sessions and the current one are saved." );
@@ -121,6 +122,7 @@ internal static class WorkspaceChecks
 		CoreChecks.Check( module.Tasks( WorkspacesModule.HomeSession ) is [{ Name: "Main", IsPinned: false }, { Name: "Notes", IsPinned: true }] && module.CurrentSession == "project:a",
 			"A task of a session that is not open is renamed and pinned without opening it." );
 
+		module.Store.Flush();
 		var reloaded = new WorkspaceStore( path );
 		reloaded.Load();
 		CoreChecks.Check( reloaded.ItemsOf( WorkspacesModule.HomeSession ) is [{ IsPinned: false }, { Name: "Notes", IsPinned: true }], "Pins and names are saved." );
@@ -170,6 +172,7 @@ internal static class WorkspaceChecks
 		module.OpenTask( app, home, WorkspacesModule.HomeTitle, notes, app.Panels.HideAll );
 		CoreChecks.Check( module.CurrentTask == notes && LastUsed( home, notes ) >= reopened, "Opening a task in another session marks it as used." );
 
+		module.Store.Flush();
 		var reloaded = new WorkspaceStore( path );
 		reloaded.Load();
 		CoreChecks.Check( reloaded.ItemsOf( home ).All( item => item.LastUsed >= started ), "Last use is saved with each task." );
@@ -339,6 +342,7 @@ internal static class WorkspaceChecks
 		var tools = await app.Tools.InvokeAsync( "workspaces_switch", JsonDocument.Parse( """{ "workspace": "dev" }""" ).RootElement, null, CancellationToken.None );
 		CoreChecks.Check( !tools.IsError && store.Current == dev && app.Panels.IsShown( devPanel ), "The switch tool finds a workspace by name and brings its panels back." );
 
+		module.Store.Flush();
 		var reloaded = new WorkspaceStore( path );
 		reloaded.Load();
 		CoreChecks.Check( reloaded.Items.Count == 2 && reloaded.Current == dev && reloaded.Items.First( item => item.Id == main ).Layout is not null,
@@ -347,6 +351,7 @@ internal static class WorkspaceChecks
 		CoreChecks.Check( store.Delete( app.Panels, dev ) && store.Current == main && !app.Panels.IsShown( devPanel ), "Deleting the current workspace switches to its neighbor first." );
 		CoreChecks.Check( !store.Delete( app.Panels, main ) && store.Items.Count == 1, "The last workspace cannot be deleted." );
 
+		store.Flush();
 		File.WriteAllText( path, "{broken" );
 		var broken = new WorkspaceStore( path );
 		broken.Load();

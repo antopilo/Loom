@@ -147,6 +147,8 @@ public sealed partial class ConversationsModule(
 		if ( store.LastError is { } error )
 			app.ReportError( "Conversations", new IOException( error ) );
 		store.Failed += MarkFailed;
+		// A long chat's messages are read off the UI thread, so opening it does not stall the window.
+		store.Post = context.Post;
 		Func<OmpService> backend = () => app.GetModule<OmpModule>().Service;
 		var local = new ChatHost( app.Hosts.Local, store, new ChatSessionService( app, store, backend, context.Post ), app, backend, context.Post );
 		_hosts = new ChatHosts( app, local, backend, context.Post );
@@ -191,6 +193,7 @@ public sealed partial class ConversationsModule(
 		_hosts = null;
 		store.Flush();
 		store.Failed -= MarkFailed;
+		store.Post = null;
 		store.Detach();
 		_workspaces?.SessionChanged -= UpdateSessionHost;
 		_workspaces = null;

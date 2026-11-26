@@ -46,6 +46,7 @@ internal static class ChatChecks
 		CoreChecks.Check( string.Concat( inline.Select( span => span.Text ) ) == "Plain bold and italic with code and link.", "Inline rendering removes syntax without losing visible text." );
 		CoreChecks.Check( ChatContent.ComposePrompt( "Review these ", [@"C:\My Files\shot.png", @"C:\src\a.cs"] ) == "Review these\n\n@\"C:\\My Files\\shot.png\" @\"C:\\src\\a.cs\"", "Attachments become quoted Omp file mentions, including paths with spaces." );
 		CoreChecks.Check( ChatContent.ComposePrompt( " ", [@"C:\shot.png"] ) == "@\"C:\\shot.png\"" && ChatContent.ComposePrompt( "Hi", [] ) == "Hi", "An attachment-only prompt sends just its mentions, and plain prompts are unchanged." );
+		CheckMarkdownSyntax( Visible );
 		CheckDiffs();
 		CheckRichDisplay();
 
@@ -83,6 +84,33 @@ internal static class ChatChecks
 		CheckReloadContinue();
 		CheckHeadlessTurn();
 		Console.WriteLine( "PASS rich Markdown, code/diffs, checklists/tables, streaming identity, rich payload persistence, pinned chat profiles, chat attention, chat folders, continuing after a reload, and a turn with no panel open." );
+	}
+
+	/// <summary>Checks the Markdown agents write beyond the basics: math, colors, other emphasis marks, escapes, entities, inline HTML, autolinks,
+	/// reference links, footnotes, underlined headings, indented code, long fences, code inside list items and HTML blocks.</summary>
+	private static void CheckMarkdownSyntax( Func<string, string> visible )
+	{
+		CoreChecks.Check( visible( @"Area $\pi r^2$, ratio $\frac{a}{b}$, sum $\sum_{i=1}^{n} x_i \leq \infty$." ) == "Area πr², ratio a/b, sum ∑ᵢ₌₁ⁿxᵢ≤∞.",
+			"Inline math turns Greek letters, scripts, fractions and operators into Unicode." );
+		CoreChecks.Check( visible( "Costs $5 and $6 today." ) == "Costs $5 and $6 today.", "Dollar amounts are not math." );
+		var colored = MarkdownView.ParseInline( @"A \textcolor{red}{warning} here" );
+		CoreChecks.Check( string.Concat( colored.Select( span => span.Text ) ) == "A warning here" && colored.Any( span => span.Text == "warning" && span.Style is not null ),
+			"A LaTeX color command outside math colors its text." );
+		CoreChecks.Check( visible( "***both*** and _under_ but snake_case_name" ) == "both and under but snake_case_name", "Bold italic and underscore italic work; underscores inside words stay." );
+		CoreChecks.Check( visible( @"\*not italic\* and \`tick\`" ) == "*not italic* and `tick`", "Backslash escapes show the character and drop the backslash." );
+		CoreChecks.Check( visible( "a&nbsp;b &lt;tag&gt; &amp; &#169;" ) == "a\u00A0b <tag> & ©", "HTML entities decode, and a decoded tag stays text." );
+		CoreChecks.Check( visible( "Press <kbd>Ctrl</kbd>+<b>S</b>, H<sub>2</sub>O, x<sup>2</sup>, List<T> and a<br>b" ) == "Press Ctrl+S, H₂O, x², List<T> and a\nb",
+			"Inline HTML becomes code, bold, scripts and line breaks, and generics in prose stay text." );
+		CoreChecks.Check( visible( "See <https://example.com> or <me@example.com>." ) == "See https://example.com or me@example.com.", "Autolinks drop their brackets." );
+		var document = MarkdownView.Parse( "Title\n=====\n\nSub\n---\n\n    indented code\n    line two\n\n````md\n```\ninner\n```\n````\n\n- item\n  ```sh\n  echo hi\n  ```\n\n<details>\n<summary>More</summary>\n\nText[^1].\n\n</details>\n\n[^1]: The note.\n[docs]: https://docs.example\n\n$$\n\\frac{1}{2}\n$$" );
+		CoreChecks.Check( document[0] is { Kind: "heading", Text: "Title", Marker: "#" } && document[1] is { Kind: "heading", Text: "Sub", Marker: "##" }, "Underlined headings read as levels one and two." );
+		CoreChecks.Check( document[2] is { Kind: "code", Text: "indented code\nline two" }, "Code indented by four spaces is a code block." );
+		CoreChecks.Check( document[3] is { Kind: "code", Text: "```\ninner\n```", Marker: "md" }, "A longer fence holds a shorter one." );
+		CoreChecks.Check( document[4] is { Kind: "list" } && document[5] is { Kind: "code", Text: "echo hi", Marker: "sh", Depth: 1 }, "A fence under a list item stays in the item." );
+		CoreChecks.Check( document[6] is { Kind: "paragraph", Text: "**More**" } && document[7] is { Kind: "paragraph", Text: "Text[^1]." }, "A details block shows its summary in bold and its content." );
+		CoreChecks.Check( document.Any( block => block is { Kind: "footnote", Marker: "1", Text: "The note." } ) && document.Any( block => block is { Kind: "reference", Marker: "docs" } ),
+			"Footnote and link reference definitions are read." );
+		CoreChecks.Check( document[^1] is { Kind: "math", Text: "\\frac{1}{2}" }, "Display math is its own block." );
 	}
 
 	/// <summary>Builds a chat view over a session of its own, as a panel hosted outside the Conversations module does in focused checks.</summary>

@@ -54,7 +54,7 @@ param(
 	[string] $Fixture,
 
 	# The scenarios to run, in order.
-	[ValidateSet( 'start', 'home', 'chat', 'working', 'streaming', 'unfocused', 'covered', 'minimized', 'settings', 'scroll', 'memory' )]
+	[ValidateSet( 'start', 'home', 'chat', 'working', 'streaming', 'unfocused', 'covered', 'minimized', 'settings', 'scroll', 'memory', 'switch' )]
 	[string[]] $Scenario = @( 'start', 'home', 'chat', 'working', 'streaming', 'unfocused', 'covered', 'minimized', 'settings', 'scroll', 'memory' ),
 
 	# Seconds each CPU and frame measurement lasts.
@@ -352,14 +352,14 @@ function New-Repository( [string] $Path, [string] $Name )
 }
 
 # Builds one exchange of the long chat: a question, a tool call and its result, and an answer with Markdown.
-function New-Exchange( [int] $Index, [datetime] $At )
+function New-Exchange( [int] $Index, [datetime] $At, [int] $OutputLines = 12 )
 {
 	$time = [DateTimeOffset]$At
 	$stamp = $time.ToUnixTimeMilliseconds()
 	$callId = "call-$Index"
 	$question = "Step ${Index}: tidy the parser and explain what changed in **module $Index**."
 	$command = "rg -n `"Parse`" src/Parser$Index.cs"
-	$output = ( 1..12 | ForEach-Object { "src/Parser$Index.cs:$( $_ * 7 ):    var token$_ = Parse( input, $_ );" } ) -join "`n"
+	$output = ( 1..$OutputLines | ForEach-Object { "src/Parser$Index.cs:$( $_ * 7 ):    var token$_ = Parse( input, $_ );" } ) -join "`n"
 	$answer = @"
 ## Parser $Index
 
@@ -420,11 +420,12 @@ Run ``dotnet test`` to check it; all $( 20 + $Index ) tests pass.
 function New-Template( [string] $Path )
 {
 	$projects = @()
-	foreach ( $name in @( 'Atlas', 'Beacon', 'Compass' ) )
+	foreach ( $name in @( 'Atlas', 'Beacon', 'Compass', 'Diary' ) )
 	{
 		$directory = Join-Path $Root "projects\$name"
 		New-Repository $directory $name
-		$projects += @{ Id = [guid]::NewGuid().ToString(); Profile = 'Work'; Name = $name; Directory = $directory }
+		# Diary is the Personal profile's, so the switch scenario has two profiles to switch between.
+		$projects += @{ Id = [guid]::NewGuid().ToString(); Profile = if ( $name -eq 'Diary' ) { 'Personal' } else { 'Work' }; Name = $name; Directory = $directory }
 	}
 
 	Write-Json "$Path\projects.json" @{ Version = 1; Projects = $projects }
@@ -447,16 +448,19 @@ function New-Template( [string] $Path )
 	for ( $chat = 0; $chat -lt 12; $chat++ )
 	{
 		$id = [guid]::NewGuid()
-		$exchanges = if ( $chat -eq 0 ) { 60 } else { 2 }
+		# Chat 8 is as long as the longest chats people keep (about 1,400 messages), for the switch scenario.
+		$exchanges = if ( $chat -eq 0 ) { 60 } elseif ( $chat -eq 8 ) { 350 } else { 2 }
 		$messages = @()
 		for ( $exchange = 1; $exchange -le $exchanges; $exchange++ )
 		{
-			$messages += New-Exchange $exchange $now.AddHours( -$chat ).AddMinutes( $exchange - $exchanges )
+			# Chat 8's tool outputs are as long as real ones (about 17 KB a message), so its file is tens of megabytes like the longest real chats.
+			$messages += New-Exchange $exchange $now.AddHours( -$chat ).AddMinutes( $exchange - $exchanges ) $( if ( $chat -eq 8 ) { 300 } else { 12 } )
 		}
 
-		$project = $projects[$chat % $projects.Count]
+		# The last three chats are Diary's, in the Personal profile; the others go round the Work projects.
+		$project = if ( $chat -ge 9 ) { $projects[3] } else { $projects[$chat % 3] }
 		$conversations += @{
-			Id = $id.ToString(); Profile = 'Work'; ProjectId = $project.Id; Title = if ( $chat -eq 0 ) { 'Tidy the parser' } else { "Chat $chat" }
+			Id = $id.ToString(); Profile = $project.Profile; ProjectId = $project.Id; Title = if ( $chat -eq 0 ) { 'Tidy the parser' } else { "Chat $chat" }
 			UpdatedAt = $now.AddHours( -$chat ).ToString( 'o' ); CreatedAt = $now.AddHours( -$chat - 1 ).ToString( 'o' )
 			BackendSessionPath = $null; Draft = $null; IsPinned = $false; IsTitleChosen = $true; IsTitleGenerated = $false; HasChat = $true
 			Directory = $null; Worktree = $null; IsTaskCheckOff = $false; Position = $null
@@ -466,7 +470,7 @@ function New-Template( [string] $Path )
 	}
 
 	Write-Json "$Path\conversations.json" @{ Version = 2; Conversations = $conversations }
-	return @{ Chat = $chats[0]; Project = $projects[0] }
+	return @{ Chat = $chats[0]; Chats = $chats; Project = $projects[0] }
 }
 
 # Builds a saved layout: panes side by side, each with one panel.
@@ -687,7 +691,7 @@ function Get-GooLock( [string] $Folder )
 
 # Starts Loom on a fresh copy of the template with a layout, in its own job, after recording the user's Loom; returns once it is interactive and its
 # window placed. A launch that fails is stopped and checked before the error goes on.
-function Start-Loom( [string] $Layout, [string] $Turn, [switch] $Profile )
+function Start-Loom( [string] $Layout, [string] $Turn, [switch] $Profile, [string] $Drive )
 {
 	$script:RunCount++
 	$folder = Join-Path $Root "run-$script:RunCount-$Layout"
@@ -709,6 +713,8 @@ function Start-Loom( [string] $Layout, [string] $Turn, [switch] $Profile )
 	$info.Environment['LOKN_FIXTURE_STREAM_MS'] = '400'
 	# One warm pipeline cache for every launch, outside the user's.
 	$info.Environment['GOO_VK_PIPELINE_CACHE_DIR'] = Join-Path $Root 'goo-pipeline-cache'
+	# The switches PerfTrace runs and measures in the switch scenario.
+	$info.Environment['LOKN_PERF_DRIVE'] = $Drive
 	if ( $Profile )
 	{
 		$info.Environment['GOO_FRAME_PROFILE'] = '1'
@@ -1017,6 +1023,55 @@ try
 					}
 					Write-Host ( 'scroll     cpu {0,6}%  fps {1,6}  cpu/frame {2} ms  goo frame p50 {3} ms p99 {4} ms' -f $result.CpuPercent, $result.Fps, $result.CpuMsPerFrame, $result.FrameP50Ms, $result.FrameP99Ms )
 					$Results.Scenarios += $result
+				}
+				finally
+				{
+					Stop-Loom $run
+				}
+			}
+
+			'switch'
+			{
+				# Switches chats and profiles as a click would, in a loop: a short chat, the long one, a chat of another project, a very long one,
+				# Personal, its chat, Work. Each step's first run is cold: its chat or profile had not been shown in this session yet.
+				$ids = @( 1, 0, 4, 8, 10 ) | ForEach-Object { $Seed.Chats[$_].ToString( 'N' ) }
+				$names = @{ $ids[0] = 'chat-short'; $ids[1] = 'chat-long'; $ids[2] = 'chat-other-project'; $ids[3] = 'chat-1400-messages'; $ids[4] = 'chat-personal' }
+				$steps = @( $ids[0..3] | ForEach-Object { "lokn://conversations/open/$_" } ) + @( 'profile', "lokn://conversations/open/$( $ids[4] )", 'profile' )
+				$run = Start-Loom 'chat' '' -Drive ( '1500|' + ( $steps -join '|' ) )
+				try
+				{
+					Set-Focused $run
+					Start-Sleep -Seconds $Seconds
+					$index = 0
+					$switches = @( Read-Trace $run | Where-Object { $_.Event -like 'switch *' } | ForEach-Object {
+						$fields = $_.Event.Split( ' ' )
+						# The two profile switches go to Personal, then back to Work.
+						$step = if ( $fields[1] -eq 'profile' ) { if ( $index % $steps.Count -eq 4 ) { 'to-personal' } else { 'to-work' } } else { $names[$fields[1]] }
+						$cold = $index -lt $steps.Count
+						$index++
+						[pscustomobject]@{
+							Step = $step + $( if ( $cold ) { ' (cold)' } else { '' } ); Handler = [double]$fields[3]; First = [double]$fields[5]; Frames = [int]$fields[7]; MaxGap = [double]$fields[9]; Dropped = [int]$fields[11]
+							Gaps = if ( $fields.Count -gt 13 ) { $fields[13] } else { '' }
+						}
+					} )
+					$rows = foreach ( $group in ( $switches | Group-Object Step ) )
+					{
+						[pscustomobject]@{
+							Scenario = 'switch'
+							Step = $group.Name
+							Count = $group.Count
+							HandlerMs = [math]::Round( ( $group.Group.Handler | Measure-Object -Average ).Average, 1 )
+							FirstFrameMs = [math]::Round( ( $group.Group.First | Measure-Object -Average ).Average, 1 )
+							MaxGapMs = [math]::Round( ( $group.Group.MaxGap | Measure-Object -Maximum ).Maximum, 1 )
+							DroppedPerSwitch = [math]::Round( ( $group.Group.Dropped | Measure-Object -Average ).Average, 1 )
+							Gaps = @( $group.Group.Gaps )
+						}
+					}
+					foreach ( $row in $rows )
+					{
+						Write-Host ( 'switch     {0,-20} x{1}  handler {2} ms  first frame {3} ms  worst gap {4} ms  dropped {5}/switch' -f $row.Step, $row.Count, $row.HandlerMs, $row.FirstFrameMs, $row.MaxGapMs, $row.DroppedPerSwitch )
+						$Results.Scenarios += $row
+					}
 				}
 				finally
 				{

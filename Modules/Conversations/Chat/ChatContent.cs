@@ -124,16 +124,19 @@ public sealed partial class ChatContent : PanelContent
 		_ = _version.Value;
 		var conversation = store.Get( conversationId );
 		UpdateGitWatch( store.GetDirectory( conversationId ) );
-		var messages = store.GetMessages( conversationId );
+		var messages = store.PeekMessages( conversationId );
+		// While the messages file is read off the UI thread the chat is neither empty nor shown yet; its rows count as present once it loads.
+		var isLoading = store.IsLoadingMessages( conversationId );
 		var rows = ComputeRows( messages );
-		UpdateShown( messages, rows );
+		if ( !isLoading )
+			UpdateShown( messages, rows );
 		var todo = ComputeCurrentTodo( messages );
 		_buildRow ??= BuildRow;
 		_placeRows ??= _marks.Update;
 		// The prompt floats over the transcript's end; the transcript pads its end by the prompt's height so the newest message clears it.
 		// It floats in an empty chat too, so the first message does not move the editor to another parent and drop its focus.
-		Blob view = rows.Count == 0
-			? BuildEmpty()
+		Blob view = isLoading ? BuildLoading()
+			: rows.Count == 0 ? BuildEmpty()
 			: new Virtual
 			{
 				// Only rows near the viewport are built and laid out, so long transcripts stay cheap to stream into and resize.
@@ -174,8 +177,8 @@ public sealed partial class ChatContent : PanelContent
 			area.Add( latest );
 		}
 		var children = new List<Blob>();
-		// An empty chat, new or just cleared, looks like Home, which has no title.
-		if ( rows.Count > 0 )
+		// An empty chat, new or just cleared, looks like Home, which has no title; a chat still loading keeps it, as its transcript will.
+		if ( rows.Count > 0 || isLoading )
 			children.Add( new Text
 			{
 				Key = "conversation-title",
@@ -214,6 +217,16 @@ public sealed partial class ChatContent : PanelContent
 			Children = children,
 		};
 	}
+
+	/// <summary>Builds the transcript's place while the chat's messages are read: empty, so neither the empty chat nor a partial transcript flashes.</summary>
+	private static Container BuildLoading() => new()
+	{
+		Key = "conversation-transcript-loading",
+		AccessibilityRole = AccessibilityRole.Group,
+		AccessibilityName = "Loading conversation",
+		FlexGrow = 1,
+		MinHeight = 0,
+	};
 
 	/// <summary>Builds the empty chat, new or cleared, as Home shows it: the wordmark and its host's recent cards, centered above the composer.</summary>
 	private Column BuildEmpty()

@@ -31,7 +31,7 @@ public sealed partial class ChatContent
 		if ( !session.IsBusy )
 			return false;
 
-		var messages = store.GetMessages( conversationId );
+		var messages = store.PeekMessages( conversationId );
 		return messages.Count > 0 && messages[^1] is { Role: "assistant" } newest && newest.Id == messageId && newest.CreatedAt >= _streamOpenedAt;
 	}
 

@@ -133,16 +133,49 @@ public sealed partial class ConversationStore
 	}
 
 	/// <summary>Gets a snapshot of a conversation's chronological messages, reading them from disk the first time.</summary>
-	/// <remarks>Reading it rebuilds the reader when this conversation's messages change, and only then.</remarks>
+	/// <remarks>
+	/// Reading it rebuilds the reader when this conversation's messages change, and only then. A read still running in the background
+	/// (<see cref="PeekMessages"/>) is overtaken: the file is read here at once, and the background result is dropped when it arrives.
+	/// </remarks>
 	public IReadOnlyList<ConversationMessage> GetMessages( Guid conversationId )
 	{
 		_ = Get( conversationId );
-		if ( !_messageVersions.TryGetValue( conversationId, out var version ) )
-			_messageVersions.Add( conversationId, version = new( 0 ) );
-		_ = version.Value;
+		_ = ReadMessageVersion( conversationId ).Value;
 		if ( !_snapshots.TryGetValue( conversationId, out var snapshot ) )
 			_snapshots.Add( conversationId, snapshot = [.. EnsureMessages( conversationId )] );
 		return snapshot;
+	}
+
+	/// <summary>Gets a snapshot of a conversation's messages for a view: as <see cref="GetMessages"/> does once they are loaded, otherwise none while
+	/// their file is read off the UI thread, after which readers rebuild with them.</summary>
+	/// <remarks>
+	/// Only a store with history files and a <see cref="Post"/> reads in the background; any other reads at once, as <see cref="GetMessages"/> does.
+	/// <see cref="IsLoadingMessages"/> tells a chat still being read from an empty one.
+	/// </remarks>
+	public IReadOnlyList<ConversationMessage> PeekMessages( Guid conversationId )
+	{
+		_ = Get( conversationId );
+		if ( !StartReadingMessages( conversationId ) )
+			return GetMessages( conversationId );
+
+		_ = ReadMessageVersion( conversationId ).Value;
+		return [];
+	}
+
+	/// <summary>Reports whether a conversation's messages are being read off the UI thread, so a view shows neither them nor an empty chat yet.</summary>
+	/// <remarks>Reading it rebuilds the reader when this conversation's messages change, which they do when the read is applied.</remarks>
+	public bool IsLoadingMessages( Guid conversationId )
+	{
+		_ = ReadMessageVersion( conversationId ).Value;
+		return _reads.ContainsKey( conversationId ) && !_messages.ContainsKey( conversationId );
+	}
+
+	/// <summary>Gets the state that tracks one conversation's message changes, creating it the first time.</summary>
+	private State<int> ReadMessageVersion( Guid conversationId )
+	{
+		if ( !_messageVersions.TryGetValue( conversationId, out var version ) )
+			_messageVersions.Add( conversationId, version = new( 0 ) );
+		return version;
 	}
 
 	/// <summary>Takes a deleted project's chats out of it, keeping them and their messages in the profile's ungrouped history.</summary>
@@ -501,6 +534,7 @@ public sealed partial class ConversationStore
 		_conversations.Remove( id );
 		_messages.Remove( id );
 		_snapshots.Remove( id );
+		_reads.Remove( id );
 		_unreadable.Remove( id );
 		_dirtyMessages.Remove( id );
 		if ( _messageVersions.Remove( id, out var version ) )

@@ -27,6 +27,9 @@ document.title = "__NAME__".replace( /^"|"$/g, "" ) + " snapshot";
 box.style.width = page.style.width = width + "px";
 box.style.height = page.style.height = ( height || 900 ) + "px";
 
+// Resolves once the design has loaded and the frame is sized: true, or false when s names no element. Tools await it before they measure or capture.
+let ready;
+window.designReady = new Promise( resolve => ready = resolve );
 page.addEventListener( "load", () => {
 	const doc = page.contentDocument;
 	const full = Math.min( Math.max( doc.documentElement.scrollHeight, doc.body?.scrollHeight ?? 0 ), 16000 );
@@ -39,6 +42,7 @@ page.addEventListener( "load", () => {
 		const element = doc.querySelector( selector );
 		if ( !element ) {
 			document.title = "missing";
+			ready( false );
 			return;
 		}
 		const r = element.getBoundingClientRect();
@@ -49,6 +53,7 @@ page.addEventListener( "load", () => {
 			width: Math.min( width, r.width + pad * 2 ) + "px", height: Math.min( full, r.height + pad * 2 ) + "px" } );
 		box.append( target );
 	}
+	ready( true );
 } );
 page.src = "f/" + ( variant ? encodeURIComponent( variant ) + "/" : "" ) + "index.html";
 

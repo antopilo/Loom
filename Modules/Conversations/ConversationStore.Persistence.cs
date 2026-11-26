@@ -37,6 +37,12 @@ public sealed partial class ConversationStore
 	/// <summary>Stores the conversations whose messages file could not be read, so it is never replaced.</summary>
 	private readonly HashSet<Guid> _unreadable = [];
 
+	/// <summary>Stores the background reads of messages files still to be applied, by conversation; one whose messages were loaded meanwhile is dropped when it arrives.</summary>
+	private readonly Dictionary<Guid, PendingRead> _reads = [];
+
+	/// <summary>Stores how to run work on the UI thread, which background reads of messages files need; null reads them on the UI thread.</summary>
+	private Func<Action, bool>? _post;
+
 	/// <summary>Reports whether conversations changed since they were last handed to the writer.</summary>
 	private bool _isIndexDirty;
 
@@ -78,6 +84,19 @@ public sealed partial class ConversationStore
 
 	/// <summary>Gets the most recent history read or write error.</summary>
 	public string? LastError => _lastError;
+
+	/// <summary>Gets or sets how to run work on the UI thread, such as a module's <c>ModuleContext.Post</c>; with it, a view's messages files are read
+	/// in the background (<see cref="PeekMessages"/>), and without it on the UI thread. Clearing it drops the reads still running.</summary>
+	internal Func<Action, bool>? Post
+	{
+		get => _post;
+		set
+		{
+			_post = value;
+			if ( value is null )
+				_reads.Clear();
+		}
+	}
 
 	/// <summary>Gets the per-user conversation history index file path, under the process's data folder.</summary>
 	public static string DefaultPath => LoknPaths.Combine( "conversations.json" );
@@ -129,6 +148,7 @@ public sealed partial class ConversationStore
 		_conversations.Clear();
 		_messages.Clear();
 		_snapshots.Clear();
+		_reads.Clear();
 		_unreadable.Clear();
 		_legacyProjects = null;
 		_canSave = true;
@@ -219,6 +239,7 @@ public sealed partial class ConversationStore
 	}
 
 	/// <summary>Gets a conversation's loaded messages, reading its messages file the first time.</summary>
+	/// <remarks>A background read still running for it is overtaken: its result is dropped when it arrives, since the messages are loaded by then.</remarks>
 	private List<ConversationMessage> EnsureMessages( Guid conversationId )
 	{
 		if ( !_messages.TryGetValue( conversationId, out var messages ) )
@@ -232,6 +253,19 @@ public sealed partial class ConversationStore
 		if ( _path is null || _isMirror || BuildMessagesPath( conversationId ) is not { } path || !File.Exists( path ) )
 			return [];
 
+		var read = ReadMessagesFile( path, conversationId );
+		if ( read.Error is { } error )
+		{
+			_unreadable.Add( conversationId );
+			MarkFailed( error );
+		}
+		return read.Messages;
+	}
+
+	/// <summary>Reads, checks and compacts one conversation's messages file without touching the store, so it can run on any thread.</summary>
+	/// <returns>The messages, or none with the error to report when the file cannot be read.</returns>
+	private static MessagesRead ReadMessagesFile( string path, Guid conversationId )
+	{
 		try
 		{
 			MessagesDocument document;
@@ -241,15 +275,76 @@ public sealed partial class ConversationStore
 				throw new JsonException( "The messages document is unsupported or belongs to another conversation." );
 
 			// Files from before messages were compacted still hold the parts Loom never reads; they leave memory as the chat loads.
-			return [.. document.Messages.Select( message => message.RichContent is null ? message : message with { RichContent = CompactRichContent( message.RichContent ) } )];
+			return new( [.. document.Messages.Select( message => message.RichContent is null ? message : message with { RichContent = CompactRichContent( message.RichContent ) } )], null );
 		}
 		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException or JsonException or ArgumentException )
 		{
-			_unreadable.Add( conversationId );
-			MarkFailed( $"Could not load a conversation's messages: {error.Message} The original file is preserved; changes stay in memory." );
-			return [];
+			return new( [], $"Could not load a conversation's messages: {error.Message} The original file is preserved; changes stay in memory." );
 		}
 	}
+
+	/// <summary>Starts reading a conversation's messages file off the UI thread unless its messages are loaded or being read, such as when its chat
+	/// is selected, so they are often ready by the time its view first builds.</summary>
+	/// <remarks>
+	/// Call it on the UI thread. The result is applied through <see cref="Post"/>, unless the messages were loaded meanwhile, such as by a change to
+	/// them, which reads the file at once. A mirror, a store without files or without <see cref="Post"/>, and a chat without a file read nothing here.
+	/// </remarks>
+	/// <returns>Whether the messages are being read in the background.</returns>
+	internal bool StartReadingMessages( Guid conversationId )
+	{
+		if ( _messages.ContainsKey( conversationId ) )
+			return false;
+		if ( _reads.ContainsKey( conversationId ) )
+			return true;
+		if ( _post is not { } post || _isMirror || BuildMessagesPath( conversationId ) is not { } path || !File.Exists( path ) )
+			return false;
+
+		var pending = new PendingRead();
+		pending.Task = Task.Run( () =>
+		{
+			MessagesRead read;
+			try
+			{
+				read = ReadMessagesFile( path, conversationId );
+			}
+			catch ( Exception error )
+			{
+				// Anything else that fails the read is reported as one too, so the chat does not wait for it forever.
+				read = new( [], $"Could not load a conversation's messages: {error.Message} The original file is preserved; changes stay in memory." );
+			}
+			post( () => ApplyRead( conversationId, pending, read ) );
+		} );
+		_reads.Add( conversationId, pending );
+		return true;
+	}
+
+	/// <summary>Applies a background read on the UI thread: its messages become the conversation's unless they were loaded meanwhile, and readers rebuild.</summary>
+	/// <remarks>A read the store no longer waits for, after <see cref="Reload"/>, a deletion or becoming a mirror, is dropped.</remarks>
+	private void ApplyRead( Guid conversationId, PendingRead pending, MessagesRead read )
+	{
+		if ( !_reads.TryGetValue( conversationId, out var current ) || current != pending )
+			return;
+
+		_reads.Remove( conversationId );
+		if ( !_isMirror && _conversations.ContainsKey( conversationId ) && !_messages.ContainsKey( conversationId ) )
+		{
+			_messages.Add( conversationId, read.Messages );
+			if ( read.Error is { } error )
+			{
+				_unreadable.Add( conversationId );
+				MarkFailed( error );
+			}
+		}
+
+		_snapshots.Remove( conversationId );
+		if ( _messageVersions.TryGetValue( conversationId, out var version ) )
+			version.Value++;
+	}
+
+	/// <summary>Waits until a conversation's background read has finished and handed its result to <see cref="Post"/>; at once when none runs.</summary>
+	/// <remarks>For checks, which then run what was posted.</remarks>
+	internal Task WaitForMessagesAsync( Guid conversationId ) =>
+		_reads.TryGetValue( conversationId, out var pending ) ? pending.Task : Task.CompletedTask;
 
 	/// <summary>Reads the prompts the user sent in each of the given chats, oldest first.</summary>
 	/// <remarks>
@@ -535,4 +630,16 @@ public sealed partial class ConversationStore
 		/// <summary>Gets the message's plain text.</summary>
 		public string? Text { get; init; }
 	}
+
+	/// <summary>Holds one conversation's messages file being read in the background, told apart from a later read of the same conversation.</summary>
+	private sealed class PendingRead
+	{
+		/// <summary>Gets or sets the read, which completes once its result is handed to <see cref="Post"/>.</summary>
+		internal Task Task { get; set; } = Task.CompletedTask;
+	}
+
+	/// <summary>Holds what reading a messages file gave: its messages, or none with the error to report.</summary>
+	/// <param name="Messages">The messages, oldest first; empty when the file could not be read.</param>
+	/// <param name="Error">The message reporting why the file could not be read, or null.</param>
+	private readonly record struct MessagesRead( List<ConversationMessage> Messages, string? Error );
 }

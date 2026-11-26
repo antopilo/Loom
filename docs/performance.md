@@ -90,6 +90,42 @@ it (`ShellView.BuildPanelSurface`), plus `IsSeen`/`IsAttended` reads that subscr
 `MotionSwitch` that starts and stops timers and animations outside Build, where Goo allows it. See
 [modules.md](modules.md#panel-lifetime-and-state) for the rule new views follow.
 
+## Switching
+
+`bench.ps1 -Scenario switch` opens chats and switches profiles in a loop, as a click would: `LOKN_PERF_DRIVE`
+(`Shell/PerfTrace.cs`) runs one step every 1.5 s and writes `switch <step> handler <ms> first <ms> frames <n> maxgap <ms>
+dropped <n> gaps <ms,…>`: the step's own time on the UI thread, the time to the first presented frame, and the intervals
+between the frames after it. Each step's first run is cold (its chat or profile not shown yet in the session). Its chat 8
+has 1,400 messages in a 9 MB file, like the longest real chats; real files reach 27 MB.
+
+### Causes (after 0.4.18)
+
+| Cause | Evidence | Fix |
+|---|---|---|
+| A chat's messages file was deserialized on the UI thread the first time its view built. | `ConversationStore.ReadMessages` 250 ms of a 363 ms first frame for the 9 MB chat (EventPipe samples). | The view reads `PeekMessages`, which reads the file on a worker and shows an empty transcript until it is applied (`ConversationStore.StartReadingMessages`); selecting a chat starts the read. Paths that change messages still read at once. |
+| Every panel the layout hid was laid out at full size on each switch. Panels stay mounted, so the cost grew with every chat opened in the session. | Warm chat switch with 3 mounted chats 12.5 ms to the first frame, with 9 chats 19.2 ms. | Hidden bodies are `Display.None` (`ShellView.BuildHiddenBody`): 9.5 and 14.4 ms. Goo still walks hidden nodes in `Layout.readRect`, so some growth remains. |
+| `workspaces.json` (100 KB on a real data folder) was serialized with new `JsonSerializerOptions` and written and replaced on the UI thread at each chat or profile switch. | `WorkspaceStore.Save` 2.2 ms a switch in the bench, mostly `CreateFile` and `MoveFile`. | Serialized with cached options and written by a worker; saves during a write collapse into the newest (`WorkspaceStore.Flush` on stop). |
+| Losing the focus ran a blocking, compacting full collection at once, so switching away froze the window and the first switch after coming back paid for the regrown heap. | `MemoryManager.TrimMemory` 36 ms on the UI thread with the bench's small heap. | The trim waits until the window has been in the background for 30 s. |
+
+### Before and after
+
+Same machine (180 Hz display, frames every 5.6 ms), `bench.ps1 -Scenario switch -Seconds 45`, Release build output, averages of
+the warm runs; cold rows are one run each.
+
+| Step | Before: first frame | After: first frame |
+|---|---|---|
+| Short chat | 19.1 ms | 8.7 ms |
+| Long chat (240 messages) | 20.5 ms | 8.1 ms |
+| Chat of another project | 17.1 ms | 9.2 ms |
+| 1,400-message chat | 17.6 ms | 9.2 ms |
+| 1,400-message chat, cold | 363 ms | 7 ms, then one 143 ms frame when the messages arrive |
+| Profile to Personal | 38.3 ms | 22.4 ms |
+| Profile to Work | 36.7 ms | 24.3 ms |
+
+What remains: Goo's layout of the whole tree (most of a warm switch's frame), building the transcript rows of a long chat
+once its messages arrive (`ChatContent.ComputeRows` and each message's facts, all messages at once), and cold switches that
+compile code (a Release build output; a published build is precompiled).
+
 ## Goo 0.32.0 issues
 
 Read from the decompiled `Goo.dll` 0.32.0 (`AssemblyInformationalVersion 0.32.0+6fdcd4f3`).

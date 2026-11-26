@@ -154,7 +154,7 @@ public sealed partial class DesignModule
 
 		Directory.CreateDirectory( store.Folder );
 		var address = StartServer().Serve( store );
-		await ShowStudioAsync( context.App.Tools, store, address, session.PanelId, context.Lifetime, session.ConversationId, null );
+		await ShowStudioAsync( context.App.Tools, address, session.PanelId, context.Lifetime, session.ConversationId, null );
 	}
 
 	/// <summary>Finds the designs a tool call names in its arguments: any path into <c>.lokn/design/&lt;name&gt;</c>, relative ones to the chat's folder.</summary>

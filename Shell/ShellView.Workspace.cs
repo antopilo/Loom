@@ -520,7 +520,8 @@ internal sealed partial class ShellView
 	/// <summary>Defines the opacity of the cover over a panel whose host is not online.</summary>
 	private const double HostOverlayAlpha = 0.92;
 
-	/// <summary>Builds a panel the current layout hides: same key, handle and content, so it keeps its state, but not drawn and not hit.</summary>
+	/// <summary>Builds a panel the current layout hides: same key, handle and content, so it keeps its state, but not drawn, not hit and not laid
+	/// out, since every switch otherwise lays out each hidden panel at full size (docs/performance.md#switching).</summary>
 	private static Blob BuildHiddenBody( PanelSession session, ElementHandle handle ) => new Container
 	{
 		Key = $"panel:{session.Info.Id}",
@@ -529,6 +530,7 @@ internal sealed partial class ShellView
 		MinHeight = 0,
 		Overflow = Overflow.Hidden,
 		Visibility = Visibility.Hidden,
+		Display = Display.None,
 		Opacity = 0,
 		Accessibility = new Accessibility { Hidden = true },
 		Children =

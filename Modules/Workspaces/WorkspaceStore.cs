@@ -138,11 +138,30 @@ internal sealed class WorkspaceStore( string path )
 		return _profiles.GetValueOrDefault( profile );
 	}
 
-	/// <summary>Gets the latest read or write failure, or null.</summary>
+	/// <summary>Gets the latest read or write failure, or null; a write failure shows once the worker has written.</summary>
 	internal string? LastError
 	{
-		get; private set;
+		get => Volatile.Read( ref _lastError );
+		private set => Volatile.Write( ref _lastError, value );
 	}
+
+	/// <summary>Stores <see cref="LastError"/>, which the writer sets from its worker.</summary>
+	private string? _lastError;
+
+	/// <summary>Defines how the file is written: indented, so it stays readable.</summary>
+	private static readonly JsonSerializerOptions SaveOptions = new() { WriteIndented = true };
+
+	/// <summary>Guards the writer's state, which the UI thread and the writer share.</summary>
+	private readonly Lock _writeGate = new();
+
+	/// <summary>Stores the newest serialized sessions the writer has not written yet, or null.</summary>
+	private string? _pendingJson;
+
+	/// <summary>Reports whether the writer runs.</summary>
+	private bool _isWriting;
+
+	/// <summary>Completes once the writer has written every save it was given.</summary>
+	private Task _writing = Task.CompletedTask;
 
 	/// <summary>Gets the current session.</summary>
 	private Session Active => _sessions[_session];
@@ -459,27 +478,69 @@ internal sealed class WorkspaceStore( string path )
 			session.Items[index] = update( session.Items[index] );
 	}
 
-	/// <summary>Writes the sessions beside the file and then replaces it, unless the file failed to read.</summary>
+	/// <summary>Serializes the sessions and hands them to the writer, unless the file failed to read.</summary>
+	/// <remarks>Opening a chat saves, so the file is written on a worker: writing and replacing it on the UI thread cost a frame on every switch.
+	/// Saves made while a write runs collapse into the newest one. <see cref="Flush"/> waits for the writes.</remarks>
 	private void Save()
 	{
 		_version.Value++;
 		if ( _isInvalid )
 			return;
 
-		try
+		var document = new SessionsDocument( DocumentVersion, _session,
+			[.. _sessions.Select( pair => new SavedSession( pair.Key, pair.Value.Title, pair.Value.Current, [.. pair.Value.Items], pair.Value.LastOpened ) )],
+			new Dictionary<SettingsProfile, string>( _profiles ) );
+		var json = JsonSerializer.Serialize( document, SaveOptions );
+		lock ( _writeGate )
 		{
-			Directory.CreateDirectory( Path.GetDirectoryName( path )! );
-			var temporary = path + ".tmp";
-			var document = new SessionsDocument( DocumentVersion, _session,
-				[.. _sessions.Select( pair => new SavedSession( pair.Key, pair.Value.Title, pair.Value.Current, [.. pair.Value.Items], pair.Value.LastOpened ) )],
-				new Dictionary<SettingsProfile, string>( _profiles ) );
-			File.WriteAllText( temporary, JsonSerializer.Serialize( document, new JsonSerializerOptions { WriteIndented = true } ) );
-			File.Move( temporary, path, overwrite: true );
-			LastError = null;
+			_pendingJson = json;
+			if ( _isWriting )
+				return;
+
+			_isWriting = true;
+			_writing = Task.Run( Write );
 		}
-		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException )
+	}
+
+	/// <summary>Waits until every save so far is on disk.</summary>
+	internal void Flush()
+	{
+		Task writing;
+		lock ( _writeGate )
+			writing = _writing;
+		writing.Wait();
+	}
+
+	/// <summary>Writes the newest serialized sessions beside the file and then replaces it, until no newer ones wait; runs on a worker.</summary>
+	private void Write()
+	{
+		while ( true )
 		{
-			LastError = $"Could not save workspaces: {error.Message}";
+			string json;
+			lock ( _writeGate )
+			{
+				if ( _pendingJson is null )
+				{
+					_isWriting = false;
+					return;
+				}
+
+				json = _pendingJson;
+				_pendingJson = null;
+			}
+
+			try
+			{
+				Directory.CreateDirectory( Path.GetDirectoryName( path )! );
+				var temporary = path + ".tmp";
+				File.WriteAllText( temporary, json );
+				File.Move( temporary, path, overwrite: true );
+				LastError = null;
+			}
+			catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException )
+			{
+				LastError = $"Could not save workspaces: {error.Message}";
+			}
 		}
 	}
 

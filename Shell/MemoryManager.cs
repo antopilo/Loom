@@ -2,27 +2,44 @@ using Goo;
 
 namespace Lokn;
 
-/// <summary>Trims memory when Lokn loses focus and reclaims it when regaining focus, reducing background memory usage.</summary>
-/// <remarks>When the window is not in focus, calling GC.Collect() and WaitForPendingFinalizers() frees unused memory back to the OS.
-/// This is particularly effective for Lokn since panels with complex renderers can hold significant memory that is not needed when minimized or backgrounded.</remarks>
+/// <summary>Trims memory once Lokn has been in the background for a while, reducing background memory usage.</summary>
+/// <remarks>The trim is a blocking, compacting full collection on the UI thread, and the heap grows back on the next use. Run at once on every focus
+/// loss, it froze the window as the user switched away and slowed the first switch after they came back, so it waits until the window has stayed in
+/// the background for <see cref="TrimDelay"/>, and a window that gets the focus back first is never trimmed.</remarks>
 internal sealed class MemoryManager
 {
+	/// <summary>Defines how long the window stays in the background before its memory is trimmed.</summary>
+	private static readonly TimeSpan TrimDelay = TimeSpan.FromSeconds( 30 );
+
+	/// <summary>Stores the window, whose UI thread runs the trim.</summary>
+	private readonly Window _window;
+
+	/// <summary>Waits out the delay while the window is in the background, or null.</summary>
+	private Timer? _timer;
+
+	/// <summary>Counts focus changes, so a trim queued before the window got the focus back does not run.</summary>
+	private int _generation;
+
+	/// <summary>Creates the manager of one window.</summary>
+	private MemoryManager( Window window ) => _window = window;
+
 	/// <summary>Subscribes to window focus changes and manages memory accordingly.</summary>
 	internal static void Attach( Window window )
 	{
-		var manager = new MemoryManager();
+		var manager = new MemoryManager( window );
 		window.FocusChanged += manager.OnFocusChanged;
 	}
 
-	/// <summary>Trims memory when window loses focus, reclaims it when regaining focus.</summary>
+	/// <summary>Starts the delay when the window loses the focus, and cancels it when the window gets it back.</summary>
 	private void OnFocusChanged( bool isFocused )
 	{
-		if ( !isFocused )
+		var generation = Interlocked.Increment( ref _generation );
+		_timer?.Dispose();
+		_timer = isFocused ? null : new Timer( _ => _window.Post( () =>
 		{
-			// Window lost focus: trim memory to reduce background usage.
-			TrimMemory();
-		}
-		// When regaining focus, normal GC will handle memory as needed; no explicit action required.
+			if ( Volatile.Read( ref _generation ) == generation )
+				TrimMemory();
+		} ), null, TrimDelay, Timeout.InfiniteTimeSpan );
 	}
 
 	/// <summary>Performs aggressive garbage collection to free memory when backgrounded.</summary>
