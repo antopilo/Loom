@@ -99,9 +99,6 @@ internal static class ConversationChecks
 		var latest = ordered.CreateConversation( SettingsProfile.Personal );
 		Check( ordered.Conversations( SettingsProfile.Personal ).Select( item => item.Id ).SequenceEqual( [latest.Id, older.Id, newer.Id] ),
 			"A dragged chat keeps the place it was moved to, and chats started afterwards list above the placed ones." );
-		var dropLine = typeof( Lokn.Modules.Workspaces.SidebarRows ).GetMethod( "BuildDropLine", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static )!;
-		Check( dropLine.Invoke( null, [true] ) is Goo.Container && dropLine.Invoke( null, [false] ) is Goo.Container,
-			"The line that shows where a dragged task lands builds above and below a row, so dragging never breaks the sidebar." );
 
 		File.WriteAllText( path, "{broken" );
 		var broken = new ConversationStore( path );

@@ -3,6 +3,14 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.20
+
+- **Math and diagrams in chats.** LaTeX formulas and Mermaid flowcharts and sequence diagrams show in messages.
+- **Faster chat switching.** A chat's messages load in the background, so opening a long chat no longer stalls the window.
+- **Drag tasks and chats** to reorder them in the sidebar; rows slide aside to make room.
+- **Less memory in the background.** Loom trims its memory after its window has been in the background for a while.
+- **Design snapshots** wait until the design has loaded.
+
 ## 0.4.19
 
 - **Loom runs on Linux.** System fonts, local terminals, window backdrops (Off and Glass), worktree links and opening

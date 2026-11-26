@@ -19,9 +19,6 @@ public sealed partial class SidebarRows
 	/// <summary>Defines how much the dragged row grows while it is held.</summary>
 	private const double LiftScale = 1.02;
 
-	/// <summary>Defines the space between two rows of a group, in logical pixels, which a row slides by with the dragged row's height.</summary>
-	private const double RowGap = 2;
-
 	/// <summary>Holds the drag in progress, or null while no row is dragged.</summary>
 	private readonly State<RowDragState?> _drag = new( null );
 
