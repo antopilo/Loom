@@ -268,6 +268,8 @@ public sealed partial class ChatContent
 			FlexShrink = 0,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,
+			// A button centers its content by default; file names read down a left edge, as the command list does.
+			JustifyContent = JustifyContent.FlexStart,
 			Gap = theme.Spacing,
 			Padding = new Edges( 0, theme.Spacing ),
 			BorderRadius = theme.Radius,
