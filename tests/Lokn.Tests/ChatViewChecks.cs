@@ -102,7 +102,7 @@ internal static class ChatViewChecks
 		Pump( window );
 		var editor = Find( semantics, AccessibilityRole.TextEditor, "Message" );
 		CoreChecks.Check( editor.Bounds.Y > window.Size.Height / 2, "The Omp composer docks below the growing transcript." );
-		CoreChecks.Check( !Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Text && (node.Value ?? "") == "Build succeeded — café 👋" ), "Finished tool output stays folded until it is opened." );
+		CoreChecks.Check( HasText( semantics, "Build succeeded — café 👋" ), "A finished shell command shows its output at once, in its box under the command." );
 		CoreChecks.Check( !Nodes( semantics ).Any( node => (node.Value ?? "").Contains( '\u001b' ) ), "Tool output never displays raw ANSI escape controls." );
 		CoreChecks.Check( HasText( semantics, UnicodePrompt ), "The transcript preserves punctuation, accents, and emoji." );
 		CoreChecks.Check( HasText( semantics, "Render the todo card" ) && HasText( semantics, "Color the code blocks" ) && !HasText( semantics, "Read the transcript" ),
@@ -110,14 +110,9 @@ internal static class ChatViewChecks
 		Click( window, editor );
 		window.PlatformInput.CommitText( UnicodePrompt );
 		Pump( window );
-		// The bash call folds into its run's summary line, which opens onto the tool.
-		Click( window, Find( semantics, AccessibilityRole.Button, "Ran 1 command" ) );
-		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Button && node.Name == "bash · Done" ) );
-		Click( window, Find( semantics, AccessibilityRole.Button, "bash · Done" ) );
-		// Virtual rows settle their measured heights over a few frames after the opened tool grows.
-		PumpUntil( window, () => Nodes( semantics ).Any( node => node.Role == AccessibilityRole.Text && (node.Value ?? "") == "Build succeeded — café 👋" ) );
-		CoreChecks.Check( Nodes( semantics ).Count( node => node.Role == AccessibilityRole.Text && (node.Value ?? "") == "Build succeeded — café 👋" ) == 1, "Opening a tool shows its paired result once." );
-		CoreChecks.Check( ComputeComposerText( app ) == UnicodePrompt, "Expanding tool details retains the composer and its text." );
+		// The shell command's box shows its paired result once, with no fold to open first.
+		CoreChecks.Check( Nodes( semantics ).Count( node => (node.Value ?? "").Contains( "Build succeeded — café 👋", StringComparison.Ordinal ) ) == 1, "A shell command shows its paired result once." );
+		CoreChecks.Check( ComputeComposerText( app ) == UnicodePrompt, "Typing in the composer keeps the transcript and the text." );
 		var capture = Array.IndexOf( args, "--capture" );
 		if ( capture >= 0 && capture + 1 < args.Length )
 			NativeChecks.BuildCapture( window, args[capture + 1], "chat-omp" );

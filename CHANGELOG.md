@@ -3,6 +3,10 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.26
+
+- **Updated UI engine.** Loom runs on Goo 0.32.10, whose new layout engine places and sizes panels the way web pages do.
+
 ## 0.4.25
 
 - **Even code rows.** Lines in searches and diffs no longer show twice as tall in files with mixed line endings.
