@@ -109,6 +109,9 @@ internal sealed class FlowEdge( FlowNode from, FlowNode to )
 
 	/// <summary>Gets the points the edge passes, from its start to its end, after layout.</summary>
 	public List<(double X, double Y)> Points { get; } = [];
+
+	/// <summary>Gets or sets the index in <see cref="Points"/> of the point its label sits on, a place the layout keeps free for it; -1 without a label.</summary>
+	public int LabelPoint { get; set; } = -1;
 }
 
 /// <summary>Holds one subgraph: its title and, after layout, its box.</summary>
@@ -407,7 +410,7 @@ internal sealed partial class MermaidFlowchart
 
 		var forward = BreakCycles();
 		AssignLayers( forward );
-		var layers = InsertPoints( forward, out var chains );
+		var layers = InsertPoints( forward, measure, isVertical, out var chains );
 		OrderLayers( layers );
 		Place( layers );
 		Route( chains );
@@ -487,9 +490,14 @@ internal sealed partial class MermaidFlowchart
 	/// <summary>Holds an edge split into layer-to-layer steps: the points it passes between its ends, and whether it was reversed.</summary>
 	private sealed record Chain( FlowEdge Edge, List<FlowNode> Points, bool IsReversed );
 
-	/// <summary>Builds the layers, adding a point node in each layer a long edge crosses, so every step joins neighboring layers.</summary>
-	private List<List<FlowNode>> InsertPoints( List<(FlowNode From, FlowNode To, FlowEdge Edge)> forward, out List<Chain> chains )
+	/// <summary>Builds the layers, adding a point node in each layer a long edge crosses, so every step joins neighboring layers. Node layers are
+	/// doubled first, so every edge crosses at least one layer between its ends: a labeled edge's middle point there is its label's size, so the
+	/// layout keeps room for the label rather than drawing it over nodes.</summary>
+	private List<List<FlowNode>> InsertPoints( List<(FlowNode From, FlowNode To, FlowEdge Edge)> forward, Func<string, (double Width, double Height)> measure,
+		bool isVertical, out List<Chain> chains )
 	{
+		foreach ( var node in Nodes )
+			node.Layer *= 2;
 		var count = Nodes.Count == 0 ? 0 : Nodes.Max( node => node.Layer ) + 1;
 		var layers = Enumerable.Range( 0, count ).Select( _ => new List<FlowNode>() ).ToList();
 		foreach ( var node in Nodes )
@@ -498,13 +506,21 @@ internal sealed partial class MermaidFlowchart
 		foreach ( var (from, to, edge) in forward )
 		{
 			var points = new List<FlowNode>();
+			var labelLayer = edge.Label.Length > 0 ? (from.Layer + to.Layer) / 2 : -1;
 			for ( var layer = from.Layer + 1; layer < to.Layer; layer++ )
 			{
 				var point = new FlowNode( "" ) { Shape = FlowShape.Point, Layer = layer, Width = 8, Height = 8 };
+				if ( layer == labelLayer )
+				{
+					// The layout runs top to bottom, so a horizontal chart's label lies on its side here.
+					var (width, height) = measure( edge.Label );
+					(point.Width, point.Height) = isVertical ? (width + 12, height + 4) : (height + 4, width + 12);
+				}
 				layers[layer].Add( point );
 				points.Add( point );
 			}
 			chains.Add( new( edge, points, edge.From != from ) );
+			edge.LabelPoint = labelLayer < 0 ? -1 : 1 + (edge.From != from ? to.Layer - 1 - labelLayer : labelLayer - from.Layer - 1);
 		}
 		_links = [];
 		foreach ( var chain in chains )
@@ -600,7 +616,8 @@ internal sealed partial class MermaidFlowchart
 				node.Y = y + height / 2;
 				x += node.Width + NodeGap;
 			}
-			y += height + LayerGap;
+			// Layers are doubled, so a gap between nodes is two half gaps around the layer of edge points between them.
+			y += height + LayerGap / 2;
 		}
 
 		var neighbors = new Dictionary<FlowNode, List<FlowNode>>();

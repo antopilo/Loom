@@ -11,7 +11,8 @@ namespace Lokn.Modules.Markdown;
 /// <param name="Boxed">Whether the range gets a box behind it.</param>
 /// <param name="PadBefore">Whether the character before the range is followed by a box's room, <see cref="MarkdownView.CodePad"/>.</param>
 /// <param name="Glyph">The icon drawn in the room before the range, <see cref="MarkdownView.MentionGap"/>, or null.</param>
-internal sealed record CodeMark( TextRange Range, string Text, bool IsCode, bool Boxed, bool PadBefore, string? Glyph );
+/// <param name="IsLink">Whether the range is a link, which shows a hover effect under the pointer: a background for a mention, a thicker underline for others.</param>
+internal sealed record CodeMark( TextRange Range, string Text, bool IsCode, bool Boxed, bool PadBefore, string? Glyph, bool IsLink = false );
 
 /// <summary>Supplies a text, the handle its layout is read through, and what to draw under or beside it.</summary>
 /// <param name="Text">The text.</param>
@@ -61,6 +62,12 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 	/// <summary>Stores the mention icons of the latest layout, in the text's coordinates; a change rebuilds the view.</summary>
 	private readonly State<MentionIcon[]> _icons = new( [] );
 
+	/// <summary>Stores the rectangles of each link of the latest layout by its mark's index, in the text's coordinates; a change rebuilds the view.</summary>
+	private readonly State<(int Mark, ElementRect Rect)[]> _links = new( [] );
+
+	/// <summary>Stores the index of the link mark under the pointer, or -1.</summary>
+	private readonly State<int> _hovered = new( -1 );
+
 	/// <summary>Stores the text handle followed while mounted.</summary>
 	private ElementHandle? _followed;
 
@@ -108,11 +115,11 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 	/// <summary>Stops following the text's layout.</summary>
 	protected override void Unmounting() => Follow( null );
 
-	/// <summary>Builds the boxes, the text over them, then the icons.</summary>
+	/// <summary>Builds the boxes and the hovered link's background, the text over them, then the icons and the hovered link's underline.</summary>
 	protected override Blob BuildView( CodeBoxesInput input )
 	{
 		var theme = Theme.Current;
-		var children = new List<Blob>( _boxes.Value.Length + _icons.Value.Length + 1 );
+		var children = new List<Blob>( _boxes.Value.Length + _icons.Value.Length + 3 );
 		foreach ( var (index, box) in _boxes.Value.Index() )
 		{
 			children.Add( new Container
@@ -129,7 +136,25 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 				HitTestSelf = false,
 			} );
 		}
-		children.Add( input.Text );
+		var hovered = _hovered.Value is var mark and >= 0 && mark < input.Marks.Length ? input.Marks[mark] : null;
+		var hoveredRects = hovered is null ? [] : _links.Value.Where( link => link.Mark == _hovered.Value ).Select( link => link.Rect ).ToArray();
+		// A mention, such as a file, gets a background under the pointer, as a chip does.
+		if ( hovered is { Glyph: not null } )
+		{
+			foreach ( var (index, rect) in hoveredRects.Index() )
+				children.Add( new Container
+				{
+					Key = "hover:" + index,
+					Position = PositionType.Absolute,
+					Left = rect.X - InsetX,
+					Top = rect.Y - InsetY,
+					Width = rect.Width + 2 * InsetX,
+					Height = rect.Height + 2 * InsetY,
+					BorderRadius = theme.Radius + 1,
+					BackgroundColor = theme.Hover,
+					HitTestSelf = false,
+				} );
+		}
 		foreach ( var (index, icon) in _icons.Value.Index() )
 		{
 			children.Add( new Text
@@ -146,7 +171,49 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 				Color = theme.Muted,
 			} );
 		}
-		return new Container { MinWidth = 0, Children = children };
+		// Another link already underlined gets a thicker underline under the pointer.
+		if ( hovered is { Glyph: null } )
+		{
+			foreach ( var (index, rect) in hoveredRects.Index() )
+				children.Add( new Container
+				{
+					Key = "underline:" + index,
+					Position = PositionType.Absolute,
+					Left = rect.X,
+					Top = rect.Y + rect.Height - 3,
+					Width = rect.Width,
+					Height = 2,
+					BackgroundColor = theme.AnsiGreen,
+					HitTestSelf = false,
+				} );
+		}
+		return new Container
+		{
+			MinWidth = 0,
+			OnPointerMove = e => UpdateHovered( e.WindowPosition ),
+			OnPointerLeave = _ => _hovered.Value = -1,
+			Children = children,
+		};
+	}
+
+	/// <summary>Finds the link mark under the pointer, by the text offset under it.</summary>
+	private void UpdateHovered( Point position )
+	{
+		var hovered = -1;
+		if ( _links.Value.Length > 0 && Input.Handle.TryGetTextPositionAt( position, TextCoordinateSpace.Window, out var at ) )
+		{
+			for ( var index = 0; index < Input.Marks.Length; index++ )
+			{
+				var range = Input.Marks[index].Range;
+				if ( Input.Marks[index].IsLink && at.Offset >= range.Start && at.Offset < range.Start + range.Length )
+				{
+					hovered = index;
+					break;
+				}
+			}
+		}
+		if ( hovered != _hovered.Value )
+			_hovered.Value = hovered;
 	}
 
 	/// <summary>Moves the layout subscription to another text handle.</summary>
@@ -180,9 +247,10 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 
 		var boxes = new List<ElementRect>();
 		var icons = new List<MentionIcon>();
+		var links = new List<(int Mark, ElementRect Rect)>();
 		var line = double.NaN;
 		var shift = 0.0;
-		foreach ( var mark in Input.Marks )
+		foreach ( var (markIndex, mark) in Input.Marks.Index() )
 		{
 			if ( !handle.TryCopyTextRangeRects( mark.Range, TextCoordinateSpace.Element, _scratch, out var count ) )
 				continue;
@@ -192,9 +260,9 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 				handle.TryCopyTextRangeRects( mark.Range, TextCoordinateSpace.Element, _scratch, out count );
 			}
 
-			var scale = mark.IsCode ? ComputeScale( mark.Text ) : 1;
+			var rects = Math.Min( count, _scratch.Length );
 			var first = true;
-			for ( var i = 0; i < Math.Min( count, _scratch.Length ); i++ )
+			for ( var i = 0; i < rects; i++ )
 			{
 				var rect = _scratch[i];
 				if ( rect.Width <= 0 )
@@ -211,12 +279,18 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 					{
 						shift += MarkdownView.MentionGap;
 						icons.Add( new( rect.X + shift - MarkdownView.MentionGap + 2, rect.Y, rect.Height, glyph ) );
+						// The hover background covers the icon too.
+						if ( mark.IsLink )
+							links.Add( (markIndex, rect with { X = rect.X + shift - MarkdownView.MentionGap, Width = MarkdownView.MentionGap }) );
 					}
 				}
 				first = false;
-				var width = rect.Width * scale;
+				// Goo measures the code font narrower than it draws it, so code's width comes from its characters on this line.
+				var width = mark.IsCode ? ComputeCodeWidth( handle, mark, rect, rects ) : rect.Width;
 				if ( mark.Boxed )
 					boxes.Add( rect with { X = rect.X + shift, Width = width } );
+				if ( mark.IsLink )
+					links.Add( (markIndex, rect with { X = rect.X + shift, Width = width }) );
 				shift += width - rect.Width;
 			}
 			if ( mark.Boxed )
@@ -226,6 +300,17 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 			_boxes.Value = [.. boxes];
 		if ( !icons.SequenceEqual( _icons.Value ) )
 			_icons.Value = [.. icons];
+		// A mention's icon room and its text on one line join into one rectangle.
+		var joined = new List<(int Mark, ElementRect Rect)>();
+		foreach ( var link in links )
+		{
+			if ( joined.Count > 0 && joined[^1] is var last && last.Mark == link.Mark && Math.Abs( last.Rect.Y - link.Rect.Y ) < 1 )
+				joined[^1] = (last.Mark, last.Rect with { Width = link.Rect.X + link.Rect.Width - last.Rect.X });
+			else
+				joined.Add( link );
+		}
+		if ( !joined.SequenceEqual( _links.Value ) )
+			_links.Value = [.. joined];
 	}
 
 	/// <summary>Reports whether the character at an offset sits on the line at a given top, in the text's coordinates.</summary>
@@ -236,11 +321,26 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 			&& Math.Abs( rects[0].Y - top ) < 1;
 	}
 
-	/// <summary>Gets how much wider a piece of code is in the code font than in the text's font, or 1 when it cannot be measured.</summary>
-	private double ComputeScale( string code )
+	/// <summary>Defines the advance of one character of the code font, Consolas, in ems: 1126 of its 2048 units.</summary>
+	private const double CodeAdvanceEms = 1126.0 / 2048;
+
+	/// <summary>Gets how wide code on one line is drawn: its characters on that line, trailing spaces of a wrapped line left out, times the font's
+	/// fixed advance.</summary>
+	/// <remarks>Goo 0.32.9 lays out and measures the registered code font narrower than it draws it, so the width comes from the font's advance:
+	/// every character of a monospace font is equally wide.</remarks>
+	private static double ComputeCodeWidth( ElementHandle handle, CodeMark mark, ElementRect rect, int rects )
 	{
-		var text = Host.MeasureText( code, new Style { FontFamily = ViewStyle.FontFamily, FontSize = MeasureSize } );
-		var mono = Host.MeasureText( code, new Style { FontFamily = ViewStyle.CodeFontFamily, FontSize = MeasureSize } );
-		return text > 0 && mono > 0 ? mono / text : 1;
+		var text = mark.Text;
+		if ( rects > 1 )
+		{
+			var onLine = new System.Text.StringBuilder();
+			for ( var index = 0; index < text.Length; index++ )
+			{
+				if ( IsOnLine( handle, mark.Range.Start + index, rect.Y ) )
+					onLine.Append( text[index] );
+			}
+			text = onLine.ToString().TrimEnd();
+		}
+		return new System.Globalization.StringInfo( text ).LengthInTextElements * CodeAdvanceEms * MarkdownView.BodySize;
 	}
 }

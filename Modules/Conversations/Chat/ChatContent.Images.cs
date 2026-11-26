@@ -39,6 +39,9 @@ public sealed partial class ChatContent
 	/// <summary>Stores the full-size image the viewer shows, or null while it is closed.</summary>
 	private ImageSource? _fullImage;
 
+	/// <summary>Holds each decoded image's own size in pixels, read from its header, so its card names the scale it shows at.</summary>
+	private readonly Dictionary<string, (int Width, int Height)> _imageSizes = new( StringComparer.Ordinal );
+
 	/// <summary>Builds an inline image as a thumbnail that opens full size when clicked, or null while it decodes off the UI thread.</summary>
 	/// <remarks>The thumbnail fades in once when its decode arrives.</remarks>
 	/// <param name="key">The image's stable key.</param>
@@ -59,37 +62,23 @@ public sealed partial class ChatContent
 		if ( source is null )
 			return BuildText( "Image could not be decoded", muted: true );
 		var isNew = _loadedImages.Remove( key );
+		// The image sits in a card like Tern's: its name, the scale it shows at and an expand button over a dark stage; clicking opens it full size.
+		var original = _imageSizes.TryGetValue( key, out var known ) ? known : (source.Width, source.Height);
+		var card = MediaCard.Build( "image:" + key, ComputeImageName( block ), source, original, () => context.Run( () => UpdateViewing( key ) ) );
+		return Cell.Mount<RevealInput, Reveal>( "image:" + key, new( card, isNew ) );
+	}
 
-		// The thumbnail keeps the image's shape and never grows past its own pixels, so clicks land on the picture, not beside it.
-		var height = Math.Min( ImageHeight, source.Height );
-		var image = new Image
+	/// <summary>Gets the name an image shows under: its own file name when the block has one, else "image" with its format.</summary>
+	private static string ComputeImageName( JsonElement block )
+	{
+		foreach ( var property in new[] { "name", "fileName", "filename", "path" } )
 		{
-			Source = source,
-			Fit = ImageFit.Contain,
-			Width = height * (double)source.Width / source.Height,
-			AspectRatio = (double)source.Width / source.Height,
-			MaxWidth = Length.Percent( 100 ),
-		};
-		var thumbnail = new Button
-		{
-			Key = "image:" + key,
-			AlignSelf = AlignSelf.FlexStart,
-			MaxWidth = Length.Percent( 100 ),
-			Padding = 0,
-			Focusable = true,
-			Cursor = Cursor.Pointer,
-			BorderRadius = Theme.Current.Radius,
-			Overflow = Overflow.Hidden,
-			AccessibilityName = "Open image",
-			OnClick = () => context.Run( () => UpdateViewing( key ) ),
-			KeyBindings =
-			[
-				new( Key.Enter, KeyModifiers.None, () => context.Run( () => UpdateViewing( key ) ) ),
-				new( Key.Space, KeyModifiers.None, () => context.Run( () => UpdateViewing( key ) ) ),
-			],
-			Children = [image],
-		};
-		return Cell.Mount<RevealInput, Reveal>( "image:" + key, new( thumbnail, isNew ) );
+			if ( ReadText( block, property ) is { Length: > 0 } name )
+				return Path.GetFileName( name );
+		}
+		return ReadText( block, "mimeType" ) is { Length: > 0 } mime && mime.StartsWith( "image/", StringComparison.Ordinal )
+			? "image." + mime[6..].Replace( "jpeg", "jpg" ).Replace( "svg+xml", "svg" )
+			: "image";
 	}
 
 	/// <summary>Decodes an inline image's thumbnail off the UI thread, once per key, and rebuilds every row waiting for it.</summary>
@@ -105,9 +94,12 @@ public sealed partial class ChatContent
 		_ = Task.Run( () =>
 		{
 			ImageSource? source = null;
+			(int Width, int Height)? size = null;
 			try
 			{
-				source = DecodeThumbnail( Convert.FromBase64String( data ) );
+				var bytes = Convert.FromBase64String( data );
+				size = MediaCard.ReadSize( bytes );
+				source = DecodeThumbnail( bytes );
 			}
 			catch ( Exception )
 			{
@@ -123,6 +115,8 @@ public sealed partial class ChatContent
 				}
 
 				_images[key] = source;
+				if ( size is { } known )
+					_imageSizes[key] = known;
 				if ( source is not null )
 					_loadedImages.Add( key );
 				foreach ( var message in messages )

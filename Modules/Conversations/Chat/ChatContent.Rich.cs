@@ -124,6 +124,8 @@ public sealed partial class ChatContent
 		bubble.MaxWidth = Length.Percent( 85 );
 		bubble.Padding = new Edges( Theme.Current.Spacing * 1.25, Theme.Current.Spacing * 1.75 );
 		bubble.BackgroundColor = Theme.Current.Raised;
+		// A sharp corner toward the sender makes the bubble read as speech.
+		bubble.BorderBottomRightRadius = ChatStyle.BubbleTailRadius;
 
 		// The user's turns sit in a right-aligned bubble. A row sizes it: a content-sized column child
 		// measures its height as if long unbroken words did not wrap, which lets a long path spill out of the bubble.
@@ -156,11 +158,7 @@ public sealed partial class ChatContent
 				yield return BuildStreamText( key, text );
 		}
 		else if ( type == "thinking" )
-		{
-			// A closed fold never shows its body, so only an open one takes part in the reveal.
-			var thinking = ReadText( block, "thinking" );
-			yield return BuildFold( key, "Reasoning", [IsOpen( key, true ) ? BuildStreamText( key, thinking ) : MarkdownView.Build( thinking, OpenLink )], ChatIcons.ThinkingGlyph, followsRun: true );
-		}
+			yield return BuildThinking( key, ReadText( block, "thinking" ) );
 		else if ( type == "toolCall" )
 			yield return BuildTool( key, block );
 		else if ( type == "image" )
@@ -225,10 +223,13 @@ public sealed partial class ChatContent
 	/// <param name="detail">Monospace text after the label, such as a folder.</param>
 	/// <param name="emphasis">Monospace text after the detail in the body color and bold, such as a file name.</param>
 	/// <param name="tail">Monospace text after the emphasis, such as a line range.</param>
-	private static Button BuildDisclosure( string label, bool expanded, Action action, string detail = "", string emphasis = "", string tail = "" )
+	/// <param name="note">Body-font text at the end, such as the agent's stated intent.</param>
+	private static Button BuildDisclosure( string label, bool expanded, Action action, string detail = "", string emphasis = "", string tail = "", string note = "" )
 	{
+		// A tool on a file reads as a bold verb, then its path in code type: "Read ~/src/view.cs:10-20".
+		var isPath = emphasis.Length > 0;
 		// Goo aligns separate text boxes by their edges, not their baselines, so the label and its code-font detail share one text run.
-		var spans = new List<TextSpan> { new( label, null! ) };
+		var spans = new List<TextSpan> { new( label, isPath ? new Style { FontWeight = 600, Color = Theme.Current.Text } : null! ) };
 		if ( detail.Length + emphasis.Length + tail.Length > 0 )
 			spans.Add( new( "  " + detail, new Style
 			{
@@ -249,6 +250,8 @@ public sealed partial class ChatContent
 				FontFamily = ViewStyle.CodeFontFamily,
 				FontSize = ViewStyle.SmallSize,
 			} ) );
+		if ( note.Length > 0 )
+			spans.Add( new( "  " + note, null! ) );
 
 		var button = Theme.Current.BuildButton( label, action );
 		button.AccessibilityName = label;
@@ -277,11 +280,42 @@ public sealed partial class ChatContent
 						TextWrap = TextWrap.NoWrap,
 						TextTrimming = TextTrimming.Ellipsis,
 					},
-					Theme.Current.BuildChevron( expanded ),
+					// A path line stays clean; its chevron shows only once it is open.
+					.. isPath && !expanded ? Array.Empty<Blob>() : [Theme.Current.BuildChevron( expanded )],
 				],
 			},
 		];
 		return button;
+	}
+
+	/// <summary>Defines how many characters of reasoning show before the rest folds, its last words fading out.</summary>
+	private const int ThinkingPreviewChars = 320;
+
+	/// <summary>Defines over how many characters folded reasoning fades out.</summary>
+	private const double ThinkingFadeChars = 120;
+
+	/// <summary>Builds reasoning inline in the flow, muted and without a header: long reasoning shows its start fading out until clicked, then all of it.</summary>
+	private Blob BuildThinking( string key, string thinking )
+	{
+		var text = thinking.Trim();
+		if ( text.Length == 0 )
+			return new Container();
+		var isLong = text.Length > ThinkingPreviewChars + ThinkingFadeChars / 2;
+		var expanded = !isLong || _expanded.Contains( key );
+		Blob body = expanded
+			? BuildStreamText( key, text )
+			: MarkdownView.Build( text[..ThinkingPreviewChars].TrimEnd() + "…", OpenLink, distance => Math.Clamp( distance / ThinkingFadeChars, 0.05, 1 ) );
+		return new Container
+		{
+			Key = key,
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = "Reasoning",
+			Opacity = 0.6,
+			FontStyle = FontStyle.Italic,
+			Cursor = isLong ? Cursor.Pointer : Cursor.Default,
+			OnClick = isLong ? () => context.Run( () => UpdateExpanded( key ) ) : null,
+			Children = [body],
+		};
 	}
 
 	/// <summary>Indents opened disclosure content under its label.</summary>

@@ -171,6 +171,21 @@ public sealed partial class ChatContent : PanelContent
 		if ( BuildTodoPin( todo, isBeside: true ) is { } margin )
 			area.Add( margin );
 		area.Add( BuildFloating( stack ) );
+		if ( rows.Count > 0 )
+		{
+			// Rows scrolling out at the top fade into the panel, as the transcript does above the prompt.
+			area.Add( new Container
+			{
+				Key = "conversation-top-fade",
+				Position = PositionType.Absolute,
+				Top = 0,
+				Left = ViewStyle.TrackWidth,
+				Right = ViewStyle.TrackWidth,
+				Height = FloatingFade,
+				HitTestSelf = false,
+				BackgroundGradient = new LinearGradient( Theme.Current.Panel, Theme.Current.Panel.WithAlpha( 0 ) ),
+			} );
+		}
 		if ( !_transcript.IsFollowing )
 		{
 			var latest = BuildLatest( _transcript.ScrollToEnd );
@@ -309,8 +324,8 @@ public sealed partial class ChatContent : PanelContent
 			if ( activity.Count == 0 )
 				return;
 
-			// Reasoning alone keeps its own fold; a summary line only replaces runs that used tools.
-			Add( [.. activity], activity.Any( HasToolCall ) );
+			// Reasoning and tool calls read in order, one line each, rather than folded under a summary.
+			Add( [.. activity], false );
 			lastRun = rows.Count - 1;
 			activity.Clear();
 		}

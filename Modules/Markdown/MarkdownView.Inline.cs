@@ -125,13 +125,14 @@ public static partial class MarkdownView
 			}
 			else if ( run.Link is { } target && run.Text.Length > 0 )
 			{
-				// A link's first run leads with its icon, in the room the character before it leaves; the rest of the link joins its range.
-				if ( previous is { Link: var before } && before == target && marks.Count > 0 && marks[^1] is { Glyph: not null } mention
-					&& mention.Range.Start + mention.Range.Length == offset )
-					marks[^1] = mention with { Range = new TextRange( mention.Range.Start, mention.Range.Length + run.Text.Length ), Text = mention.Text + run.Text };
-				else if ( previous is { } prior && prior.Kind.HasFlag( InlineKind.Mention ) )
+				// A link's runs join one mark, which shows its hover effect; a mention's first run leads with its icon, in the room the
+				// character before it leaves.
+				if ( previous is { Link: var before } && before == target && marks.Count > 0 && marks[^1] is { IsLink: true } joined
+					&& joined.Range.Start + joined.Range.Length == offset )
+					marks[^1] = joined with { Range = new TextRange( joined.Range.Start, joined.Range.Length + run.Text.Length ), Text = joined.Text + run.Text };
+				else
 					marks.Add( new( new TextRange( offset, run.Text.Length ), run.Text, run.Kind.HasFlag( InlineKind.Code ), Boxed: false, PadBefore: false,
-						ComputeMentionGlyph( target ) ) );
+						previous is { } prior && prior.Kind.HasFlag( InlineKind.Mention ) ? ComputeMentionGlyph( target ) : null, IsLink: true ) );
 			}
 			if ( run.Link is { } link )
 				links.Add( (offset, offset + run.Text.Length, link) );

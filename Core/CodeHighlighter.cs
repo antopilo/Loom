@@ -53,6 +53,33 @@ public static class CodeHighlighter
 		],
 		LineComment: "#", HasTypes: true );
 
+	/// <summary>Holds the Lua grammar.</summary>
+	private static readonly Grammar Lua = new(
+		[
+			"and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in", "local", "nil", "not", "or",
+			"repeat", "return", "self", "then", "true", "until", "while",
+		],
+		LineComment: "--", HasTypes: true );
+
+	/// <summary>Holds the SQL grammar; keywords match in upper and lower case.</summary>
+	private static readonly Grammar Sql = new(
+		new( [
+			"add", "alter", "and", "as", "asc", "begin", "between", "by", "case", "commit", "create", "default", "delete", "desc", "distinct",
+			"drop", "else", "end", "exists", "foreign", "from", "group", "having", "in", "index", "inner", "insert", "into", "is", "join",
+			"key", "left", "like", "limit", "not", "null", "on", "or", "order", "outer", "primary", "references", "right", "select", "set",
+			"table", "then", "union", "unique", "update", "values", "view", "when", "where", "with",
+		], StringComparer.OrdinalIgnoreCase ),
+		LineComment: "--", HasBlockComments: true );
+
+	/// <summary>Holds the grammar of YAML, TOML and INI files; keys color as types.</summary>
+	private static readonly Grammar Config = new( ["true", "false", "null", "yes", "no", "on", "off"], LineComment: "#", HasKeys: true, HasBareKeys: true );
+
+	/// <summary>Holds the CSS grammar; properties color as types.</summary>
+	private static readonly Grammar Css = new( ["important", "inherit", "initial", "none", "auto"], LineComment: "", HasBlockComments: true, HasBareKeys: true );
+
+	/// <summary>Holds the markup grammar of XML, HTML and project files: tag names as keywords, attributes as types.</summary>
+	private static readonly Grammar Markup = new( [], LineComment: "", HasBlockComments: true, IsMarkup: true, BlockOpen: "<!--", BlockClose: "-->" );
+
 	/// <summary>Holds the shell grammar, shared by Bash and PowerShell; variables color as types.</summary>
 	private static readonly Grammar Shell = new(
 		[
@@ -73,8 +100,13 @@ public static class CodeHighlighter
 		"cs" or "csharp" or "c#" or "js" or "javascript" or "jsx" or "mjs" or "cjs" or "ts" or "typescript" or "tsx" or "mts" or "cts" or "java" or "go"
 			or "rust" or "rs" or "c" or "cpp" or "c++" or "cc" or "cxx" or "h" or "hpp" or "hh" or "hxx" or "kotlin" or "kt" or "swift" => CFamily,
 		"py" or "python" => Python,
-		"sh" or "bash" or "shell" or "zsh" or "ps1" or "powershell" or "pwsh" => Shell,
+		"sh" or "bash" or "shell" or "zsh" or "ps1" or "psm1" or "powershell" or "pwsh" => Shell,
 		"json" or "jsonc" or "jsonl" => Json,
+		"lua" or "luau" => Lua,
+		"sql" => Sql,
+		"yaml" or "yml" or "toml" or "ini" or "cfg" or "editorconfig" or "gitignore" => Config,
+		"css" or "scss" or "less" => Css,
+		"xml" or "html" or "htm" or "xaml" or "svg" or "csproj" or "props" or "targets" or "sln" or "slnx" or "resx" or "config" => Markup,
 		_ => null,
 	};
 
@@ -103,24 +135,62 @@ public static class CodeHighlighter
 
 		if ( isInComment )
 		{
-			var close = line.IndexOf( "*/", StringComparison.Ordinal );
-			index = close < 0 ? line.Length : close + 2;
+			var close = line.IndexOf( grammar.BlockClose, StringComparison.Ordinal );
+			index = close < 0 ? line.Length : close + grammar.BlockClose.Length;
 			isInComment = close < 0;
 			Emit( 0, index, CodeToken.Comment );
 		}
 
+		// A config or CSS line's leading word before ':' or '=' is a key.
+		if ( grammar.HasBareKeys && !isInComment )
+		{
+			var start = index;
+			while ( start < line.Length && char.IsWhiteSpace( line[start] ) )
+				start++;
+			var end = start;
+			while ( end < line.Length && (IsWordCharacter( line[end] ) || line[end] is '-' or '.') )
+				end++;
+			if ( end > start && line.AsSpan( end ).TrimStart() is [':' or '=', ..] )
+			{
+				Emit( start, end, CodeToken.Type );
+				index = end;
+			}
+		}
+
+		var isInTag = false;
 		while ( index < line.Length )
 		{
 			var character = line[index];
-			if ( grammar.HasBlockComments && string.CompareOrdinal( line, index, "/*", 0, 2 ) == 0 )
+			if ( grammar.HasBlockComments && string.CompareOrdinal( line, index, grammar.BlockOpen, 0, grammar.BlockOpen.Length ) == 0 )
 			{
-				var close = line.IndexOf( "*/", index + 2, StringComparison.Ordinal );
+				var close = line.IndexOf( grammar.BlockClose, index + grammar.BlockOpen.Length, StringComparison.Ordinal );
 				isInComment = close < 0;
-				var end = close < 0 ? line.Length : close + 2;
+				var end = close < 0 ? line.Length : close + grammar.BlockClose.Length;
 				Emit( index, end, CodeToken.Comment );
 				index = end;
 			}
-			else if ( string.CompareOrdinal( line, index, grammar.LineComment, 0, grammar.LineComment.Length ) == 0 && IsCommentStart( line, index, grammar ) )
+			else if ( grammar.IsMarkup && character == '<' )
+			{
+				// A tag's name colors as a keyword; the words inside it until '>' are attributes.
+				var end = index + 1;
+				while ( end < line.Length && line[end] is '/' or '?' or '!' )
+					end++;
+				var nameEnd = end;
+				while ( nameEnd < line.Length && (IsWordCharacter( line[nameEnd] ) || line[nameEnd] is '-' or ':' or '.') )
+					nameEnd++;
+				if ( nameEnd > end )
+					Emit( end, nameEnd, CodeToken.Keyword );
+				isInTag = true;
+				index = nameEnd;
+			}
+			else if ( grammar.IsMarkup && character == '>' )
+			{
+				isInTag = false;
+				index++;
+			}
+			else if ( grammar.IsMarkup && !isInTag )
+				index++;
+			else if ( grammar.LineComment.Length > 0 && string.CompareOrdinal( line, index, grammar.LineComment, 0, grammar.LineComment.Length ) == 0 && IsCommentStart( line, index, grammar ) )
 			{
 				Emit( index, line.Length, CodeToken.Comment );
 				index = line.Length;
@@ -150,6 +220,7 @@ public static class CodeHighlighter
 					end++;
 				var word = line[index..end];
 				var token = grammar.Keywords.Contains( word ) ? CodeToken.Keyword
+					: grammar.IsMarkup ? CodeToken.Type
 					: grammar.HasVariables && character == '$' ? CodeToken.Type
 					: grammar.HasVariables && IsCommandStart( line, index ) ? CodeToken.Function
 					: line.AsSpan( end ).TrimStart().StartsWith( "(" ) && !grammar.HasKeys ? CodeToken.Function
@@ -201,11 +272,15 @@ public static class CodeHighlighter
 	/// <summary>Describes how one language family is lexed.</summary>
 	/// <param name="Keywords">The words colored as keywords, matched case-sensitively.</param>
 	/// <param name="LineComment">The marker that comments out the rest of a line.</param>
-	/// <param name="HasBlockComments">Whether <c>/* */</c> comments exist.</param>
+	/// <param name="HasBlockComments">Whether block comments, <c>/* */</c> by default, exist.</param>
 	/// <param name="HasBacktickStrings">Whether backticks quote strings.</param>
 	/// <param name="HasTypes">Whether capitalized identifiers color as types.</param>
 	/// <param name="HasVariables">Whether <c>$name</c> and <c>-Flag</c>-joined words are shell variables and commands.</param>
 	/// <param name="HasKeys">Whether a string followed by a colon is an object key.</param>
+	/// <param name="HasBareKeys">Whether a line's leading word before <c>:</c> or <c>=</c> is a key, as in YAML, INI and CSS.</param>
+	/// <param name="IsMarkup">Whether the text is markup: only tags color, their names as keywords and attributes as types.</param>
+	/// <param name="BlockOpen">The marker that opens a block comment.</param>
+	/// <param name="BlockClose">The marker that closes a block comment.</param>
 	public sealed record Grammar(
 		HashSet<string> Keywords,
 		string LineComment,
@@ -213,5 +288,9 @@ public static class CodeHighlighter
 		bool HasBacktickStrings = false,
 		bool HasTypes = false,
 		bool HasVariables = false,
-		bool HasKeys = false );
+		bool HasKeys = false,
+		bool HasBareKeys = false,
+		bool IsMarkup = false,
+		string BlockOpen = "/*",
+		string BlockClose = "*/" );
 }

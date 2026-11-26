@@ -335,6 +335,7 @@ public sealed partial class ChatContent
 	}
 
 	/// <summary>Builds one attachment's removable chip, which rises in when added, fades out when removed, and glides when a chip before it comes or goes.</summary>
+	/// <remarks>An image shows as a square thumbnail once loaded; any other file, or an image still loading, shows as a chip with its type.</remarks>
 	private Blob BuildAttachmentChip( string path, bool isLeaving )
 	{
 		var remove = Theme.Current.BuildButton( "×", () => context.Run( () => UpdateDetach( path ) ) );
@@ -343,11 +344,75 @@ public sealed partial class ChatContent
 		remove.MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing;
 		remove.Padding = new Edges( 0, Theme.Current.Spacing / 2 );
 		remove.Color = Theme.Current.Muted;
-		var chip = BuildFileChip( path, remove );
-		// A chip mounts when its file is attached, so the entrance plays then and never again while it stays. The exit wraps the
-		// entrance so they move different elements, and the wrapper, the row's child, is what glides when a chip before it comes or goes.
+		var chip = BuildComposerThumbnail( path, remove ) ?? BuildTypedFileChip( path, remove );
 		var exit = Reveal.BuildExit( "chip:" + path, Cell.Mount<RevealInput, Reveal>( "chip-reveal", new( chip, true ) ), isLeaving );
 		exit.LayoutTransition = new( ChatMotion.SlowMs, ChatMotion.Ease );
 		return exit;
+	}
+
+	/// <summary>Defines the side of an image thumbnail in the composer, in logical pixels.</summary>
+	private const int ComposerThumbnailSize = 64;
+
+	/// <summary>Builds a square thumbnail of an attached image with its remove button in the corner, or null for a file that is not a loaded image.</summary>
+	private Blob? BuildComposerThumbnail( string path, Blob remove )
+	{
+		if ( !_thumbnailExtensions.Contains( Path.GetExtension( path ), StringComparer.OrdinalIgnoreCase ) )
+			return null;
+		if ( !_thumbnails.TryGetValue( path, out var source ) )
+		{
+			// Guid.Empty stands for the composer: the load rebuilds the panel, and no message row is touched.
+			UpdateThumbnailLoad( Guid.Empty, path );
+			return null;
+		}
+		if ( source is null )
+			return null;
+
+		_loadedThumbnails.Remove( path );
+		remove.Position = PositionType.Absolute;
+		remove.Top = 2;
+		remove.Right = 2;
+		remove.MinHeight = 0;
+		remove.BorderRadius = Theme.Current.Radius;
+		remove.BackgroundColor = Theme.Current.Panel;
+		return new Container
+		{
+			Key = $"attachment-image:{path}",
+			Width = ComposerThumbnailSize,
+			Height = ComposerThumbnailSize,
+			FlexShrink = 0,
+			BorderRadius = Theme.Current.Radius,
+			BorderWidth = Theme.Current.BorderWidth,
+			BorderColor = Theme.Current.Border,
+			BackgroundColor = Theme.Current.Panel,
+			Overflow = Overflow.Hidden,
+			AccessibilityRole = AccessibilityRole.Image,
+			AccessibilityName = Path.GetFileName( path ),
+			Children =
+			[
+				new Image { Source = source, Fit = ImageFit.Cover, Width = Length.Percent( 100 ), Height = Length.Percent( 100 ) },
+				remove,
+			],
+		};
+	}
+
+	/// <summary>Builds a composer chip with a type badge (the file extension, or Folder) before the file name.</summary>
+	private static Row BuildTypedFileChip( string path, Blob remove )
+	{
+		var chip = BuildFileChip( path, remove );
+		var type = Directory.Exists( path ) ? "Folder" : Path.GetExtension( path ).TrimStart( '.' ).ToUpperInvariant();
+		if ( type.Length == 0 )
+			return chip;
+
+		chip.Children = [
+			new Container
+			{
+				Padding = new Edges( 0, Theme.Current.Spacing / 2 ),
+				BorderRadius = Theme.Current.Radius,
+				BackgroundColor = Theme.Current.Border,
+				Children = [new Text { Content = type, FontSize = ViewStyle.SmallSize, Color = Theme.Current.Muted, TextWrap = TextWrap.NoWrap }],
+			},
+			.. chip.Children,
+		];
+		return chip;
 	}
 }

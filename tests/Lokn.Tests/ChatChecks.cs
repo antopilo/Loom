@@ -599,12 +599,8 @@ internal static class ChatChecks
 		var panel = BuildChat( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
 		var rows = (List<TranscriptRow>)typeof( ChatContent ).GetMethod( "ComputeRows", flags )!.Invoke( panel, [store.GetMessages( chat.Id )] )!;
-		CoreChecks.Check( rows.Select( row => row.IsActivity ).SequenceEqual( [false, true, false, true, false, true] ) && rows[1].Parts.Length == 2 && rows[3].Parts.Length == 1,
-			"Reasoning and tool calls across messages fold into one activity row; the agent's prose and a todo list each start a new row." );
-		var tools = rows[1].Parts.SelectMany( part => part.Message.RichContent!.Value.GetProperty( "content" ).EnumerateArray().Skip( part.Start ) )
-			.Where( block => block.GetProperty( "type" ).GetString() == "toolCall" ).ToArray();
-		var summary = (string)typeof( ChatContent ).GetMethod( "ComputeActivitySummary", flags )!.Invoke( panel, [tools] )!;
-		CoreChecks.Check( summary == "Read 1 file, ran 2 commands", $"An activity row summarizes its tools by kind ({summary})." );
+		CoreChecks.Check( rows.Count == 6 && rows.All( row => !row.IsActivity ) && rows[1].Parts.Length == 2 && rows[3].Parts.Length == 1,
+			"Reasoning and tool calls read in order as plain rows, never folded under a summary; the agent's prose and a todo list each start a new row." );
 
 		// The pinned list is the newest one with work left; a call that only marks a task while running defers to the list before it.
 		CoreChecks.Check( panel.ComputeCurrentTodo( store.GetMessages( chat.Id ) ).Count == 0, "A todo call without a list or result pins nothing." );
@@ -715,11 +711,11 @@ internal static class ChatChecks
 		var panel = BuildChat( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
 		var rows = (List<TranscriptRow>)typeof( ChatContent ).GetMethod( "ComputeRows", flags )!.Invoke( panel, [store.GetMessages( chat.Id )] )!;
-		Button? FindThumbnail() => Descendants( (Blob)typeof( ChatContent ).GetMethod( "BuildActivity", flags )!.Invoke( panel, [rows.Single( row => row.IsActivity )] )! )
-			.OfType<Button>().SingleOrDefault( button => button.AccessibilityName == "Open image" );
+		Button? FindThumbnail() => Descendants( (Blob)typeof( ChatContent ).GetMethod( "BuildMessage", flags )!.Invoke( panel, [rows[^1].Parts[0]] )! )
+			.OfType<Button>().FirstOrDefault( button => button.Key == "media-stage" );
 		PumpUntil( () => FindThumbnail() is not null );
 		var thumbnail = FindThumbnail();
-		CoreChecks.Check( thumbnail is not null && Descendants( thumbnail ).OfType<Image>().Any(), "A tool's image shows under its closed summary line." );
+		CoreChecks.Check( thumbnail is not null && Descendants( thumbnail ).OfType<Image>().Any(), "A tool's image shows under its tool line." );
 		thumbnail!.OnClick!();
 		Blob? BuildViewer() => (Blob?)typeof( ChatContent ).GetMethod( "BuildViewer", flags )!.Invoke( panel, null );
 		PumpUntil( () => BuildViewer() is not null );

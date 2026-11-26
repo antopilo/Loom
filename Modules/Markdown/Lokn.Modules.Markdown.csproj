@@ -2,6 +2,6 @@
 	<!-- Uses only the public API of Lokn.Core and Goo, and no other module. -->
 	<PropertyGroup>
 		<!-- This module's release version; raise it to publish the module as an update (scripts/release.ps1). -->
-		<Version>1.3.0</Version>
+		<Version>1.3.1</Version>
 	</PropertyGroup>
 </Project>

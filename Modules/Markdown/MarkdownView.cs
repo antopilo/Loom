@@ -392,7 +392,7 @@ public static partial class MarkdownView
 						BorderWidth = new Edges( 0, 0, Theme.Current.BorderWidth, 0 ),
 						Children = header,
 					},
-					new Container { Padding = BlockInset * 2, AlignItems = AlignItems.Center, MinWidth = 0, Children = [diagram] },
+					new Container { Padding = BlockInset, MinWidth = 0, Children = [diagram] },
 				],
 			};
 		}
@@ -614,8 +614,8 @@ public static partial class MarkdownView
 					Height = BulletSize,
 					BorderRadius = bullet == 2 ? 0 : BulletSize / 2.0,
 					BorderWidth = bullet == 1 ? Theme.Current.BorderWidth : 0,
-					BorderColor = Theme.Current.Text,
-					BackgroundColor = bullet == 1 ? Color.Transparent : Theme.Current.Text,
+					BorderColor = Theme.Current.Accent,
+					BackgroundColor = bullet == 1 ? Color.Transparent : Theme.Current.Accent,
 				},
 			],
 		};
@@ -651,16 +651,15 @@ public static partial class MarkdownView
 	{
 		var lines = code.Replace( "\r\n", "\n" ).Split( '\n' );
 		var children = new List<Blob>();
-		// The header holds the language, a Run button for shell snippets, and a Copy button, which copies every line, also those not shown.
+		// The language, a Run button for shell snippets and a Copy button, which copies every line, also those not shown, float over the block's
+		// corner while the pointer is over it, so they take no row of their own.
 		var header = new List<Blob>();
 		if ( showLanguage && language.Length > 0 && language != "text" )
 			header.Add( BuildBadge( language ) );
 		if ( isRunnable && RunCode is { } run && CanRunCode?.Invoke( language ) == true && code.Trim().Length > 0 )
-			header.Add( BuildCodeButton( "Run", "Run in terminal", () => run( code, language ) ) );
+			header.Add( BuildCodeIcon( "\uE768", "Run in terminal", () => run( code, language ) ) );
 		if ( CopyText is { } copy && code.Length > 0 )
-			header.Add( BuildCodeButton( "Copy", "Copy code", () => copy( code ) ) );
-		if ( header.Count > 0 )
-			children.Add( new Row { Key = "code-language", JustifyContent = JustifyContent.FlexEnd, AlignItems = AlignItems.Center, Gap = Theme.Current.Spacing, Children = header } );
+			header.Add( BuildCodeIcon( "\uE8C8", "Copy code", () => copy( code ) ) );
 		var grammar = CodeHighlighter.Find( language );
 		var isInComment = false;
 		var shown = Math.Min( lines.Length, MaxCodeLines );
@@ -703,7 +702,7 @@ public static partial class MarkdownView
 		if ( lines.Length > MaxCodeLines )
 			children.Add( new Text { Content = $"… {lines.Length - MaxCodeLines:N0} more lines not shown", Color = Theme.Current.Muted, FontFamily = ViewStyle.FontFamily, FontSize = CodeSize, Selectable = true, MinWidth = 0 } );
 
-		return new Container
+		var block = new Container
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = language == "diff" ? "Diff" : "Code block",
@@ -716,6 +715,24 @@ public static partial class MarkdownView
 			BorderRadius = Theme.Current.Radius,
 			Children = children,
 		};
+		// A container holds the cell, since a mounted cell drops the margin blocks are spaced with.
+		return header.Count == 0 ? block
+			: new Container { MinWidth = 0, Children = [Cell.Mount<HoverActionsInput, HoverActions>( "code-actions", new( block, [.. header] ) )] };
+	}
+
+	/// <summary>Builds one icon button of a code block's hover actions.</summary>
+	private static Button BuildCodeIcon( string glyph, string name, Action action )
+	{
+		var button = Theme.Current.BuildButton( glyph, action );
+		button.AccessibilityName = name;
+		button.FontFamily = ViewStyle.IconFontFamily;
+		button.FontSize = CodeSize;
+		button.Color = Theme.Current.Muted;
+		button.Width = 24;
+		button.Height = 22;
+		button.Padding = 0;
+		button.FlexShrink = 0;
+		return button;
 	}
 
 	/// <summary>Builds one quiet button of a code block's header.</summary>
@@ -753,10 +770,13 @@ public static partial class MarkdownView
 	private static Container BuildBadge( string text ) => new()
 	{
 		FlexShrink = 0,
-		Padding = new Edges( 1, 6 ),
+		// A fixed height with the text centered, so a line height inherited from code above it cannot push the text off center.
+		Height = 18,
+		JustifyContent = JustifyContent.Center,
+		Padding = new Edges( 0, 6 ),
 		BorderRadius = Theme.Current.Radius,
 		BackgroundColor = Theme.Current.Hover,
-		Children = [new Text { Content = text, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize - 1, Color = Theme.Current.Muted, TextWrap = TextWrap.NoWrap }],
+		Children = [new Text { Content = text, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize - 1, LineHeight = 1, Color = Theme.Current.Muted, TextWrap = TextWrap.NoWrap }],
 	};
 
 	/// <summary>Builds the colored spans of one code line, cut like <see cref="ViewStyle.CutCodeLine"/> when it is too long to lay out.</summary>

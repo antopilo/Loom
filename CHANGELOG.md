@@ -3,6 +3,12 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.22
+
+- **Image cards.** Images in chats show in a card with their name, the scale they show at and a button to open them full size.
+- **Quieter code blocks.** Copy and Run are small icons that appear over a code block's corner when you point at it, instead of taking a row.
+- **Soft top edge.** The top of a chat fades out as it scrolls, like the area above the prompt.
+
 ## 0.4.21
 
 - **Drawings in chats.** Agents can draw layouts, diagrams and mockups as SVG, and Loom shows them as drawings instead of ASCII art.

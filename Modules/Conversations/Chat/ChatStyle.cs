@@ -14,4 +14,7 @@ internal static class ChatStyle
 
 	/// <summary>Defines the corner radius of message bubbles and the prompt box in logical pixels.</summary>
 	internal const int BubbleRadius = 16;
+
+	/// <summary>Defines the radius of the user bubble's bottom-right corner, its speech tail, in logical pixels.</summary>
+	internal const int BubbleTailRadius = 4;
 }

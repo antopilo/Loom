@@ -76,11 +76,11 @@ public sealed partial class ChatContent
 		if ( name == "bash" )
 			return BuildBash( key, id, arguments, status, result, intent );
 		if ( name == "grep" )
-			return BuildGrep( key, arguments, status, result );
+			return BuildGrep( key, arguments, status, result, intent );
 		// A tool on one file reads as its verb and path, the file name bold, as "Edit ~/src/view.cs:104"; others show the agent's intent.
 		var path = ComputeToolPath( arguments );
 		var toggle = path.Length > 0 && diffs.Count <= 1
-			? BuildPathDisclosure( name, path, expanded, () => context.Run( () => UpdateExpanded( key ) ) )
+			? BuildPathDisclosure( name, path, expanded, () => context.Run( () => UpdateExpanded( key ) ), intent )
 			: BuildDisclosure( intent.Length > 0 ? intent : name, expanded, () => context.Run( () => UpdateExpanded( key ) ),
 				diffs.Count > 0 ? string.Join( ", ", diffs.Select( file => Path.GetFileName( file.Path ) ) ) : ComputeToolTarget( arguments ) );
 		toggle.AccessibilityName = intent.Length > 0 ? $"{name} · {intent} · {status}" : $"{name} · {status}";
@@ -246,8 +246,8 @@ public sealed partial class ChatContent
 		return "";
 	}
 
-	/// <summary>Builds a tool head as its verb, then the path's folder, its file name in bold, and any line selector after it.</summary>
-	private static Button BuildPathDisclosure( string name, string path, bool expanded, Action action )
+	/// <summary>Builds a tool head as its verb, then the path's folder, its file name in bold, any line selector, and the agent's intent after it.</summary>
+	private static Button BuildPathDisclosure( string name, string path, bool expanded, Action action, string intent )
 	{
 		var home = Environment.GetFolderPath( Environment.SpecialFolder.UserProfile );
 		if ( home.Length > 0 && path.StartsWith( home, StringComparison.OrdinalIgnoreCase ) )
@@ -257,6 +257,6 @@ public sealed partial class ChatContent
 		var colon = file.IndexOf( ':' );
 		var (fileName, selector) = colon > 0 ? (file[..colon], file[colon..]) : (file, "");
 		var verb = name.Length > 0 ? char.ToUpperInvariant( name[0] ) + name[1..] : name;
-		return BuildDisclosure( verb, expanded, action, path[..slash], fileName, selector );
+		return BuildDisclosure( verb, expanded, action, path[..slash], fileName, selector, intent );
 	}
 }

@@ -60,8 +60,11 @@ public static class ViewStyle
 	/// <summary>Retains the icon face used by icon buttons: installed Segoe Fluent Icons, or off Windows the bundled icons when it is missing.</summary>
 	private static readonly FontSource IconFont = BuildFont( "Lokn Icons", "SegoeIcons.ttf", RegularWeight, italic: false );
 
-	/// <summary>Gets the app's UI face with registered symbol and emoji fallback families.</summary>
-	public static string FontFamily => $"{(OperatingSystem.IsWindows() ? "Segoe UI" : UiFonts[0].Family)}, {SymbolFont.Family}, {EmojiFont.Family}";
+	/// <summary>Gets the app's UI face with registered emoji and symbol fallback families.</summary>
+	/// <remarks>The emoji face comes before the symbol face: Goo takes a character from the first face that has it, and the symbol face holds
+	/// monochrome copies of most emoji, so they drew without color. A few symbols the emoji face also has, such as ▶ ✔ ⚠, draw in color too.
+	/// Code keeps the symbol face first, so diagrams in code blocks stay one color.</remarks>
+	public static string FontFamily => $"{(OperatingSystem.IsWindows() ? "Segoe UI" : UiFonts[0].Family)}, {EmojiFont.Family}, {SymbolFont.Family}";
 
 	/// <summary>Gets registered monospace and Unicode fallback families for code and commands, in every weight and slant.</summary>
 	public static string CodeFontFamily => $"{CodeFont.Family}, {SymbolFont.Family}, {EmojiFont.Family}";

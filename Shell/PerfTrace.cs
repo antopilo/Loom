@@ -183,6 +183,8 @@ internal static class PerfTrace
 				Turn( window, name );
 			else if ( name.StartsWith( "click:", StringComparison.Ordinal ) )
 				Click( window, name );
+			else if ( name.StartsWith( "move:", StringComparison.Ordinal ) && name.Split( ':' ) is [_, var mx, var my] )
+				window.PlatformInput.PointerMove( 1, PointerDevice.Mouse, double.Parse( mx, CultureInfo.InvariantCulture ), double.Parse( my, CultureInfo.InvariantCulture ), KeyModifiers.None, 0 );
 			else
 				app.OpenLink( new Uri( name ) );
 			var handler = Stopwatch.GetElapsedTime( start ).TotalMilliseconds;

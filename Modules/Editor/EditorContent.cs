@@ -186,7 +186,7 @@ internal sealed class EditorContent : PanelContent
 		var theme = Theme.Current;
 		return new TextEditor
 		{
-			Key = "editor:" + Current,
+			Key = $"editor:{Current}:{file.Id}",
 			Controller = file.Editor,
 			Layers = [file.Refresh()],
 			ScrollbarY = ViewStyle.GetScrollbar(),
@@ -791,6 +791,13 @@ internal sealed class EditorContent : PanelContent
 		/// <summary>Defines the longest file colored as it is typed, in lines; longer files show plain.</summary>
 		private const int MaxColoredLines = 20000;
 
+		/// <summary>Holds the last <see cref="Id"/> given out; on the UI thread.</summary>
+		private static long _lastId;
+
+		/// <summary>Gets a number unique to this open file, so the editor view remounts when a read file replaces its loading stand-in. A kept
+		/// editor would keep the stand-in's presentation layer, which is disposed then, and show the file without colors.</summary>
+		internal long Id { get; } = ++_lastId;
+
 		/// <summary>Gets the text being edited.</summary>
 		internal TextEditorController Editor { get; } = editor;
 
@@ -859,16 +866,7 @@ internal sealed class EditorContent : PanelContent
 				starts[line] = offset += lines[line - 1].Length + 1;
 
 			var spans = new List<TextStyleSpan>();
-			// Marks first, so a line's tint sits under its token colors.
 			var theme = Theme.Current;
-			foreach ( var mark in Marks )
-			{
-				if ( mark.Change == LineChange.Deleted || mark.Line >= lines.Length )
-					continue;
-
-				var tint = (mark.Change == LineChange.Added ? theme.Success : theme.Accent).WithAlpha( 0.14 );
-				spans.Add( new( $"mark:{mark.Line}", new( starts[mark.Line], lines[mark.Line].Length + 1 ), new Style { BackgroundColor = tint } ) );
-			}
 
 			if ( grammar is not null && lines.Length <= MaxColoredLines )
 			{
@@ -885,6 +883,19 @@ internal sealed class EditorContent : PanelContent
 
 			_layer.Clear();
 			_layer.ReplaceStyles( spans );
+			// A changed line starts with a thin colored bar: presentation styles take only text fields, so a line cannot be tinted.
+			foreach ( var mark in Marks.Where( mark => mark.Change != LineChange.Deleted && mark.Line < lines.Length ) )
+			{
+				_layer.SetInlineSlot( $"mark:{mark.Line}", new( starts[mark.Line], 0 ), new Container
+				{
+					Width = 3,
+					Height = 14,
+					Margin = new Edges( 0, 4, 0, 0 ),
+					BorderRadius = 1.5,
+					BackgroundColor = mark.Change == LineChange.Added ? theme.Success : theme.Accent,
+					AccessibilityName = mark.Change == LineChange.Added ? "Added line" : "Changed line",
+				} );
+			}
 			// Removed lines show as a thin bar between the lines around them.
 			foreach ( var mark in Marks.Where( mark => mark.Change == LineChange.Deleted && mark.Line <= lines.Length ) )
 			{

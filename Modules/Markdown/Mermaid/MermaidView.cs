@@ -109,7 +109,7 @@ internal static class MermaidView
 			children.Add( Layer( path, width, height, new Shape { Stroke = stroke } ) );
 		}
 		children.Add( Layer( heads, width, height, new Shape { Fill = new VectorPaint( theme.Muted ) } ) );
-		children.Add( Layer( openHeads, width, height, new Shape { Fill = new VectorPaint( theme.Canvas ), Stroke = new VectorStroke( StrokeWidth, theme.Muted ) } ) );
+		children.Add( Layer( openHeads, width, height, new Shape { Fill = new VectorPaint( theme.Panel ), Stroke = new VectorStroke( StrokeWidth, theme.Muted ) } ) );
 
 		var outlines = new PathBuilder( 0, 0, width, height );
 		foreach ( var node in chart.Nodes )
@@ -127,9 +127,9 @@ internal static class MermaidView
 		{
 			if ( edge.Label.Length == 0 || edge.Points.Count < 2 )
 				continue;
-			var (x, y) = Middle( edge.Points );
+			var (x, y) = edge.LabelPoint is > 0 and var at && at < edge.Points.Count - 1 ? edge.Points[at] : Middle( edge.Points );
 			var (textWidth, textHeight) = Measure( edge.Label );
-			children.Add( Label( $"edge:{index}", edge.Label, x - textWidth / 2 - 4, y - textHeight / 2, textWidth + 8, theme.Text, TextAlign.Center, theme.Canvas ) );
+			children.Add( Label( $"edge:{index}", edge.Label, x - textWidth / 2 - 4, y - textHeight / 2, textWidth + 8, theme.Muted, TextAlign.Center, theme.Panel ) );
 		}
 
 		return Frame( children, width, height, "Flowchart" );
@@ -477,27 +477,27 @@ internal static class MermaidView
 		Selectable = true,
 	};
 
-	/// <summary>Puts the drawing in a framed box at its size, inside a viewport that scrolls sideways when it is wider than the column.</summary>
+	/// <summary>Puts the drawing at its size, centered, inside a viewport that scrolls sideways when it is wider than the column.</summary>
+	/// <remarks>Two growing spacers center it: centering by alignment would push a wide drawing past both edges, where no scrolling reaches its left part.</remarks>
 	private static Blob Frame( List<Blob> children, double width, double height, string name ) => new Row
 	{
 		AccessibilityRole = AccessibilityRole.Group,
 		AccessibilityName = name,
 		MinWidth = 0,
 		Overflow = Overflow.Scroll,
+		ScrollbarX = ViewStyle.GetScrollbar( horizontal: true ),
 		AlignItems = AlignItems.FlexStart,
 		Children =
 		[
+			new Container { FlexGrow = 1, MinWidth = 0, },
 			new Container
 			{
 				Width = Math.Ceiling( width ),
 				Height = Math.Ceiling( height ),
 				FlexShrink = 0,
-				BorderWidth = Theme.Current.BorderWidth,
-				BorderColor = Theme.Current.Border,
-				BorderRadius = Theme.Current.Radius,
-				BackgroundColor = Theme.Current.Canvas,
 				Children = children,
 			},
+			new Container { FlexGrow = 1, MinWidth = 0, },
 		],
 	};
 }
