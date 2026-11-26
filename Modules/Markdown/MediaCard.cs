@@ -15,7 +15,7 @@ public static class MediaCard
 	private const int StageInset = 12;
 
 	/// <summary>Defines the header's height in logical pixels.</summary>
-	private const int HeaderHeight = 34;
+	private const int HeaderHeight = CardStyle.HeaderHeight;
 
 	/// <summary>Gets the tallest an image shows on the stage, in logical pixels.</summary>
 	public static int MaxImageHeight => StageHeight - 2 * StageInset;
@@ -57,17 +57,7 @@ public static class MediaCard
 		expand.FlexShrink = 0;
 		var header = new List<Blob>
 		{
-			new Text
-			{
-				Content = name,
-				FontFamily = ViewStyle.CodeFontFamily,
-				FontSize = ViewStyle.SmallSize + 1,
-				Color = theme.Text,
-				FlexShrink = 1,
-				MinWidth = 0,
-				TextWrap = TextWrap.NoWrap,
-				TextTrimming = TextTrimming.Ellipsis,
-			},
+			CardStyle.Name( name ),
 			new Spacer(),
 		};
 		// The image never shows larger than its own pixels and fits the stage, so its scale follows from its height.
@@ -85,30 +75,14 @@ public static class MediaCard
 		}
 		header.Add( expand );
 
-		return new Container
+		return CardStyle.Frame( new Container
 		{
 			Key = key,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = $"Image {name}",
-			MinWidth = 0,
-			Overflow = Overflow.Hidden,
-			BackgroundColor = theme.Panel,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = theme.Radius * 2,
 			Children =
 			[
-				new Row
-				{
-					Key = "media-header",
-					Height = HeaderHeight,
-					AlignItems = AlignItems.Center,
-					Gap = theme.Spacing,
-					Padding = new Edges( 0, theme.Spacing / 2, 0, theme.Spacing * 1.5 ),
-					BorderColor = theme.Border,
-					BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
-					Children = header,
-				},
+				CardStyle.Header( header ),
 				new Button
 				{
 					Key = "media-stage",
@@ -117,7 +91,6 @@ public static class MediaCard
 					Padding = StageInset,
 					AlignItems = AlignItems.Center,
 					JustifyContent = JustifyContent.Center,
-					BackgroundColor = theme.Canvas,
 					Cursor = Cursor.Pointer,
 					Focusable = true,
 					OnClick = open,
@@ -125,7 +98,7 @@ public static class MediaCard
 					Children = [image],
 				},
 			],
-		};
+		} );
 	}
 
 	/// <summary>Reads the size of an image file from its header, or null when it cannot be read.</summary>

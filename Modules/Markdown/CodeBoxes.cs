@@ -111,7 +111,15 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 	}
 
 	/// <summary>Follows the new text's layout.</summary>
-	protected override void InputChanged( CodeBoxesInput input ) => Follow( input.Handle );
+	protected override void InputChanged( CodeBoxesInput input )
+	{
+		_measuredSize = null;
+		Follow( input.Handle );
+		UpdateBoxes();
+	}
+
+	/// <summary>Stores the text's size the boxes were last measured at, or null to measure again.</summary>
+	private (double Width, double Height)? _measuredSize;
 
 	/// <summary>Starts following the text's layout.</summary>
 	protected override void Mounted() => Follow( Input.Handle );
@@ -248,8 +256,16 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 		}
 	}
 
-	/// <summary>Reads the boxes again after the text moved or wrapped differently.</summary>
-	private void UpdateMetrics( ElementMetrics _ ) => UpdateBoxes();
+	/// <summary>Reads the boxes again after the text wrapped differently: only a change of its size can move them, since they are in its own
+	/// coordinates; a scroll moves the text, not its lines, and measuring every text on screen at each scroll step made scrolling stall.</summary>
+	private void UpdateMetrics( ElementMetrics metrics )
+	{
+		var size = (metrics.BorderBox.Width, metrics.BorderBox.Height);
+		if ( _measuredSize == size )
+			return;
+		_measuredSize = size;
+		UpdateBoxes();
+	}
 
 	/// <summary>Stores the box rectangles and icon places of every mark, rebuilding only when they changed.</summary>
 	/// <remarks>

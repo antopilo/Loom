@@ -329,21 +329,10 @@ public static partial class MarkdownView
 	/// <summary>Builds an SVG block as its drawing, with its kind and a Copy button above it; SVG Goo cannot read shows its source with a note.</summary>
 	private static Blob BuildDrawing( string source, string language )
 	{
-		var header = new List<Blob>
-		{
-			new Text { Content = "svg", FontSize = CodeSize, Color = Theme.Current.Muted, },
-			new Spacer(),
-		};
+		var header = new List<Blob> { CardStyle.Name( "svg" ), new Spacer() };
 		if ( CopyText is { } copy )
 			header.Add( BuildCodeButton( "Copy", "Copy drawing source", () => copy( source ) ) );
-		var row = new Row
-		{
-			AlignItems = AlignItems.Center,
-			Padding = new Edges( CodeGap, BlockInset ),
-			BorderColor = Theme.Current.Border,
-			BorderWidth = new Edges( 0, 0, Theme.Current.BorderWidth, 0 ),
-			Children = header,
-		};
+		var row = CardStyle.Header( header );
 		if ( SvgView.Build( source, row, BlockInset * 2 ) is { } drawing )
 			return drawing;
 
@@ -366,36 +355,19 @@ public static partial class MarkdownView
 		if ( MermaidView.Build( source ) is { } diagram )
 		{
 			var kind = source.TrimStart().Split( [' ', '\n', '\r'], 2 )[0];
-			var header = new List<Blob>
-			{
-				new Text { Content = $"mermaid · {kind}", FontSize = CodeSize, Color = Theme.Current.Muted, },
-				new Spacer(),
-			};
+			var header = new List<Blob> { CardStyle.Name( $"mermaid · {kind}" ), new Spacer() };
 			if ( CopyText is { } copy )
 				header.Add( BuildCodeButton( "Copy", "Copy diagram source", () => copy( source ) ) );
-			return new Container
+			return CardStyle.Frame( new Container
 			{
 				AccessibilityRole = AccessibilityRole.Group,
 				AccessibilityName = "Diagram",
-				MinWidth = 0,
-				Overflow = Overflow.Hidden,
-				BackgroundColor = Theme.Current.Text.WithAlpha( 0.035 ),
-				BorderColor = Theme.Current.Border.WithAlpha( 0.45 ),
-				BorderWidth = Theme.Current.BorderWidth,
-				BorderRadius = Theme.Current.Radius,
 				Children =
 				[
-					new Row
-					{
-						AlignItems = AlignItems.Center,
-						Padding = new Edges( CodeGap, BlockInset ),
-						BorderColor = Theme.Current.Border.WithAlpha( 0.45 ),
-						BorderWidth = new Edges( 0, 0, Theme.Current.BorderWidth, 0 ),
-						Children = header,
-					},
+					CardStyle.Header( header ),
 					new Container { Padding = BlockInset, MinWidth = 0, Children = [diagram] },
 				],
-			};
+			} );
 		}
 		return new Container
 		{

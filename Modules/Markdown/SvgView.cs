@@ -83,16 +83,10 @@ internal static partial class SvgView
 		foreach ( var (index, label) in drawing.Labels.Index() )
 			layers.Add( BuildLabel( "label:" + index, label, drawing, theme ) );
 
-		return new Container
+		return CardStyle.Frame( new Container
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Drawing",
-			MinWidth = 0,
-			Overflow = Overflow.Hidden,
-			BackgroundColor = theme.Panel,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = theme.Radius * 2,
 			Children =
 			[
 				header,
@@ -112,7 +106,7 @@ internal static partial class SvgView
 					],
 				},
 			],
-		};
+		} );
 	}
 
 	/// <summary>Builds one label as a text at its place in the drawing: its box starts at the anchor, ends at it, or centers on it.</summary>
