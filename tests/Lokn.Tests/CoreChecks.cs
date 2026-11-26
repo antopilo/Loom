@@ -16,11 +16,12 @@ internal static class CoreChecks
 		CheckModuleOwnership();
 		await CheckCommandsAsync();
 		CheckDocking();
+		CheckMaximize();
 		CheckAttention();
 		CheckNotifications();
 		CheckExtensions();
 		CheckDockingStress();
-		Console.WriteLine( "PASS module registration, dependencies, unload/re-enable, cancellation, commands, docking invariants, panel attention, the notification feed, slots, extension points, services, and routes." );
+		Console.WriteLine( "PASS module registration, dependencies, unload/re-enable, cancellation, commands, docking invariants, a maximized panel, panel attention, the notification feed, slots, extension points, services, and routes." );
 	}
 
 	/// <summary>Verifies failed registration and startup leave no contributions behind.</summary>
@@ -158,6 +159,39 @@ internal static class CoreChecks
 		Check( workspace.Root is DockPane && workspace.Panels.Single().Id == second, "Closing promotes the surviving sibling." );
 		workspace.Close( second );
 		Check( workspace.Root is DockPane { PanelId: null } && workspace.ActivePanelId is null, "Closing the final panel preserves a usable empty pane." );
+		CheckInvariants( workspace );
+		app.Shutdown();
+	}
+
+	/// <summary>Verifies a maximized panel hides the others without closing them, and that opening, closing or focusing another panel brings them back.</summary>
+	private static void CheckMaximize()
+	{
+		var app = CreateWorkspace();
+		var workspace = app.Panels;
+		var only = workspace.Open( "fixture.panel" );
+		Check( !workspace.ToggleMaximize( only ) && workspace.MaximizedPanelId is null, "A lone panel has nothing to maximize." );
+
+		var other = workspace.Open( "fixture.panel" );
+		Check( workspace.ToggleMaximize( only ) && workspace.MaximizedPanelId == only, "A panel in a split maximizes." );
+		Check( workspace.IsShown( only ) && !workspace.IsShown( other ) && workspace.Panels.Count == 2 && workspace.Panes.Count == 2,
+			"The panels it hides stay open in their panes and count as not on screen." );
+		Check( workspace.ActivePanelId == only, "Maximizing focuses the panel." );
+		Check( !workspace.ToggleMaximize( only ) && workspace.MaximizedPanelId is null && workspace.IsShown( other ), "Maximizing again restores the split." );
+		Check( !workspace.ToggleMaximize( Guid.NewGuid() ), "An unknown panel cannot be maximized." );
+
+		workspace.ToggleMaximize( only );
+		workspace.Activate( only );
+		Check( workspace.MaximizedPanelId == only, "Focusing the maximized panel keeps it maximized." );
+		workspace.Activate( other );
+		Check( workspace.MaximizedPanelId is null && workspace.IsShown( only ) && workspace.IsShown( other ), "Focusing another panel restores the split." );
+
+		workspace.ToggleMaximize( only );
+		var third = workspace.Open( "fixture.panel" );
+		Check( workspace.MaximizedPanelId is null && workspace.IsShown( third ), "Opening a panel restores the split, so it is not opened hidden." );
+
+		workspace.ToggleMaximize( third );
+		workspace.Close( third );
+		Check( workspace.MaximizedPanelId is null && workspace.IsShown( only ) && workspace.IsShown( other ), "Closing the maximized panel restores the others." );
 		CheckInvariants( workspace );
 		app.Shutdown();
 	}

@@ -84,6 +84,14 @@ internal static class ShellSettings
 		category: "Workspace",
 		isValid: value => value is >= 0 and <= 32 ) { Unit = "px", Minimum = 0, Maximum = 32 };
 
+	/// <summary>Defines whether every pane shows a header with its title and its maximize and close buttons.</summary>
+	internal static readonly Setting<bool> PaneHeaders = new(
+		"shell.pane-headers",
+		"Pane headers",
+		"Show a header on every pane with its title and, while you point at it, a maximize or restore button and a close button; drag it to dock the pane, or double-click it to maximize. Off shows a dotted grip when you point at the top of a pane.",
+		defaultValue: false,
+		category: "Workspace" );
+
 	/// <summary>Defines the sidebar navigation layout value.</summary>
 	internal const string SidebarNavigation = "sidebar";
 

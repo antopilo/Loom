@@ -66,11 +66,14 @@ internal sealed partial class ShellView
 		var panels = _app.Panels;
 		var children = new List<Blob>();
 		var slots = new List<DockSlot>();
-		var panes = panels.Panes;
+		// A maximized panel fills the workspace alone; the other panels stay mounted, hidden, so they keep their state.
+		var maximized = panels.MaximizedPanelId is { } maximizedId ? panels.Panes.FirstOrDefault( pane => pane.PanelId == maximizedId ) : null;
+		var panes = maximized is null ? panels.Panes : new[] { maximized };
 		foreach ( var panelId in _panelHandles.Keys.Where( panelId => panels.Sessions.All( session => session.Info.Id != panelId ) ).ToArray() )
 			_panelHandles.Remove( panelId );
 
-		var isSplit = panels.Root is DockSplit;
+		var isSplit = maximized is null && panels.Root is DockSplit;
+		var hasHeaders = HasPaneHeaders;
 		var bodies = new Dictionary<Guid, ElementHandle>();
 
 		foreach ( var pane in panes.Where( pane => pane.PanelId is null ) )
@@ -99,14 +102,14 @@ internal sealed partial class ShellView
 			slots.Add( new( DockSlotKind.Body, pane.Id ) );
 		}
 
-		// Grips follow every body so they paint and hit-test above panel content.
-		foreach ( var pane in panes )
+		// Grips follow every body so they paint and hit-test above panel content; with headers the header is the grip.
+		foreach ( var pane in panes.Where( _ => !hasHeaders ) )
 		{
 			children.Add( BuildGrip( pane, bodies[pane.Id] ) );
 			slots.Add( new( DockSlotKind.Grip, pane.Id ) );
 		}
 
-		foreach ( var split in EnumerateSplits( panels.Root ) )
+		foreach ( var split in maximized is null ? EnumerateSplits( panels.Root ) : [] )
 		{
 			children.Add( BuildDivider( split ) );
 			slots.Add( new( DockSlotKind.Divider, split.Id ) );
@@ -133,7 +136,7 @@ internal sealed partial class ShellView
 			MinWidth = 0,
 			MinHeight = 0,
 			Overflow = Overflow.Hidden,
-			Layout = new DockLayout( panels.Root, slots, PaneGap ),
+			Layout = new DockLayout( maximized ?? panels.Root, slots, PaneGap ),
 			Children = children,
 		};
 	}
@@ -278,22 +281,14 @@ internal sealed partial class ShellView
 		}
 		tiles.Add( BuildStarterTile( pane.Id, "More…", OtherPanelGlyph, () => UpdatePalette( "Open ", ActionsType ) ) );
 
-		return new Container
+		var starters = new Container
 		{
-			Key = $"empty:{pane.Id}",
-			Overflow = Overflow.Hidden,
-			Handle = handle,
+			Key = "starters",
+			FlexGrow = 1,
+			MinHeight = 0,
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
 			Gap = theme.Spacing * 2,
-			BackgroundColor = theme.Panel.WithAlpha( PanelAlpha ),
-			BorderColor = ComputeOutline( pane, isSplit ),
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = PaneRadius,
-			OnPointerDown = _ => _app.Panels.ActivatePane( pane.Id ),
-			OnPointerMove = item => UpdateGripZone( pane.Id, handle, item ),
-			OnPointerLeave = _ => ReleaseGripZone( pane.Id ),
-			DropTarget = new DropTarget( QueryPanelDrop, item => UpdateBodyDrop( item, pane.Id, handle ) ),
 			Children =
 			[
 				new Text { Content = "Make room for your next idea", Color = theme.Muted },
@@ -308,6 +303,21 @@ internal sealed partial class ShellView
 					Children = tiles,
 				},
 			],
+		};
+		return new Container
+		{
+			Key = $"empty:{pane.Id}",
+			Handle = handle,
+			Overflow = Overflow.Hidden,
+			BackgroundColor = theme.Panel.WithAlpha( PanelAlpha ),
+			BorderColor = ComputeOutline( pane, isSplit ),
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = PaneRadius,
+			OnPointerDown = _ => _app.Panels.ActivatePane( pane.Id ),
+			OnPointerMove = item => UpdateGripZone( pane.Id, handle, item ),
+			OnPointerLeave = _ => ReleaseGripZone( pane.Id ),
+			DropTarget = new DropTarget( QueryPanelDrop, item => UpdateBodyDrop( item, pane.Id, handle ) ),
+			Children = HasPaneHeaders ? [BuildPaneHeader( pane, null, handle, null, isOverlaid: false ), starters] : [starters],
 		};
 	}
 
@@ -372,6 +382,8 @@ internal sealed partial class ShellView
 			Handle = handle,
 			MinWidth = 0,
 			MinHeight = 0,
+			// With a header, the header lies over this room at the top.
+			Padding = HasPaneHeaders ? new Edges( PaneHeaderHeight, 0, 0, 0 ) : new Edges( 0, 0, 0, 0 ),
 			Overflow = Overflow.Hidden,
 			BackgroundColor = Theme.Current.Panel.WithAlpha( PanelAlpha ),
 			// A panel waiting for the user keeps a calm, thicker outline until the user activates it.
@@ -388,41 +400,46 @@ internal sealed partial class ShellView
 			OnPointerMove = item => UpdateGripZone( pane.Id, handle, item ),
 			OnPointerLeave = _ => ReleaseGripZone( pane.Id ),
 			DropTarget = new DropTarget( QueryPanelDrop, item => UpdateBodyDrop( item, pane.Id, handle ) ),
-			Children = BuildPanelLayers( session ),
+			Children = BuildPanelLayers( session, pane, handle ),
 		};
 	}
 
-	/// <summary>Builds a shown panel's content, and for a panel on a paired host its host chip and, while the host is not online, the overlay that says so.</summary>
-	private List<Blob> BuildPanelLayers( PanelSession session )
+	/// <summary>Builds a shown panel's content, its header when panes have one, and for a panel on a paired host its host chip and, while the host is not
+	/// online, the overlay that says so.</summary>
+	/// <remarks>The content comes first, as it does in the body of a hidden panel, so that it keeps its place when a layout hides or shows the panel.</remarks>
+	private List<Blob> BuildPanelLayers( PanelSession session, DockPane pane, ElementHandle body )
 	{
 		var host = FindPanelHost( session.Info.Id );
+		var hasHeader = HasPaneHeaders;
 		// Content under a modal window or under the offline overlay is not seen, so its continuous motion rests.
 		var layers = new List<Blob>
 		{
 			BuildPanelSurface( session, !IsWorkspaceCovered && host is not { IsOnline: false } ),
 		};
+		if ( hasHeader )
+			layers.Add( BuildPaneHeader( pane, session.Info, body, host, isOverlaid: true ) );
 		if ( host is null )
 			return layers;
 
 		// The content stays mounted under the overlay, so it keeps its state and comes back as it was once the host reconnects.
 		if ( !host.IsOnline )
-			layers.Add( BuildHostOverlay( session, host ) );
-		layers.Add( BuildHostChip( host ) );
+			layers.Add( BuildHostOverlay( session, host, hasHeader ? PaneHeaderHeight : 0 ) );
+		// With a header the chip sits in it.
+		if ( !hasHeader )
+			layers.Add( BuildHostChip( host, isFloating: true ) );
 		return layers;
 	}
 
-	/// <summary>Builds the small chip in a pane's top-right corner that names the paired host its panel works on, with the host's status dot.</summary>
-	private static Blob BuildHostChip( LoknHost host )
+	/// <summary>Builds the small chip that names the paired host a panel works on, with the host's status dot: floating in the pane's top-right corner, or
+	/// in the flow of the pane's header.</summary>
+	private static Blob BuildHostChip( LoknHost host, bool isFloating )
 	{
 		var theme = Theme.Current;
 		var color = ComputeHostColor( host );
 		var isFilled = host.State is LoknHostState.Connected && host.CanControl;
-		return new Container
+		var chip = new Container
 		{
 			Key = "host-chip",
-			Position = PositionType.Absolute,
-			Top = theme.Spacing / 2,
-			Right = theme.Spacing,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
@@ -456,10 +473,21 @@ internal sealed partial class ShellView
 				},
 			],
 		};
+		if ( isFloating )
+		{
+			chip.Position = PositionType.Absolute;
+			chip.Top = theme.Spacing / 2;
+			chip.Right = theme.Spacing;
+		}
+
+		return chip;
 	}
 
 	/// <summary>Builds the cover over a panel whose paired host is not online: offline with the link's status, or removed with a way to close the panel.</summary>
-	private Blob BuildHostOverlay( PanelSession session, LoknHost host )
+	/// <param name="session">The panel.</param>
+	/// <param name="host">The panel's host.</param>
+	/// <param name="top">The room left uncovered at the top, such as for the pane's header, so its buttons still work.</param>
+	private Blob BuildHostOverlay( PanelSession session, LoknHost host, double top )
 	{
 		var theme = Theme.Current;
 		var isRemoved = host.State is LoknHostState.Removed;
@@ -481,7 +509,7 @@ internal sealed partial class ShellView
 			Key = "host-overlay",
 			Position = PositionType.Absolute,
 			Left = 0,
-			Top = 0,
+			Top = top,
 			Right = 0,
 			Bottom = 0,
 			AlignItems = AlignItems.Center,
@@ -554,9 +582,12 @@ internal sealed partial class ShellView
 		return isSplit && pane.Id == _app.Panels.ActivePaneId ? Theme.Current.Accent : Theme.Current.Border;
 	}
 
-	/// <summary>Reveals a pane's grip while the pointer is inside the pane's top section.</summary>
+	/// <summary>Reveals a pane's grip while the pointer is inside the pane's top section; with headers there is no grip to reveal.</summary>
 	private void UpdateGripZone( Guid paneId, ElementHandle body, PointerEvent item )
 	{
+		if ( HasPaneHeaders )
+			return;
+
 		if ( item.WindowPosition.Y - body.BorderBox.Y < GripZoneHeight )
 			UpdateGripPane( paneId );
 		else
