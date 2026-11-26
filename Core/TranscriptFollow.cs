@@ -14,6 +14,9 @@ internal sealed class TranscriptFollow
 	/// <summary>Stores the nearest end seen since the offset started moving down: the farthest a scroll begun then can aim.</summary>
 	private double _aimedEnd = double.MaxValue;
 
+	/// <summary>Stores the last observed scroll range, to tell content that shrank from the reader scrolling up.</summary>
+	private double _range;
+
 	/// <summary>Subscribes to the transcript scroller's geometry for the lifetime of its panel.</summary>
 	public TranscriptFollow() => Handle.MetricsChanged += UpdateMetrics;
 
@@ -36,10 +39,11 @@ internal sealed class TranscriptFollow
 
 	/// <summary>Tracks whether the reader left or returned to the end; the transcript list keeps the end in view while following.</summary>
 	/// <remarks>
-	/// Growth and following never move the offset backwards, and a shrink that clamps it lands on the end, so an offset
-	/// that went back and is not at the end is the reader's. A scroll down aims at the end it saw when it was asked
-	/// for; rows streaming in meanwhile leave it short of the new end, so reaching an end seen during the scroll
-	/// counts as returning. The range changes on almost every report while rows stream in, so no report is skipped.
+	/// Growth and following never move the offset backwards, so an offset that went back while the content did not shrink, and is not at the
+	/// end, is the reader's. Content that shrank pulls the offset back on its own: a fold closing, or rows of a chat opened again measured
+	/// shorter than their estimate, so that never releases the pin. A scroll down aims at the end it saw when it was asked for; rows
+	/// streaming in meanwhile leave it short of the new end, so reaching an end seen during the scroll counts as returning. The range
+	/// changes on almost every report while rows stream in, so no report is skipped.
 	/// </remarks>
 	private void UpdateMetrics( ElementMetrics metrics )
 	{
@@ -47,6 +51,7 @@ internal sealed class TranscriptFollow
 		{
 			// A remount starts from the origin, so its first offset is not a reader scroll and no end was seen yet.
 			_offset = 0;
+			_range = 0;
 			_aimedEnd = double.MaxValue;
 			return;
 		}
@@ -56,8 +61,9 @@ internal sealed class TranscriptFollow
 		_aimedEnd = offset > _offset ? Math.Min( _aimedEnd, range ) : range;
 		if ( metrics.IsAtEndY || (offset > _offset && offset >= _aimedEnd - 1) )
 			_isFollowing.Value = true;
-		else if ( offset < _offset )
+		else if ( offset < _offset && range >= _range )
 			_isFollowing.Value = false;
 		_offset = offset;
+		_range = range;
 	}
 }

@@ -73,9 +73,15 @@ public sealed partial class ChatContent
 		var expanded = _expanded.Contains( key );
 		var diffs = DiffParser.ParseTool( name, arguments, result, store.GetDirectory( conversationId ) );
 		var intent = session.Intents.GetValueOrDefault( id ) is { Length: > 0 } started ? started : ReadText( block, "intent", ReadText( arguments, "i" ) );
-		var toggle = BuildDisclosure( intent.Length > 0 ? intent : name, expanded, () => context.Run( () => UpdateExpanded( key ) ),
-			diffs.Count > 0 ? string.Join( ", ", diffs.Select( file => Path.GetFileName( file.Path ) ) ) : ComputeToolTarget( arguments ) );
-		toggle.AccessibilityName = $"{name} · {status}";
+		if ( name == "bash" )
+			return BuildBash( key, id, arguments, status, result, intent );
+		// A tool on one file reads as its verb and path, the file name bold, as "Edit ~/src/view.cs:104"; others show the agent's intent.
+		var path = ComputeToolPath( arguments );
+		var toggle = path.Length > 0 && diffs.Count <= 1
+			? BuildPathDisclosure( name, path, expanded, () => context.Run( () => UpdateExpanded( key ) ) )
+			: BuildDisclosure( intent.Length > 0 ? intent : name, expanded, () => context.Run( () => UpdateExpanded( key ) ),
+				diffs.Count > 0 ? string.Join( ", ", diffs.Select( file => Path.GetFileName( file.Path ) ) ) : ComputeToolTarget( arguments ) );
+		toggle.AccessibilityName = intent.Length > 0 ? $"{name} · {intent} · {status}" : $"{name} · {status}";
 		toggle.Key = "tool-toggle:" + key;
 		toggle.FlexShrink = 1;
 		var glyph = ChatIcons.ComputeToolGlyph( name );
@@ -109,15 +115,23 @@ public sealed partial class ChatContent
 			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = Theme.Current.Spacing, Children = head, },
 		};
 		foreach ( var (index, file) in diffs.Index() )
-			children.Add( DiffView.BuildCard( key + ":diff:" + index, file, () => context.Run( () => OpenDiff( file.Path ) ) ) );
+		{
+			var cardKey = key + ":diff:" + index;
+			children.Add( DiffView.BuildCard( cardKey, file, () => context.Run( () => OpenDiff( file.Path ) ), _expanded.Contains( cardKey ), () => context.Run( () => UpdateExpanded( cardKey ) ) ) );
+		}
+		// A written file shows its content at once, like an edit's diff, rather than behind the fold.
+		var (code, codeLanguage) = ComputeToolCode( name, arguments );
+		if ( name == "write" && code.Length > 0 )
+			children.Add( BuildCodePreview( key + ":code", code, codeLanguage, lineNumbers: true ) );
 		// Images a tool returned, such as screenshots, stay visible like diff cards rather than waiting behind the fold.
 		children.AddRange( BuildToolImages( id, result ) );
 		if ( expanded )
 		{
 			var details = new List<Blob>();
-			if ( ComputeToolCode( name, arguments ) is var (code, codeLanguage) && code.Length > 0 )
+			// A written file's content already shows above.
+			if ( code.Length > 0 && name != "write" )
 				details.Add( BuildCodePreview( key + ":code", code, codeLanguage ) );
-			else if ( arguments.ValueKind == JsonValueKind.Object && arguments.EnumerateObject().Any( property => property.Name != "i" ) )
+			else if ( code.Length == 0 && arguments.ValueKind == JsonValueKind.Object && arguments.EnumerateObject().Any( property => property.Name != "i" ) )
 				details.Add( MarkdownView.BuildCode( BuildJson( arguments ), "json", showLanguage: false ) );
 			if ( result is { } body )
 			{
@@ -158,14 +172,14 @@ public sealed partial class ChatContent
 	};
 
 	/// <summary>Builds highlighted code that shows its first lines, fading out, until the reader opens the rest.</summary>
-	private Blob BuildCodePreview( string key, string code, string language )
+	private Blob BuildCodePreview( string key, string code, string language, bool lineNumbers = false )
 	{
 		var lines = code.Replace( "\r\n", "\n" ).TrimEnd( '\n' ).Split( '\n' );
 		if ( lines.Length <= PreviewLines + PreviewSlack )
-			return MarkdownView.BuildCode( code, language, showLanguage: false );
+			return MarkdownView.BuildCode( code, language, showLanguage: false, lineNumbers: lineNumbers );
 
 		var expanded = _expanded.Contains( key );
-		var toggle = BuildDisclosure( expanded ? "Show less" : $"{lines.Length - PreviewLines:N0} more lines", expanded, () => context.Run( () => UpdateExpanded( key ) ) );
+		var toggle = BuildDisclosure( expanded ? "Show less" : $"{lines.Length - PreviewLines:N0} more lines · Show all", expanded, () => context.Run( () => UpdateExpanded( key ) ) );
 		toggle.Key = "preview-toggle";
 		return new Container
 		{
@@ -174,8 +188,8 @@ public sealed partial class ChatContent
 			Children =
 			[
 				expanded
-					? MarkdownView.BuildCode( code, language, showLanguage: false )
-					: MarkdownView.BuildCode( string.Join( '\n', lines.Take( PreviewLines ) ), language, showLanguage: false, fadeLines: PreviewFadeLines ),
+					? MarkdownView.BuildCode( code, language, showLanguage: false, lineNumbers: lineNumbers )
+					: MarkdownView.BuildCode( string.Join( '\n', lines.Take( PreviewLines ) ), language, showLanguage: false, fadeLines: PreviewFadeLines, lineNumbers: lineNumbers ),
 				toggle,
 			],
 		};
@@ -201,5 +215,31 @@ public sealed partial class ChatContent
 				return value.Split( '\n' )[0];
 		}
 		return "";
+	}
+
+	/// <summary>Gets the file path a tool works on, with any line selector, or empty when it has none.</summary>
+	private static string ComputeToolPath( JsonElement arguments )
+	{
+		foreach ( var property in new[] { "path", "file_path", "filePath" } )
+		{
+			var value = ReadText( arguments, property );
+			if ( value.Length > 0 && !value.Contains( '\n' ) )
+				return value;
+		}
+		return "";
+	}
+
+	/// <summary>Builds a tool head as its verb, then the path's folder, its file name in bold, and any line selector after it.</summary>
+	private static Button BuildPathDisclosure( string name, string path, bool expanded, Action action )
+	{
+		var home = Environment.GetFolderPath( Environment.SpecialFolder.UserProfile );
+		if ( home.Length > 0 && path.StartsWith( home, StringComparison.OrdinalIgnoreCase ) )
+			path = "~" + path[home.Length..];
+		var slash = path.LastIndexOfAny( ['/', '\\'] ) + 1;
+		var file = path[slash..];
+		var colon = file.IndexOf( ':' );
+		var (fileName, selector) = colon > 0 ? (file[..colon], file[colon..]) : (file, "");
+		var verb = name.Length > 0 ? char.ToUpperInvariant( name[0] ) + name[1..] : name;
+		return BuildDisclosure( verb, expanded, action, path[..slash], fileName, selector );
 	}
 }

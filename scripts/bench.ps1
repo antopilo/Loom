@@ -19,7 +19,7 @@ each scenario the script reads the process's CPU time and the frames presented o
   covered    working, under a window that covers it
   minimized  working, minimized
   settings   the Settings panel, focused
-  scroll     the long chat scrolled by the wheel: CPU per frame and Goo's frame times (GOO_FRAME_PROFILE)
+  scroll     the long chat scrolled by the wheel as Goo input: frames and the gaps between them after a notch and a flick, and Goo's frame times
   memory     working set and private bytes after start and after -MemoryMinutes, with chat, Git and terminal panels
 
 Loom opens on Home and puts the restored layout back into its session, so the chat, working, streaming and settings launches open
@@ -231,7 +231,6 @@ public static class BenchWindow
 	[DllImport( "user32.dll" )] private static extern bool BringWindowToTop( IntPtr window );
 	[DllImport( "user32.dll" )] private static extern bool SetWindowPos( IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags );
 	[DllImport( "user32.dll" )] private static extern bool GetWindowRect( IntPtr window, out Rect rect );
-	[DllImport( "user32.dll" )] private static extern bool PostMessage( IntPtr window, uint message, IntPtr wParam, IntPtr lParam );
 
 	[StructLayout( LayoutKind.Sequential )]
 	private struct Rect
@@ -306,16 +305,6 @@ public static class BenchWindow
 			return;
 		cover.Invoke( (Action)( () => cover.Close() ) );
 		cover = null;
-	}
-
-	public static void Wheel( IntPtr window, int clientX, int clientY, int delta )
-	{
-		Rect rect;
-		GetWindowRect( window, out rect );
-		var client = (IntPtr)( ( clientY << 16 ) | ( clientX & 0xFFFF ) );
-		PostMessage( window, 0x0200, IntPtr.Zero, client );
-		var screen = (IntPtr)( ( ( rect.Top + clientY ) << 16 ) | ( ( rect.Left + clientX ) & 0xFFFF ) );
-		PostMessage( window, 0x020A, (IntPtr)( delta << 16 ), screen );
 	}
 }
 '@
@@ -730,7 +719,8 @@ function Start-Loom( [string] $Layout, [string] $Turn, [switch] $Profile, [strin
 	{
 		$run.Process = [Diagnostics.Process]::Start( $info )
 		$run.Job.Add( $run.Process )
-		$run.Output = if ( $Profile ) { $run.Process.StandardOutput } else { $null }
+		# Read to the end from the start: Goo's profile fills the pipe in seconds, and a full pipe blocks Loom's UI thread in Console.WriteLine.
+		$run.Output = if ( $Profile ) { $run.Process.StandardOutput.ReadToEndAsync() } else { $null }
 		$deadline = [DateTime]::UtcNow.AddSeconds( 90 )
 		while ( -not ( ( Test-Path $trace ) -and ( Select-String -Path $trace -Pattern ' interactive$' -Quiet ) ) )
 		{
@@ -979,55 +969,56 @@ try
 
 			'scroll'
 			{
-				$run = Start-Loom 'chat' '' -Profile
+				# Turns the wheel over the long chat's transcript as Goo's own input, so neither the pointer nor a window in front stops it: one notch up,
+				# a flick of six notches up, then the same down. Each step's frames are measured for 900 ms: a smooth scroll presents a frame every display
+				# interval until it settles, so the gaps between frames show whether it kept the display's rate.
+				$at = 'wheel:700:450'
+				$steps = @( "${at}:1:1", "${at}:1:6", "${at}:-1:1", "${at}:-1:6" )
+				$run = Start-Loom 'chat' '' -Profile -Drive ( '1200|' + ( $steps -join '|' ) )
 				try
 				{
 					Set-Focused $run
-					Start-Sleep -Seconds 3
-					# Goo prints frame statistics every 240 frames after 60 warm-up frames; read them as they come.
-					$lines = [Collections.Concurrent.ConcurrentQueue[string]]::new()
-					$reader = $run.Output
-					$job = [System.Threading.Tasks.Task]::Run( [Action]{ while ( $null -ne ( $line = $reader.ReadLine() ) ) { $lines.Enqueue( $line ) } } )
-					$run.Process.Refresh()
-					$cpuStart = $run.Process.TotalProcessorTime
-					$start = Get-Elapsed $run
-					$stopwatch = [Diagnostics.Stopwatch]::StartNew()
-					$step = 0
-					while ( $stopwatch.Elapsed.TotalSeconds -lt $Seconds )
-					{
-						# Up the transcript for two seconds, then down, a notch every 16 ms.
-						$delta = if ( [math]::Floor( $stopwatch.Elapsed.TotalSeconds / 2 ) % 2 -eq 0 ) { 120 } else { -120 }
-						[BenchWindow]::Wheel( $run.Window, 700, 450, $delta )
-						Start-Sleep -Milliseconds 16
-						$step++
-					}
-
-					$run.Process.Refresh()
-					$cpu = ( $run.Process.TotalProcessorTime - $cpuStart ).TotalMilliseconds
-					$end = Get-Elapsed $run
-					$counts = @( Read-Trace $run | Where-Object { $_.Event -like 'frames *' -and $_.At -gt $start + 1000 -and $_.At -le $end } )
-					$frames = ( $counts | ForEach-Object { [int]$_.Event.Substring( 7 ) } | Measure-Object -Sum ).Sum
-					$fps = if ( $counts.Count ) { $frames / $counts.Count } else { 0 }
-					$tails = @( $lines.ToArray() | Where-Object { $_ -like '*goo.profile.tail_ms/frame*phase=frame *' } )
-					$p50 = @( $tails | ForEach-Object { [double]( [regex]::Match( $_, 'p50=([\d.]+)' ).Groups[1].Value ) } )
-					$p99 = @( $tails | ForEach-Object { [double]( [regex]::Match( $_, 'p99=([\d.]+)' ).Groups[1].Value ) } )
-					$result = [pscustomobject]@{
-						Scenario = 'scroll'
-						CpuPercent = [math]::Round( $cpu / ( $end - $start ) * 100, 1 )
-						Fps = [math]::Round( $fps, 1 )
-						CpuMsPerFrame = if ( $fps ) { [math]::Round( $cpu / ( $fps * ( $end - $start ) / 1000 ), 2 ) } else { 0 }
-						FrameP50Ms = if ( $p50.Count ) { ( $p50 | Measure-Object -Average ).Average } else { $null }
-						FrameP99Ms = if ( $p99.Count ) { ( $p99 | Measure-Object -Maximum ).Maximum } else { $null }
-						Wheel = $step
-						Profile = @( $lines.ToArray() | Where-Object { $_ -like '*goo.profile*' } | Select-Object -Last 12 )
-					}
-					Write-Host ( 'scroll     cpu {0,6}%  fps {1,6}  cpu/frame {2} ms  goo frame p50 {3} ms p99 {4} ms' -f $result.CpuPercent, $result.Fps, $result.CpuMsPerFrame, $result.FrameP50Ms, $result.FrameP99Ms )
-					$Results.Scenarios += $result
+					Start-Sleep -Seconds ( $Seconds + 4 )
 				}
 				finally
 				{
 					Stop-Loom $run
 				}
+
+				$labels = @{ "${at}:1:1" = 'up 1 notch'; "${at}:1:6" = 'up flick (6)'; "${at}:-1:1" = 'down 1 notch'; "${at}:-1:6" = 'down flick (6)' }
+				# The first round warms the code up, so only the later ones count.
+				$switches = @( Read-Trace $run | Where-Object { $_.Event -like 'switch wheel:*' } | Select-Object -Skip $steps.Count | ForEach-Object {
+					$fields = $_.Event.Split( ' ' )
+					$gaps = if ( $fields.Count -gt 13 -and $fields[13] ) { @( $fields[13].Split( ',' ) | Select-Object -Skip 1 | ForEach-Object { [double]$_ } ) } else { @() }
+					[pscustomobject]@{ Step = $labels[$fields[1]]; First = [double]$fields[5]; Frames = [int]$fields[7]; MaxGap = [double]$fields[9]; Gaps = $gaps }
+				} )
+				foreach ( $group in ( $switches | Group-Object Step ) )
+				{
+					$gaps = @( $group.Group | ForEach-Object { $_.Gaps } | Sort-Object )
+					$row = [pscustomobject]@{
+						Scenario = 'scroll'
+						Step = $group.Name
+						Count = $group.Count
+						FirstFrameMs = [math]::Round( ( $group.Group.First | Measure-Object -Average ).Average, 1 )
+						FramesPerStep = [math]::Round( ( $group.Group.Frames | Measure-Object -Average ).Average, 1 )
+						GapP50Ms = if ( $gaps.Count ) { $gaps[[int]( ( $gaps.Count - 1 ) * 0.5 )] } else { $null }
+						GapP95Ms = if ( $gaps.Count ) { $gaps[[int]( ( $gaps.Count - 1 ) * 0.95 )] } else { $null }
+						MaxGapMs = ( $group.Group.MaxGap | Measure-Object -Maximum ).Maximum
+					}
+					Write-Host ( 'scroll     {0,-16} x{1}  first frame {2} ms  frames {3}/step  gap p50 {4} ms p95 {5} ms  worst {6} ms' -f $row.Step, $row.Count, $row.FirstFrameMs, $row.FramesPerStep, $row.GapP50Ms, $row.GapP95Ms, $row.MaxGapMs )
+					$Results.Scenarios += $row
+				}
+
+				# Goo prints frame statistics every 240 frames after 60 warm-up frames.
+				$lines = if ( $run.Output.Wait( 5000 ) ) { $run.Output.Result -split "`r?`n" } else { @() }
+				$tails = @( $lines | Where-Object { $_ -like '*goo.profile.tail_ms/frame*phase=frame *' } )
+				$p50 = @( $tails | ForEach-Object { [double]( [regex]::Match( $_, 'p50=([\d.]+)' ).Groups[1].Value ) } )
+				$p99 = @( $tails | ForEach-Object { [double]( [regex]::Match( $_, 'p99=([\d.]+)' ).Groups[1].Value ) } )
+				if ( $p50.Count )
+				{
+					Write-Host ( 'scroll     goo frame p50 {0} ms p99 {1} ms' -f ( $p50 | Measure-Object -Average ).Average, ( $p99 | Measure-Object -Maximum ).Maximum )
+				}
+				$Results.Scenarios += [pscustomobject]@{ Scenario = 'scroll-profile'; Profile = @( $lines | Where-Object { $_ -like '*goo.profile*' } | Select-Object -Last 12 ) }
 			}
 
 			'switch'

@@ -218,12 +218,32 @@ public sealed partial class ChatContent
 	}
 
 	/// <summary>Builds a muted text button with an optional monospace detail, followed by a chevron that shows whether its content is open.</summary>
-	private static Button BuildDisclosure( string label, bool expanded, Action action, string detail = "" )
+	/// <param name="label">The button's text.</param>
+	/// <param name="expanded">Whether the content it opens is shown.</param>
+	/// <param name="action">Opens or closes the content.</param>
+	/// <param name="detail">Monospace text after the label, such as a folder.</param>
+	/// <param name="emphasis">Monospace text after the detail in the body color and bold, such as a file name.</param>
+	/// <param name="tail">Monospace text after the emphasis, such as a line range.</param>
+	private static Button BuildDisclosure( string label, bool expanded, Action action, string detail = "", string emphasis = "", string tail = "" )
 	{
 		// Goo aligns separate text boxes by their edges, not their baselines, so the label and its code-font detail share one text run.
 		var spans = new List<TextSpan> { new( label, null! ) };
-		if ( detail.Length > 0 )
+		if ( detail.Length + emphasis.Length + tail.Length > 0 )
 			spans.Add( new( "  " + detail, new Style
+			{
+				FontFamily = ViewStyle.CodeFontFamily,
+				FontSize = ViewStyle.SmallSize,
+			} ) );
+		if ( emphasis.Length > 0 )
+			spans.Add( new( emphasis, new Style
+			{
+				FontFamily = ViewStyle.CodeFontFamily,
+				FontSize = ViewStyle.SmallSize,
+				FontWeight = 600,
+				Color = Theme.Current.Text,
+			} ) );
+		if ( tail.Length > 0 )
+			spans.Add( new( tail, new Style
 			{
 				FontFamily = ViewStyle.CodeFontFamily,
 				FontSize = ViewStyle.SmallSize,

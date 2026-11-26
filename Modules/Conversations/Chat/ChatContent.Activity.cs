@@ -70,12 +70,7 @@ public sealed partial class ChatContent
 		if ( expanded )
 		{
 			var body = new List<Blob>();
-			foreach ( var part in row.Parts )
-			{
-				var index = part.Start;
-				foreach ( var block in ReadBlocks( part ) )
-					body.AddRange( BuildRichBlock( $"{part.Message.Id:N}:{index++}", block, "assistant" ) );
-			}
+			AddActivityBlocks( row.Parts, body );
 			// Only a fold the reader just opened rises into place; one already open, restored or scrolled back shows at rest.
 			var reveal = Cell.Mount<RevealInput, Reveal>( "activity-reveal", new( BuildIndent( body ), _openingActivities.Remove( key ) ) );
 			children.Add( Reveal.BuildExit( "activity-body", reveal, isClosing ) );

@@ -27,23 +27,20 @@ internal static class DiffView
 	/// <summary>Defines the spaces one tab expands to.</summary>
 	private const string Tab = "    ";
 
-	/// <summary>Builds a file's compact card for the transcript; clicking anywhere on it opens the diff panel.</summary>
-	internal static Button BuildCard( string key, DiffFile file, Action open )
+	/// <summary>Builds a file's compact card for the transcript: clicking it opens the diff panel, and a fold below shows every row in place.</summary>
+	/// <param name="key">The card's stable key.</param>
+	/// <param name="file">The file's diff.</param>
+	/// <param name="open">Opens the file in the diff panel.</param>
+	/// <param name="expanded">Whether the card shows every row rather than the first <see cref="CardLines"/>.</param>
+	/// <param name="toggle">Shows or folds the rows past the first <see cref="CardLines"/>.</param>
+	internal static Container BuildCard( string key, DiffFile file, Action open, bool expanded, Action toggle )
 	{
+		var grammar = CodeHighlighter.FindForPath( file.Path );
 		var body = new List<Blob> { BuildHeader( file, expanded: null, open ) };
-		body.Add( BuildLines( file.Lines, CardLines, selectable: false ) );
-		if ( file.Lines.Count > CardLines )
-			body.Add( new Text
-			{
-				Content = $"{file.Lines.Count - CardLines:N0} more lines · open to see all",
-				Padding = new Edges( Theme.Current.Spacing / 2, Theme.Current.Spacing ),
-				FontSize = CodeSize,
-				Color = Theme.Current.Muted,
-			} );
-
-		return new Button
+		body.Add( BuildLines( file.Lines, expanded ? file.Lines.Count : CardLines, selectable: false, grammar ) );
+		var card = new Button
 		{
-			Key = key,
+			Key = "card",
 			AccessibilityName = $"Open diff of {file.Path}",
 			FlexDirection = FlexDirection.Column,
 			AlignItems = AlignItems.Stretch,
@@ -70,6 +67,25 @@ internal static class DiffView
 				BorderColor = Theme.Current.Accent,
 			},
 			Children = body,
+		};
+		var children = new List<Blob> { card };
+		if ( file.Lines.Count > CardLines )
+		{
+			var fold = Theme.Current.BuildButton( expanded ? "Show less" : $"{file.Lines.Count - CardLines:N0} more lines · Show all", toggle );
+			fold.Key = "fold";
+			fold.AlignSelf = AlignSelf.FlexStart;
+			fold.Color = Theme.Current.Muted;
+			fold.FontSize = CodeSize;
+			fold.Padding = new Edges( 0, Theme.Current.Spacing / 2 );
+			children.Add( fold );
+		}
+
+		return new Container
+		{
+			Key = key,
+			MinWidth = 0,
+			Gap = Theme.Current.Spacing / 2,
+			Children = children,
 		};
 	}
 
@@ -114,6 +130,7 @@ internal static class DiffView
 		Func<DiffLine, string?>? marker = null )
 	{
 		var corner = isLast ? Theme.Current.Radius : 0;
+		var grammar = CodeHighlighter.FindForPath( file.Path );
 		Blob body = file.Note is { } note
 			? new Text { Content = note, Padding = Theme.Current.Spacing, FontSize = CodeSize, Color = Theme.Current.Muted, }
 			: new Container
@@ -121,7 +138,7 @@ internal static class DiffView
 				MinWidth = 0,
 				FontFamily = ViewStyle.CodeFontFamily,
 				FontSize = CodeSize,
-				Children = [.. Enumerable.Range( start, count ).Select( index => BuildLine( file.Lines[index], digits, selectable: true, annotate, marker ) )],
+				Children = [.. Enumerable.Range( start, count ).Select( index => BuildLine( file.Lines[index], digits, selectable: true, grammar, annotate, marker ) )],
 			};
 		return new Container
 		{
@@ -189,8 +206,8 @@ internal static class DiffView
 		};
 	}
 
-	/// <summary>Builds up to <paramref name="limit"/> rows with a shared line number column.</summary>
-	private static Container BuildLines( IReadOnlyList<DiffLine> lines, int limit, bool selectable )
+	/// <summary>Builds up to <paramref name="limit"/> rows with a shared line number column, colored by <paramref name="grammar"/>.</summary>
+	private static Container BuildLines( IReadOnlyList<DiffLine> lines, int limit, bool selectable, CodeHighlighter.Grammar? grammar )
 	{
 		var shown = lines.Take( limit ).ToArray();
 		var digits = shown.Where( line => line.Kind != DiffLineKind.Gap ).Select( line => line.Number ).DefaultIfEmpty( 1 ).Max().ToString().Length;
@@ -201,15 +218,16 @@ internal static class DiffView
 			Padding = new Edges( Theme.Current.Spacing / 2, 0 ),
 			FontFamily = ViewStyle.CodeFontFamily,
 			FontSize = CodeSize,
-			Children = [.. shown.Select( line => BuildLine( line, digits, selectable ) )],
+			Children = [.. shown.Select( line => BuildLine( line, digits, selectable, grammar ) )],
 		};
 	}
 
-	/// <summary>Builds one row: change bar, line number, optional review marker, diff marker, and text tinted by its kind.</summary>
+	/// <summary>Builds one row: change bar, line number, optional review marker, diff marker, and text with syntax colors over a tint by its kind.</summary>
 	private static Row BuildLine(
 		DiffLine line,
 		int digits,
 		bool selectable,
+		CodeHighlighter.Grammar? grammar,
 		Action<DiffLine>? annotate = null,
 		Func<DiffLine, string?>? marker = null )
 	{
@@ -288,9 +306,11 @@ internal static class DiffView
 			FlexShrink = 0,
 			Color = line.Kind == DiffLineKind.Context ? Theme.Current.Muted : color,
 		} );
-		children.Add( new Text
+		// Each row is colored alone: a diff shows fragments, so a block comment's state across rows is not known.
+		var code = BuildCode( line.Text );
+		var isInComment = false;
+		children.Add( new Text( grammar is null || line.Text.Length == 0 ? [new TextSpan( code, null! )] : CodeHighlighter.BuildSpans( code, grammar, ref isInComment ) )
 		{
-			Content = BuildCode( line.Text ),
 			Selectable = selectable,
 			FlexGrow = 1,
 			FlexShrink = 1,

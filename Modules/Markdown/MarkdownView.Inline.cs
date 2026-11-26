@@ -615,9 +615,14 @@ public static partial class MarkdownView
 			style.TextDecoration = TextDecoration.Underline;
 		else if ( kind.HasFlag( InlineKind.Strike ) )
 			style.TextDecoration = TextDecoration.LineThrough;
+		// Code shows in a box with the theme's red, links in its green, as Tern draws them; a run's own color still wins.
 		if ( run.Background is { } background )
 			style.BackgroundColor = background;
-		var color = run.Color ?? (kind.HasFlag( InlineKind.Code ) || kind.HasFlag( InlineKind.Link ) || kind.HasFlag( InlineKind.Note ) ? Theme.Current.Accent : Theme.Current.Text);
+		else if ( kind.HasFlag( InlineKind.Code ) )
+			style.BackgroundColor = Theme.Current.Raised;
+		var color = run.Color ?? (kind.HasFlag( InlineKind.Link ) ? Theme.Current.AnsiGreen
+			: kind.HasFlag( InlineKind.Code ) ? Theme.Current.AnsiRed
+			: kind.HasFlag( InlineKind.Note ) ? Theme.Current.Accent : Theme.Current.Text);
 		if ( alpha < 1 )
 			style.Color = color.WithAlpha( color.A * alpha );
 		else if ( color != Theme.Current.Text )

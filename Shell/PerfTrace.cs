@@ -151,8 +151,10 @@ internal static class PerfTrace
 
 	/// <summary>Runs the switches <c>LOKN_PERF_DRIVE</c> lists, for <c>scripts/bench.ps1</c>'s switch scenario, and writes one line per switch.</summary>
 	/// <remarks>
-	/// The variable is <c>&lt;interval ms&gt;|&lt;step&gt;|&lt;step&gt;…</c>: each step is <c>profile</c>, which toggles Work and Personal, or a <c>lokn://</c>
-	/// link, opened as a click in Loom would. The steps run in a loop, one per interval. Each writes
+	/// The variable is <c>&lt;interval ms&gt;|&lt;step&gt;|&lt;step&gt;…</c>: each step is <c>profile</c>, which toggles Work and Personal, a <c>lokn://</c>
+	/// link, opened as a click in Loom would, or <c>wheel:&lt;x&gt;:&lt;y&gt;:&lt;notches&gt;:&lt;count&gt;</c>, which turns the wheel at that point of the
+	/// window, in logical pixels, by <c>notches</c> (positive scrolls up) <c>count</c> times, <see cref="WheelGapMs"/> apart, as Goo's own platform input,
+	/// so a hidden pointer or another window in front cannot stop it. The steps run in a loop, one per interval. Each writes
 	/// <c>switch &lt;step&gt; handler &lt;ms&gt; first &lt;ms&gt; frames &lt;n&gt; maxgap &lt;ms&gt; dropped &lt;n&gt;</c>: the time the step itself took on
 	/// the UI thread, from the step to the first presented frame, the frames presented in the next <see cref="SwitchWindowMs"/>, the longest time
 	/// between two of them (from the step for the first), and how many of those times exceed <see cref="DroppedMs"/>.
@@ -176,6 +178,8 @@ internal static class PerfTrace
 			Volatile.Write( ref _switchStart, start );
 			if ( name == "profile" )
 				app.Settings.ToggleProfile();
+			else if ( name.StartsWith( "wheel:", StringComparison.Ordinal ) )
+				Turn( window, name );
 			else
 				app.OpenLink( new Uri( name ) );
 			var handler = Stopwatch.GetElapsedTime( start ).TotalMilliseconds;
@@ -204,18 +208,34 @@ internal static class PerfTrace
 			longest = Math.Max( longest, gap );
 			if ( gap > DroppedMs )
 				dropped++;
-			gaps.Add( gap.ToString( "F0", CultureInfo.InvariantCulture ) );
+			gaps.Add( gap.ToString( "F1", CultureInfo.InvariantCulture ) );
 			previous = present;
 		}
 
 		var first = presents.Length > 0 ? Stopwatch.GetElapsedTime( start, presents[0] ).TotalMilliseconds : -1;
-		var label = name == "profile" ? "profile" : name[(name.LastIndexOf( '/' ) + 1)..];
+		var label = name == "profile" ? "profile" : name.StartsWith( "wheel:", StringComparison.Ordinal ) ? name : name[(name.LastIndexOf( '/' ) + 1)..];
 		Write( string.Create( CultureInfo.InvariantCulture,
 			$"switch {label} handler {handler:F1} first {first:F1} frames {presents.Length} maxgap {longest:F1} dropped {dropped} gaps {string.Join( ',', gaps )}" ) );
 	}
 
 	/// <summary>Runs the switches while driving; kept so it is not collected.</summary>
 	private static Timer? _driver;
+
+	/// <summary>Defines the time between the wheel turns of one step, in milliseconds: a quick flick of the wheel.</summary>
+	private const int WheelGapMs = 30;
+
+	/// <summary>Turns the wheel as a <c>wheel:&lt;x&gt;:&lt;y&gt;:&lt;notches&gt;:&lt;count&gt;</c> step asks, the first turn at once and the others on later frames.</summary>
+	private static void Turn( Window window, string step )
+	{
+		var fields = step.Split( ':' );
+		var x = double.Parse( fields[1], CultureInfo.InvariantCulture );
+		var y = double.Parse( fields[2], CultureInfo.InvariantCulture );
+		var notches = double.Parse( fields[3], CultureInfo.InvariantCulture );
+		var count = fields.Length > 4 ? int.Parse( fields[4], CultureInfo.InvariantCulture ) : 1;
+		window.PlatformInput.PointerWheel( x, y, 0, notches, KeyModifiers.None );
+		for ( var i = 1; i < count; i++ )
+			_ = Task.Delay( i * WheelGapMs ).ContinueWith( _ => window.Post( () => window.PlatformInput.PointerWheel( x, y, 0, notches, KeyModifiers.None ) ), TaskScheduler.Default );
+	}
 
 	/// <summary>Writes <c>jit &lt;methods&gt; &lt;ms&gt;</c>: how many methods the whole process compiled so far, on every thread, and for how long.</summary>
 	private static void WriteCompiled()

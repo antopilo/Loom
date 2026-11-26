@@ -284,6 +284,9 @@ public static partial class MarkdownView
 				Padding = new Edges( Theme.Current.Spacing, BlockInset ),
 				BorderWidth = new Edges( 0, 0, 0, 2 ),
 				BorderColor = Theme.Current.Accent,
+				BackgroundColor = Theme.Current.Raised,
+				BorderTopRightRadius = Theme.Current.Radius,
+				BorderBottomRightRadius = Theme.Current.Radius,
 				MinWidth = 0,
 				Children = [BuildBlocks( block.Text, openLink, fade, after )],
 			};
@@ -300,6 +303,8 @@ public static partial class MarkdownView
 		{
 			var level = block.Marker.Length;
 			text.FontWeight = EmphasisWeight;
+			// Headings stand out in the theme's yellow, as Tern draws them.
+			text.Color = Theme.Current.AnsiYellow;
 			text.FontSize = level <= HeadingSizes.Length ? HeadingSizes[level - 1] : BodySize;
 			text.LineHeight = HeadingLineHeight;
 		}
@@ -307,11 +312,44 @@ public static partial class MarkdownView
 		return text;
 	}
 
-	/// <summary>Builds a Mermaid diagram: drawn natively for flowcharts and sequence diagrams; other types, and sources it cannot read, show their source with a note.</summary>
+	/// <summary>Builds a Mermaid diagram in a framed card with its type and a Copy button: drawn natively for flowcharts and sequence diagrams;
+	/// other types, and sources it cannot read, show their source with a note.</summary>
 	private static Blob BuildDiagram( string source )
 	{
 		if ( MermaidView.Build( source ) is { } diagram )
-			return diagram;
+		{
+			var kind = source.TrimStart().Split( [' ', '\n', '\r'], 2 )[0];
+			var header = new List<Blob>
+			{
+				new Text { Content = $"mermaid · {kind}", FontSize = CodeSize, Color = Theme.Current.Muted, },
+				new Spacer(),
+			};
+			if ( CopyText is { } copy )
+				header.Add( BuildCodeButton( "Copy", "Copy diagram source", () => copy( source ) ) );
+			return new Container
+			{
+				AccessibilityRole = AccessibilityRole.Group,
+				AccessibilityName = "Diagram",
+				MinWidth = 0,
+				Overflow = Overflow.Hidden,
+				BackgroundColor = Theme.Current.Panel,
+				BorderColor = Theme.Current.Border,
+				BorderWidth = Theme.Current.BorderWidth,
+				BorderRadius = Theme.Current.Radius,
+				Children =
+				[
+					new Row
+					{
+						AlignItems = AlignItems.Center,
+						Padding = new Edges( CodeGap, BlockInset ),
+						BorderColor = Theme.Current.Border,
+						BorderWidth = new Edges( 0, 0, Theme.Current.BorderWidth, 0 ),
+						Children = header,
+					},
+					new Container { Padding = BlockInset * 2, AlignItems = AlignItems.Center, MinWidth = 0, Children = [diagram] },
+				],
+			};
+		}
 		return new Container
 		{
 			MinWidth = 0,
@@ -562,7 +600,8 @@ public static partial class MarkdownView
 	/// <param name="showLanguage">Whether the language badge is shown; a tool head that already names it leaves it out.</param>
 	/// <param name="fadeLines">How many trailing lines fade out, marking a cut preview.</param>
 	/// <param name="isRunnable">Whether a shell snippet gets a Run button; written code blocks do, tool output does not.</param>
-	public static Blob BuildCode( string code, string language = "", bool framed = true, bool showLanguage = true, int fadeLines = 0, bool isRunnable = false )
+	/// <param name="lineNumbers">Whether a muted line number column runs beside the code, as for a written file.</param>
+	public static Blob BuildCode( string code, string language = "", bool framed = true, bool showLanguage = true, int fadeLines = 0, bool isRunnable = false, bool lineNumbers = false )
 	{
 		var lines = code.Replace( "\r\n", "\n" ).Split( '\n' );
 		var children = new List<Blob>();
@@ -595,7 +634,26 @@ public static partial class MarkdownView
 			if ( index < shown - 1 )
 				spans.Add( new TextSpan( "\n", null! ) );
 		}
-		children.Add( new Text( [.. spans] ) { Selectable = true, FontFamily = ViewStyle.CodeFontFamily, FontSize = CodeSize, LineHeight = CodeLineHeight, Color = Theme.Current.Text } );
+		var text = new Text( [.. spans] ) { Selectable = true, FontFamily = ViewStyle.CodeFontFamily, FontSize = CodeSize, LineHeight = CodeLineHeight, Color = Theme.Current.Text, FlexShrink = 1, MinWidth = 0 };
+		children.Add( !lineNumbers ? text : new Row
+		{
+			Gap = Theme.Current.Spacing * 1.5,
+			MinWidth = 0,
+			Children =
+			[
+				new Text
+				{
+					Content = string.Join( '\n', Enumerable.Range( 1, shown ) ),
+					FontFamily = ViewStyle.CodeFontFamily,
+					FontSize = CodeSize,
+					LineHeight = CodeLineHeight,
+					TextAlign = TextAlign.Right,
+					Color = Theme.Current.Muted,
+					FlexShrink = 0,
+				},
+				text,
+			],
+		} );
 		if ( lines.Length > MaxCodeLines )
 			children.Add( new Text { Content = $"… {lines.Length - MaxCodeLines:N0} more lines not shown", Color = Theme.Current.Muted, FontFamily = ViewStyle.FontFamily, FontSize = CodeSize, Selectable = true, MinWidth = 0 } );
 
@@ -700,6 +758,11 @@ public static partial class MarkdownView
 			{
 				var text = BuildInlineText( column < rows[index].Count ? rows[index][column] : "", openLink );
 				text.FontWeight = isHeader ? EmphasisWeight : RegularWeight;
+				if ( isHeader )
+				{
+					text.Color = Theme.Current.Muted;
+					text.FontSize = CodeSize;
+				}
 				text.LineHeight = CellLineHeight;
 				text.TextAlign = column < alignments.Length ? alignments[column] : TextAlign.Left;
 				text.Padding = new Edges( CellInsetY, CellInsetX );
@@ -711,9 +774,9 @@ public static partial class MarkdownView
 
 			tableRows.Add( new Row
 			{
-				BackgroundColor = isHeader ? Theme.Current.Raised : Color.Transparent,
-				BorderWidth = new Edges( isHeader ? 0 : Theme.Current.BorderWidth, 0, 0, 0 ),
-				BorderColor = Theme.Current.Border,
+				// Open rows with a thin line under each, as Tern draws them; the header sits on the same canvas, muted.
+				BorderWidth = new Edges( 0, 0, index < rows.Length - 1 ? Theme.Current.BorderWidth : 0, 0 ),
+				BorderColor = Theme.Current.Divider,
 				Children = cells,
 			} );
 		}
@@ -738,9 +801,7 @@ public static partial class MarkdownView
 					FlexBasis = ComputeTableWidth( preferred ),
 					FlexShrink = 1,
 					MinWidth = ComputeTableWidth( minimum ),
-					BorderWidth = Theme.Current.BorderWidth,
-					BorderColor = Theme.Current.Border,
-					BorderRadius = Theme.Current.Radius,
+					BorderWidth = 0,
 					Overflow = Overflow.Hidden,
 					Children = tableRows,
 				},
