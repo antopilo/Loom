@@ -38,10 +38,10 @@ public sealed partial class ChatContent
 			"Failed" => ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "grep" ), theme.Error ),
 			_ => ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "grep" ) ),
 		};
+		// Tern's head: the pattern quoted after the verb, and where it searched with the counts at the far end.
 		var title = new Text( [
 			new( "Grep", new Style { FontWeight = 600, Color = theme.Text } ),
-			new( pattern.Length > 0 ? "  " + pattern : "", new Style { FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, Color = theme.AnsiYellow } ),
-			new( folder.Length > 0 ? "   in " + ShortenHome( folder ) : "", new Style { FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, Color = theme.Muted } ),
+			new( pattern.Length > 0 ? $"  “{pattern}”" : "", new Style { FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, Color = theme.Text } ),
 			new( intent.Length > 0 ? "  " + intent : "", new Style { Color = theme.Muted } ),
 		] )
 		{
@@ -50,14 +50,32 @@ public sealed partial class ChatContent
 			TextWrap = TextWrap.NoWrap,
 			TextTrimming = TextTrimming.Ellipsis,
 		};
-		var children = new List<Blob>
-		{
-			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = [mark, title] },
-		};
-
 		var text = result is { } body ? TerminalText.BuildPlain( ComputeResultText( body ) ) : "";
 		var files = ParseGrep( text );
-		var highlight = BuildGrepHighlight( pattern, arguments );
+		var matches = files.Sum( file => file.Matches );
+		var summary = new List<string>();
+		if ( folder.Length > 0 )
+			summary.Add( "in " + ShortenHome( folder ) );
+		if ( files.Count > 0 )
+			summary.Add( $"{matches:N0} {(matches == 1 ? "match" : "matches")} · {files.Count:N0} {(files.Count == 1 ? "file" : "files")}" );
+		var head = new List<Blob> { mark, title, new Spacer() };
+		if ( summary.Count > 0 )
+			head.Add( new Text
+			{
+				Content = string.Join( "  ", summary ),
+				FontFamily = ViewStyle.CodeFontFamily,
+				FontSize = ViewStyle.SmallSize,
+				Color = theme.Muted,
+				FlexShrink = 1,
+				MinWidth = 0,
+				TextWrap = TextWrap.NoWrap,
+				TextTrimming = TextTrimming.Ellipsis,
+			} );
+		var children = new List<Blob>
+		{
+			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = head },
+		};
+
 		if ( files.Count == 0 )
 		{
 			// Output in a form this does not read, such as "No matches", shows as it came.
@@ -84,7 +102,7 @@ public sealed partial class ChatContent
 					Key = key + ":file:" + index,
 					Gap = theme.Spacing / 2,
 					Margin = new Edges( theme.Spacing / 2, 0, 0, 0 ),
-					Children = [BuildGrepFileTitle( key + ":title:" + index, file ), BuildGrepCard( key + ":card:" + index, file.Path, shown, highlight, fades )],
+					Children = [BuildGrepFileTitle( key + ":title:" + index, file ), BuildGrepCard( key + ":card:" + index, file.Path, shown, fades )],
 				} );
 			}
 			if ( folds )
@@ -143,27 +161,9 @@ public sealed partial class ChatContent
 	/// <summary>Defines how many of a cut grep card's last rows fade out.</summary>
 	private const int GrepFadeRows = 3;
 
-	/// <summary>Builds a grep's pattern as a regex that finds what it matched in a row, case-insensitive when the call asked; null when it is not a valid regex.</summary>
-	private static Regex? BuildGrepHighlight( string pattern, JsonElement arguments )
-	{
-		if ( pattern.Length == 0 )
-			return null;
-		var ignoreCase = arguments.ValueKind == JsonValueKind.Object && (arguments.TryGetProperty( "i", out var i ) && i.ValueKind == JsonValueKind.True
-			|| arguments.TryGetProperty( "ignoreCase", out var c ) && c.ValueKind == JsonValueKind.True
-			|| arguments.TryGetProperty( "case", out var cs ) && cs.ValueKind == JsonValueKind.False);
-		try
-		{
-			return new Regex( pattern, (ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None) | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds( 20 ) );
-		}
-		catch ( ArgumentException )
-		{
-			return new Regex( Regex.Escape( pattern ), RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds( 20 ) );
-		}
-	}
-
-	/// <summary>Builds the rows of a file's matches: a bar and a bright number on matching rows, muted numbers on context, code colored by the file's
-	/// language, and what the pattern matched marked bold in yellow; a cut card fades out its last rows.</summary>
-	private static Container BuildGrepCard( string key, string path, List<GrepLine> lines, Regex? highlight, bool fades )
+	/// <summary>Builds the rows of a file's matches in an inset card, as Tern does: matching rows bright with an accent bar and number, context rows dimmed,
+	/// code colored by the file's language; a cut card fades out its last rows.</summary>
+	private static Container BuildGrepCard( string key, string path, List<GrepLine> lines, bool fades )
 	{
 		var theme = Theme.Current;
 		var grammar = CodeHighlighter.FindForPath( path );
@@ -172,23 +172,22 @@ public sealed partial class ChatContent
 		foreach ( var (index, line) in lines.Index() )
 		{
 			var fromEnd = lines.Count - index;
-			var opacity = fades && fromEnd <= GrepFadeRows ? (double)fromEnd / (GrepFadeRows + 1) : 1;
+			var fade = fades && fromEnd <= GrepFadeRows ? (double)fromEnd / (GrepFadeRows + 1) : 1;
 			if ( line.Number == 0 )
 			{
-				rows.Add( new Text { Content = "⋯", Color = theme.Muted, Opacity = opacity, Padding = new Edges( 0, theme.Spacing * 2 ) } );
+				rows.Add( new Text { Content = "…", Color = theme.Muted, Opacity = fade * 0.6, Padding = new Edges( 0, theme.Spacing * 2 ) } );
 				continue;
 			}
 
 			var code = line.Text.Length == 0 ? " " : ViewStyle.CutCodeLine( line.Text.Replace( "\t", "    " ) );
 			var isInComment = false;
 			var spans = grammar is null || line.Text.Length == 0 ? [new TextSpan( code, null! )] : CodeHighlighter.BuildSpans( code, grammar, ref isInComment );
-			if ( line.IsMatch && highlight is not null )
-				spans = MarkMatches( spans, code, highlight );
 			rows.Add( new Row
 			{
 				MinWidth = 0,
-				Opacity = opacity,
-				BackgroundColor = line.IsMatch ? theme.Accent.WithAlpha( 0.06 ) : Color.Transparent,
+				// Context reads as background to the match, so it dims rather than losing its colors.
+				Opacity = line.IsMatch ? fade : fade * 0.55,
+				BackgroundColor = line.IsMatch ? theme.Accent.WithAlpha( 0.07 ) : Color.Transparent,
 				Children =
 				[
 					new Container { Width = MatchBarWidth, FlexShrink = 0, BackgroundColor = line.IsMatch ? theme.Accent : Color.Transparent },
@@ -199,7 +198,7 @@ public sealed partial class ChatContent
 						Padding = new Edges( 0, theme.Spacing ),
 						FlexShrink = 0,
 						TextAlign = TextAlign.Right,
-						Color = line.IsMatch ? theme.Text : theme.Muted,
+						Color = line.IsMatch ? theme.Accent : theme.Muted,
 						FontWeight = line.IsMatch ? 600 : 400,
 					},
 					new Text( spans )
@@ -207,9 +206,10 @@ public sealed partial class ChatContent
 						FlexGrow = 1,
 						FlexShrink = 1,
 						MinWidth = 0,
+						Padding = new Edges( 0, theme.Spacing, 0, 0 ),
 						TextWrap = TextWrap.NoWrap,
 						TextTrimming = TextTrimming.Ellipsis,
-						Color = line.IsMatch ? theme.Text : theme.Muted,
+						Color = theme.Text,
 					},
 				],
 			} );
@@ -220,52 +220,16 @@ public sealed partial class ChatContent
 			Key = key,
 			MinWidth = 0,
 			Overflow = Overflow.Hidden,
+			Padding = new Edges( theme.Spacing / 2, 0 ),
+			BackgroundColor = theme.Canvas,
+			BorderColor = theme.Border.WithAlpha( 0.45 ),
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = theme.Radius,
 			FontFamily = ViewStyle.CodeFontFamily,
 			FontSize = ViewStyle.SmallSize,
+			LineHeight = 1.5,
 			Children = rows,
 		};
-	}
-
-	/// <summary>Splits a row's colored spans where the pattern matched, marking those characters bold in yellow over their syntax color.</summary>
-	private static TextSpan[] MarkMatches( TextSpan[] spans, string code, Regex highlight )
-	{
-		var marked = new bool[code.Length];
-		try
-		{
-			foreach ( Match match in highlight.Matches( code ) )
-			{
-				for ( var at = match.Index; at < match.Index + match.Length && at < marked.Length; at++ )
-					marked[at] = true;
-			}
-		}
-		catch ( RegexMatchTimeoutException )
-		{
-			return spans;
-		}
-		if ( !marked.Contains( true ) )
-			return spans;
-
-		var theme = Theme.Current;
-		var result = new List<TextSpan>();
-		var offset = 0;
-		foreach ( var span in spans )
-		{
-			var start = 0;
-			while ( start < span.Text.Length )
-			{
-				var isMarked = offset + start < marked.Length && marked[offset + start];
-				var end = start;
-				while ( end < span.Text.Length && (offset + end < marked.Length && marked[offset + end]) == isMarked )
-					end++;
-				var piece = span.Text[start..end];
-				result.Add( isMarked
-					? new TextSpan( piece, new Style { Color = theme.AnsiYellow, FontWeight = 700, TextDecoration = TextDecoration.Underline } )
-					: new TextSpan( piece, span.Style! ) );
-				start = end;
-			}
-			offset += span.Text.Length;
-		}
-		return [.. result];
 	}
 
 	/// <summary>Reads a grep's output: Omp's headed form (<c>## folder/</c>, <c>### file#TAG</c>, then <c>*12:text</c> for a match and <c> 11:text</c> for
