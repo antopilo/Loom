@@ -154,6 +154,26 @@ public sealed class GitModule : ILoknModule
 			app.Panels.Activate( besidePanelId );
 	}
 
+	/// <summary>Shows a commit selected in the Git panel of the repository holding a folder, reusing an open one for that repository on the same host or
+	/// opening one beside the panel that asked; call on the UI thread.</summary>
+	/// <param name="app">The application.</param>
+	/// <param name="besidePanelId">The panel that asked, such as a chat.</param>
+	/// <param name="directory">A folder inside the repository.</param>
+	/// <param name="commit">The commit's full or short hash.</param>
+	public void OpenCommit( LoknApplication app, Guid besidePanelId, string directory, string commit )
+	{
+		Forget( app, _panels );
+		var host = app.Panels.GetHostId( besidePanelId ) ?? app.Hosts.Current.Id;
+		if ( _panels.FirstOrDefault( item => item.Value.Shows( directory ) && app.Panels.GetHostId( item.Key ) == host ) is { Value: { } open } existing )
+		{
+			open.RevealCommit( commit );
+			app.Panels.Activate( existing.Key );
+			return;
+		}
+
+		app.Panels.OpenBeside( PanelType, besidePanelId, new GitPanelInput( directory, Commit: commit ), host );
+	}
+
 	/// <summary>Defines the Files side view's Changes mode, which a newly opened Git panel shows beside it.</summary>
 	private const string ChangesMode = "git.changes";
 

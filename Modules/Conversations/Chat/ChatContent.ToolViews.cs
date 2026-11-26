@@ -202,12 +202,13 @@ public sealed partial class ChatContent
 				rule.Children = [BuildExpandPill( isOpen, () => context.Run( () => UpdateExpanded( outputKey ) ) )];
 			box.Add( rule );
 			var shownOutput = isLong && !isOpen ? string.Join( '\n', outputLines[^PreviewLines..] ) : output;
-			box.Add( new Container
+			// Output that arrives while the card shows fades and rises in, as do the other parts below.
+			box.Add( BuildEntering( key + ":output", new Container
 			{
 				Key = "output",
 				Padding = new Edges( isLong ? theme.Spacing : 0, theme.Spacing * 2, 0, theme.Spacing * 2 ),
 				Children = [MarkdownView.BuildCode( shownOutput, "text", framed: false, showLanguage: false, fadeHeadLines: isLong && !isOpen ? PreviewFadeLines : 0 )],
-			} );
+			} ) );
 		}
 		var (word, color) = status switch
 		{
@@ -227,14 +228,39 @@ public sealed partial class ChatContent
 		};
 		if ( job.Length == 0 && ComputeToolTimes( id ) is var (started, ended) && status != "Requested" )
 			footer.Add( Cell.Mount<ToolClockInput, ToolClock>( "clock", new( started, ended ) ) );
-		box.Add( new Row
+		// A new outcome, such as Running turning into Done, enters again.
+		box.Add( BuildEntering( key + ":outcome:" + word, new Row
 		{
 			Key = "outcome",
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing * 2, theme.Spacing * 1.5, theme.Spacing * 2 ),
 			Children = footer,
-		} );
+		} ) );
+
+		var children = new List<Blob>
+		{
+			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = [mark, BuildToolTitle( "Bash", intent )] },
+			new Container
+			{
+				Key = "bash-box:" + id,
+				Gap = theme.Spacing,
+				BackgroundColor = theme.Text.WithAlpha( 0.035 ),
+				BorderWidth = theme.BorderWidth,
+				BorderColor = theme.Border.WithAlpha( 0.45 ),
+				BorderRadius = theme.Radius * 2,
+				Overflow = Overflow.Hidden,
+				Children = box,
+			},
+		};
+		// Each commit the command made gets a card under it that opens the commit in the Git panel.
+		if ( result is { } finished && command.Contains( "commit", StringComparison.Ordinal )
+			&& ParseCommits( TerminalText.BuildPlain( ComputeResultText( finished ) ) ) is { Count: > 0 } commits )
+		{
+			var folder = ComputeCommandFolder( arguments, command );
+			foreach ( var (index, commit) in commits.Index() )
+				children.Add( BuildCommitCard( "commit:" + index, commit, folder ) );
+		}
 
 		return new Container
 		{
@@ -242,21 +268,7 @@ public sealed partial class ChatContent
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = $"bash tool {status}",
 			Gap = theme.Spacing * 1.25,
-			Children =
-			[
-				new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = [mark, BuildToolTitle( "Bash", intent )] },
-				new Container
-				{
-					Key = "bash-box:" + id,
-					Gap = theme.Spacing,
-					BackgroundColor = theme.Text.WithAlpha( 0.035 ),
-					BorderWidth = theme.BorderWidth,
-					BorderColor = theme.Border.WithAlpha( 0.45 ),
-					BorderRadius = theme.Radius * 2,
-					Overflow = Overflow.Hidden,
-					Children = box,
-				},
-			],
+			Children = children,
 		};
 	}
 
@@ -392,6 +404,8 @@ public sealed partial class ChatContent
 		var pill = BuildMoreToggle( isOpen ? "Collapse" : "Expand", isOpen, action );
 		pill.Padding = new Edges( 1, theme.Spacing );
 		pill.Margin = 0;
+		// The disclosure keeps itself to the start of its row; the pill sits in the middle of the rule.
+		pill.AlignSelf = AlignSelf.Center;
 		pill.BackgroundColor = theme.Panel;
 		pill.BorderColor = theme.Border.WithAlpha( 0.6 );
 		pill.BorderWidth = theme.BorderWidth;

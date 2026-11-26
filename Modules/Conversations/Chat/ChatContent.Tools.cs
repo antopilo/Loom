@@ -145,15 +145,15 @@ public sealed partial class ChatContent
 			// Several files each get a quiet line naming the file over a card that shows only the code, like the one-file edit above.
 			if ( !isOneFile )
 				children.Add( BuildDiffTitle( cardKey, file ) );
-			children.Add( DiffView.BuildCard( cardKey, file, () => context.Run( () => OpenDiff( file.Path ) ), _expanded.Contains( cardKey ),
-				() => context.Run( () => UpdateExpanded( cardKey ) ), header: false ) );
+			children.Add( BuildEntering( cardKey, DiffView.BuildCard( cardKey, file, () => context.Run( () => OpenDiff( file.Path ) ), _expanded.Contains( cardKey ),
+				() => context.Run( () => UpdateExpanded( cardKey ) ), header: false ) ) );
 		}
 		// A written file shows its content at once, like an edit's diff, rather than behind the fold.
 		// A written file's diff already shows its content; only a write without one shows the code itself.
 		if ( name == "write" && code.Length > 0 && diffs.Count == 0 && !folded )
 			children.Add( BuildCodePreview( key + ":code", code, codeLanguage, lineNumbers: true ) );
 		// Images a tool returned, such as screenshots, stay visible like diff cards rather than waiting behind the fold.
-		children.AddRange( BuildToolImages( id, result ) );
+		children.AddRange( BuildToolImages( id, result ).Select( ( image, index ) => BuildEntering( key + ":image:" + index, image ) ) );
 		// An edit's diff already shows what it did, so its text output and raw details would only repeat it.
 		if ( expanded && !showsAtOnce )
 		{

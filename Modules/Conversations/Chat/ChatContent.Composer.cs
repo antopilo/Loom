@@ -180,8 +180,11 @@ public sealed partial class ChatContent
 		if ( working is not null )
 			column.Add( working );
 		UpdateCommandQuery();
+		UpdateMentionQuery();
 		if ( _commandQuery is { } query )
 			column.Add( BuildCommands( query ) );
+		else if ( _mentionQuery is { } mention )
+			column.Add( BuildMentions( mention ) );
 		if ( BuildNewTaskCard() is { } newTask )
 			column.Add( newTask );
 		if ( BuildPlanActions() is { } plan )
@@ -497,6 +500,8 @@ public sealed partial class ChatContent
 			LineHeight = PromptLineHeight,
 			Padding = new Edges( inset, 0 ),
 			Height = _promptLines * lineHeight + inset * 2,
+			// Mentions of files and references to attached images, such as #1, show in color.
+			Layers = [UpdatePromptLayer()],
 			MinWidth = 0,
 			FlexGrow = 1,
 			OnChange = _ => UpdatePromptChange(),
@@ -535,6 +540,17 @@ public sealed partial class ChatContent
 			new( Key.Enter, new KeyModifiers { Shift = true }, () => _composer.Execute( new TextCommand( TextCommandKind.Insert, "\n", false ) ) ),
 			new( Key.V, KeyModifiers.Primary, () => context.Run( UpdatePaste ) ),
 		];
+		if ( _mentionQuery is not null && _commandQuery is null )
+		{
+			return
+			[
+				.. keys,
+				new( Key.Up, KeyModifiers.None, () => context.Run( () => UpdateMentionSelection( -1 ) ) ),
+				new( Key.Down, KeyModifiers.None, () => context.Run( () => UpdateMentionSelection( 1 ) ) ),
+				new( Key.Tab, KeyModifiers.None, () => context.Run( () => UpdateMentionSelected() ) ),
+				new( Key.Escape, KeyModifiers.None, () => context.Run( UpdateMentionDismiss ) ),
+			];
+		}
 		return _commandQuery is null ? keys :
 		[
 			.. keys,
@@ -578,6 +594,8 @@ public sealed partial class ChatContent
 			_composer.CommitComposition();
 			return;
 		}
+		if ( _mentionQuery is not null && _commandQuery is null && UpdateMentionSelected() )
+			return;
 		if ( !UpdateCommandSelected( run: true ) )
 			UpdateSend();
 	}

@@ -225,12 +225,13 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 	private void UpdateHovered( Point position )
 	{
 		var hovered = -1;
-		if ( _links.Value.Length > 0 && Input.Handle.TryGetTextPositionAt( position, TextCoordinateSpace.Window, out var at ) )
+		if ( _links.Value.Length > 0 && (FindLinkAt( Input.Handle, position ) is { } drawn ? (int?)drawn
+			: Input.Handle.TryGetTextPositionAt( position, TextCoordinateSpace.Window, out var found ) ? found.Offset : null) is { } offset )
 		{
 			for ( var index = 0; index < Input.Marks.Length; index++ )
 			{
 				var range = Input.Marks[index].Range;
-				if ( Input.Marks[index].IsLink && at.Offset >= range.Start && at.Offset < range.Start + range.Length )
+				if ( Input.Marks[index].IsLink && offset >= range.Start && offset < range.Start + range.Length )
 				{
 					hovered = index;
 					break;
@@ -362,6 +363,29 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 		}
 		if ( !joined.SequenceEqual( _links.Value ) )
 			_links.Value = [.. joined];
+		_drawnLinks.AddOrUpdate( handle, [.. joined.Select( link => (Input.Marks[link.Mark].Range.Start, link.Rect) )] );
+	}
+
+	/// <summary>Holds where each text's links are drawn, by the text's handle: each link's first offset and a rectangle of it, in the text's coordinates.</summary>
+	private static readonly ConditionalWeakTable<ElementHandle, (int Start, ElementRect Rect)[]> _drawnLinks = [];
+
+	/// <summary>Finds the link drawn under a point of a text and returns its first offset, or null.</summary>
+	/// <remarks>Goo maps a point to text with the widths it lays out, which ignore the code font and letter spacing, so a click on a drawn mention
+	/// landed on later text; the drawn rectangles say where the mention really is.</remarks>
+	/// <param name="handle">The text's handle.</param>
+	/// <param name="window">The point, in window coordinates.</param>
+	internal static int? FindLinkAt( ElementHandle handle, Point window )
+	{
+		if ( !handle.IsMounted || !_drawnLinks.TryGetValue( handle, out var links ) )
+			return null;
+		var box = handle.BorderBox;
+		var (x, y) = (window.X - box.X, window.Y - box.Y);
+		foreach ( var (start, rect) in links )
+		{
+			if ( x >= rect.X - InsetX && x < rect.X + rect.Width + InsetX && y >= rect.Y && y < rect.Y + rect.Height )
+				return start;
+		}
+		return null;
 	}
 
 	/// <summary>Reports whether the character at an offset sits on the line at a given top, in the text's coordinates.</summary>
@@ -372,17 +396,18 @@ internal sealed class CodeBoxes : GuardedCell<CodeBoxesInput>
 			&& Math.Abs( rects[0].Y - top ) < 1;
 	}
 
-	/// <summary>Defines the advance of one character of the code font, Consolas, in ems: 1126 of its 2048 units.</summary>
+	/// <summary>Defines the advance of one character of Loom's own code font, Consolas, in ems: 1126 of its 2048 units.</summary>
 	private const double CodeAdvanceEms = 1126.0 / 2048;
 
-	/// <summary>Gets how wide code on one line is drawn: its characters on that line, trailing spaces of a wrapped line left out, times the font's
-	/// fixed advance.</summary>
+	/// <summary>Gets how wide code on one line is drawn: its characters on that line, trailing spaces of a wrapped line left out, times the advance of
+	/// the code font drawn, the one Settings picks or Loom's own.</summary>
 	/// <remarks>Goo 0.32.9 lays out and measures the registered code font narrower than it draws it, so the width comes from the font's advance:
-	/// every character of a monospace font is equally wide.</remarks>
+	/// every character of a monospace font is equally wide. A picked font such as Berkeley Mono is wider than Consolas, so its own advance is read.</remarks>
 	private static double ComputeCodeWidth( ElementHandle handle, CodeMark mark, ElementRect rect, int rects )
 	{
 		var text = ComputeTextOnLine( handle, mark, rect, rects );
-		return new System.Globalization.StringInfo( text ).LengthInTextElements * CodeAdvanceEms * MarkdownView.BodySize;
+		var advance = Theme.Current.CodeFont is { Length: > 0 } picked && SystemFonts.GetAdvanceEms( picked ) is { } read ? read : CodeAdvanceEms;
+		return new System.Globalization.StringInfo( text ).LengthInTextElements * advance * MarkdownView.BodySize;
 	}
 
 	/// <summary>Gets how much wider bold text on one line is drawn than Goo placed it: its width in its weight less its width in the regular one.</summary>

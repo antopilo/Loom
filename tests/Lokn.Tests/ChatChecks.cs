@@ -44,8 +44,18 @@ internal static class ChatChecks
 		CoreChecks.Check( ChatContent.ReadFailure( ChatContent.BuildStoredMessage( Guid.NewGuid(), Parse( """{"role":"assistant","content":[],"stopReason":"aborted","errorMessage":"Interrupted by user"}""" ) ) ) is null, "A reply the user stopped is not a provider failure." );
 		var inline = MarkdownView.ParseInline( "Plain **bold** and *italic* with `code` and [link](https://example.com)." );
 		CoreChecks.Check( string.Concat( inline.Select( span => span.Text ) ) == "Plain bold and italic with code and link.", "Inline rendering removes syntax without losing visible text." );
-		CoreChecks.Check( ChatContent.ComposePrompt( "Review these ", [@"C:\My Files\shot.png", @"C:\src\a.cs"] ) == "Review these\n\n@\"C:\\My Files\\shot.png\" @\"C:\\src\\a.cs\"", "Attachments become quoted Omp file mentions, including paths with spaces." );
-		CoreChecks.Check( ChatContent.ComposePrompt( " ", [@"C:\shot.png"] ) == "@\"C:\\shot.png\"" && ChatContent.ComposePrompt( "Hi", [] ) == "Hi", "An attachment-only prompt sends just its mentions, and plain prompts are unchanged." );
+		CoreChecks.Check( ChatContent.ComposePrompt( "Review #1 ", [@"C:\My Files\shot.png", @"C:\src\a.cs", @"C:\b.JPG"] ) == "Review #1\n\n#1 @\"C:\\My Files\\shot.png\" @\"C:\\src\\a.cs\" #2 @\"C:\\b.JPG\"",
+			"Attachments become quoted Omp file mentions, images led by their numbers, including paths with spaces." );
+		CoreChecks.Check( ChatContent.ComposePrompt( " ", [@"C:\a.cs"] ) == "@\"C:\\a.cs\"" && ChatContent.ComposePrompt( "Hi", [] ) == "Hi", "An attachment-only prompt sends just its mentions, and plain prompts are unchanged." );
+		CoreChecks.Check( ChatContent.ComputeImageNumber( [@"C:\a.cs", @"C:\x.png", @"C:\y.webp"], @"C:\y.webp" ) == 2 && ChatContent.ComputeImageNumber( [@"C:\a.cs"], @"C:\a.cs" ) == 0,
+			"Images are numbered in attach order, skipping other files." );
+		CoreChecks.Check( ChatContent.ComputeMentionQuery( "see @src/Ch", 11 ) == (4, "src/Ch") && ChatContent.ComputeMentionQuery( "mail a@b.c", 10 ) is null
+			&& ChatContent.ComputeMentionQuery( "@\"x y", 5 ) is null && ChatContent.ComputeMentionQuery( "@ ", 2 ) is null && ChatContent.ComputeMentionQuery( "@", 1 ) == (0, ""),
+			"A mention opens on an @ that starts a word, not inside an address or a quoted mention." );
+		CoreChecks.Check( ChatContent.ComputeMentionMatches( ["docs/chat.md", "src/ChatView.cs", "src/view/MyChat.cs"], "chat" ) is ["docs/chat.md", "src/ChatView.cs", "src/view/MyChat.cs"]
+			&& ChatContent.ComputeMentionMatches( ["a/view.cs"], "a/v" ) is ["a/view.cs"], "File matches rank name starts, then names, then paths." );
+		CoreChecks.Check( ChatContent.ComputePromptMarks( "look at #1 and #3 in @src/a.cs or @\"b c.md\"#2", 2 ) is [(8, 2, true), (21, 9, false), (34, 9, false)],
+			"The prompt colors file mentions and references to attached images only." );
 		CheckMarkdownSyntax( Visible );
 		var parse = typeof( ChatContent ).GetMethod( "ParseGrep", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static )!;
 		var grepped = (System.Collections.IList)parse.Invoke( null, ["# Modules/Omp/\n## OmpService.cs#D3F9\n*33:  - draw it\n# Core/\n## Theme.cs#43E9\n 271:a\n*272:b"] )!;

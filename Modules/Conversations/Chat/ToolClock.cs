@@ -40,7 +40,7 @@ internal sealed class ToolClock : GuardedCell<ToolClockInput>
 		{
 			Content = Format( (input.Ended ?? DateTime.UtcNow) - input.Started ),
 			Color = Theme.Current.Muted,
-			FontFamily = ViewStyle.CodeFontFamily,
+			FontFamily = ViewStyle.FontFamily,
 			FontSize = ViewStyle.SmallSize,
 		};
 	}

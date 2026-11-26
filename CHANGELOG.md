@@ -3,6 +3,15 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.24
+
+- **Commit cards.** A commit the agent makes shows as a card under its command, with its subject, branch, hash and counts. Click it to open the
+  commit in the Git panel.
+- **Commit IDs are links.** A commit ID in a reply, such as 33f2aab4, opens that commit in the Git panel.
+- **Clicks land where you point.** File, web and commit links after code in the same line open on the first click.
+- **Smoother scrolling** through replies full of code and links.
+- **Tool reasons stay.** Bash and other steps keep the reason the agent gave after you reopen a chat or restart Loom.
+
 ## 0.4.23
 
 - **Pick your fonts.** Settings › Theme has an Interface font and a Code font: type an installed family, such as Inter or Cascadia Code.

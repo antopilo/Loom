@@ -40,13 +40,15 @@ public sealed partial class ChatContent
 	/// <summary>Reports whether Explorer files are being dragged over the composer.</summary>
 	private bool _isFileDragOver;
 
-	/// <summary>Appends each attachment as a quoted Omp <c>@path</c> mention, which Omp reads, resizes or converts before the model sees it.</summary>
+	/// <summary>Appends each attachment as a quoted Omp <c>@path</c> mention, which Omp reads, resizes or converts before the model sees it; each image is
+	/// led by its number, <c>#1 @"path"</c>, so the prompt's <c>#1</c> names it.</summary>
 	internal static string ComposePrompt( string text, IReadOnlyList<string> attachments )
 	{
 		if ( attachments.Count == 0 )
 			return text;
 
-		var mentions = string.Join( " ", attachments.Select( path => $"@\"{path}\"" ) );
+		var images = 0;
+		var mentions = string.Join( " ", attachments.Select( path => IsImagePath( path ) ? $"#{++images} @\"{path}\"" : $"@\"{path}\"" ) );
 		return string.IsNullOrWhiteSpace( text ) ? mentions : $"{text.TrimEnd()}\n\n{mentions}";
 	}
 
@@ -67,24 +69,28 @@ public sealed partial class ChatContent
 			};
 		}
 
-		var paths = Mention().Matches( text ).Select( match => match.Groups["path"].Value ).Distinct( StringComparer.OrdinalIgnoreCase ).ToArray();
-		var prose = paths.Length == 0 ? text : Mention().Replace( text, "" ).Trim();
+		var mentions = Mention().Matches( text ).DistinctBy( match => match.Groups["path"].Value, StringComparer.OrdinalIgnoreCase )
+			.Select( match => (Path: match.Groups["path"].Value, Number: int.TryParse( match.Groups["number"].Value, out var number ) ? number : 0) ).ToArray();
+		var prose = mentions.Length == 0 ? text : Mention().Replace( text, "" ).Trim();
 		if ( !string.IsNullOrWhiteSpace( prose ) )
 			yield return BuildText( prose );
-		if ( paths.Length > 0 )
+		if ( mentions.Length > 0 )
 		{
 			yield return new Row
 			{
 				Key = "sent-attachments",
 				FlexWrap = FlexWrap.Wrap,
 				Gap = Theme.Current.Spacing / 2,
-				Children = [.. paths.Select( path => BuildSentAttachment( messageId, path ) )],
+				Children = [.. mentions.Select( mention => BuildSentAttachment( messageId, mention.Path, mention.Number ) )],
 			};
 		}
 	}
 
 	/// <summary>Shows a mentioned image once its thumbnail is loaded, fading in over its file chip, and a file chip until then or for any other file.</summary>
-	private Blob BuildSentAttachment( Guid messageId, string path )
+	/// <param name="messageId">The message showing it.</param>
+	/// <param name="path">The file's path.</param>
+	/// <param name="number">The image's number the prompt refers to it by, such as 1 for <c>#1</c>, or 0.</param>
+	private Blob BuildSentAttachment( Guid messageId, string path, int number )
 	{
 		if ( !_thumbnailExtensions.Contains( Path.GetExtension( path ), StringComparer.OrdinalIgnoreCase ) )
 			return BuildFileChip( path );
@@ -110,8 +116,24 @@ public sealed partial class ChatContent
 			BorderRadius = Theme.Current.Radius,
 			AccessibilityName = Path.GetFileName( path ),
 		};
-		return Cell.Mount<RevealInput, Reveal>( key, new( image, _loadedThumbnails.Remove( path ) ) );
+		Blob shown = number > 0 ? new Container { MaxWidth = Length.Percent( 100 ), Children = [image, BuildImageNumber( number )] } : image;
+		return Cell.Mount<RevealInput, Reveal>( key, new( shown, _loadedThumbnails.Remove( path ) ) );
 	}
+
+	/// <summary>Builds the badge in an image's top-left corner with the number the prompt refers to it by, such as <c>#1</c>.</summary>
+	private static Text BuildImageNumber( int number ) => new()
+	{
+		Content = "#" + number,
+		Position = PositionType.Absolute,
+		Left = 3,
+		Top = 3,
+		Padding = new Edges( 0, 4 ),
+		BorderRadius = Theme.Current.Radius,
+		BackgroundColor = Theme.Current.Panel.WithAlpha( 0.85 ),
+		Color = Theme.Current.AnsiMagenta,
+		FontSize = ViewStyle.SmallSize,
+		FontWeight = 600,
+	};
 
 	/// <summary>Reads a thumbnail off the UI thread, once per path, and rebuilds every message waiting for it.</summary>
 	private void UpdateThumbnailLoad( Guid messageId, string path )
@@ -178,8 +200,8 @@ public sealed partial class ChatContent
 		],
 	};
 
-	/// <summary>Matches a quoted <c>@"path"</c> mention as <see cref="ComposePrompt"/> writes it.</summary>
-	[GeneratedRegex( "@\"(?<path>[^\"]+)\"" )]
+	/// <summary>Matches a quoted <c>@"path"</c> mention as <see cref="ComposePrompt"/> writes it, with the image number before it.</summary>
+	[GeneratedRegex( "(?:#(?<number>\\d+) )?@\"(?<path>[^\"]+)\"" )]
 	private static partial Regex Mention();
 
 	/// <summary>Adds existing files once each, keeping their order.</summary>
@@ -344,7 +366,8 @@ public sealed partial class ChatContent
 		remove.MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing;
 		remove.Padding = new Edges( 0, Theme.Current.Spacing / 2 );
 		remove.Color = Theme.Current.Muted;
-		var chip = BuildComposerThumbnail( path, remove ) ?? BuildTypedFileChip( path, remove );
+		var number = isLeaving ? 0 : ComputeImageNumber( _attachments, path );
+		var chip = BuildComposerThumbnail( path, remove, number ) ?? BuildTypedFileChip( path, remove, number );
 		var exit = Reveal.BuildExit( "chip:" + path, Cell.Mount<RevealInput, Reveal>( "chip-reveal", new( chip, true ) ), isLeaving );
 		exit.LayoutTransition = new( ChatMotion.SlowMs, ChatMotion.Ease );
 		return exit;
@@ -353,8 +376,9 @@ public sealed partial class ChatContent
 	/// <summary>Defines the side of an image thumbnail in the composer, in logical pixels.</summary>
 	private const int ComposerThumbnailSize = 64;
 
-	/// <summary>Builds a square thumbnail of an attached image with its remove button in the corner, or null for a file that is not a loaded image.</summary>
-	private Blob? BuildComposerThumbnail( string path, Blob remove )
+	/// <summary>Builds a square thumbnail of an attached image with its number and its remove button in the corners, or null for a file that is not a
+	/// loaded image.</summary>
+	private Blob? BuildComposerThumbnail( string path, Blob remove, int number )
 	{
 		if ( !_thumbnailExtensions.Contains( Path.GetExtension( path ), StringComparer.OrdinalIgnoreCase ) )
 			return null;
@@ -391,15 +415,18 @@ public sealed partial class ChatContent
 			[
 				new Image { Source = source, Fit = ImageFit.Cover, Width = Length.Percent( 100 ), Height = Length.Percent( 100 ) },
 				remove,
+				.. number > 0 ? new Blob[] { BuildImageNumber( number ) } : [],
 			],
 		};
 	}
 
-	/// <summary>Builds a composer chip with a type badge (the file extension, or Folder) before the file name.</summary>
-	private static Row BuildTypedFileChip( string path, Blob remove )
+	/// <summary>Builds a composer chip with a type badge (the file extension, or Folder) before the file name, led by an image's number such as <c>#1</c>.</summary>
+	private static Row BuildTypedFileChip( string path, Blob remove, int number )
 	{
 		var chip = BuildFileChip( path, remove );
 		var type = Directory.Exists( path ) ? "Folder" : Path.GetExtension( path ).TrimStart( '.' ).ToUpperInvariant();
+		if ( number > 0 )
+			type = $"#{number} {type}";
 		if ( type.Length == 0 )
 			return chip;
 

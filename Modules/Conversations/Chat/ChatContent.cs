@@ -542,6 +542,9 @@ public sealed partial class ChatContent : PanelContent
 		_gitWatch = null;
 		ReleaseImages();
 		ReleaseFormPictures();
+		_promptLayer?.Dispose();
+		_promptLayer = null;
+		_promptLayerState = null;
 	}
 
 	/// <summary>Builds selectable body text in the shell's typography.</summary>

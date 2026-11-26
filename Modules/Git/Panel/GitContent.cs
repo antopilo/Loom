@@ -10,7 +10,8 @@ namespace Lokn.Modules.Git;
 /// <param name="ReviewId">The linked review's identifier, or null.</param>
 /// <param name="Focus">The full path of a changed file whose diff shows once the changes load, or null for the commit graph.</param>
 /// <param name="Staged">Whether the focused file shows its staged change first.</param>
-internal sealed record GitPanelInput( string Directory, string? ReviewAction = null, string? ReviewId = null, string? Focus = null, bool Staged = false );
+/// <param name="Commit">A commit, full or short hash, to select once the graph loads, or null.</param>
+internal sealed record GitPanelInput( string Directory, string? ReviewAction = null, string? ReviewId = null, string? Focus = null, bool Staged = false, string? Commit = null );
 
 /// <summary>Names how the Git views are laid out: the whole panel, or one narrow side-view mode.</summary>
 internal enum GitLayout
@@ -94,6 +95,9 @@ internal sealed partial class GitContent : PanelContent
 	/// <summary>Stores the full path of a file whose diff shows once the changes load, or null.</summary>
 	private string? _focus;
 
+	/// <summary>Stores a commit, full or short hash, to select once the graph that holds it loads, or null.</summary>
+	private string? _focusCommit;
+
 	/// <summary>Stores whether the focused file shows its staged change first.</summary>
 	private bool _focusStaged;
 
@@ -131,6 +135,7 @@ internal sealed partial class GitContent : PanelContent
 		_changes = new GitChangesPane( context, () => _root ?? "", Run, () => ReviewFindings, OpenChange, OnChangesLoaded );
 		_file = new GitFileView( context, _changes, () => _root, Run, CloseFile );
 		_focus = input.Focus;
+		_focusCommit = input.Commit;
 		_focusStaged = input.Staged;
 		_buildLogRow = layout == GitLayout.Full ? BuildTableRow : BuildLogRow;
 		_buildDetailRow = BuildDetailRow;
@@ -227,6 +232,24 @@ internal sealed partial class GitContent : PanelContent
 	{
 		_file.Refresh();
 		ResolveFocus();
+	}
+
+	/// <summary>Shows a commit beside the graph, selected and scrolled to, once the graph holds it.</summary>
+	/// <param name="commit">The commit's full or short hash.</param>
+	internal void RevealCommit( string commit )
+	{
+		_focusCommit = commit;
+		ResolveCommit();
+	}
+
+	/// <summary>Selects the asked-for commit when the loaded graph holds it; a commit made since the last load waits for the next one.</summary>
+	private void ResolveCommit()
+	{
+		if ( _focusCommit is not { } wanted || _history?.Commits.FirstOrDefault( commit => commit.Id.StartsWith( wanted, StringComparison.OrdinalIgnoreCase ) ) is not { } found )
+			return;
+		_focusCommit = null;
+		_file.Hide();
+		SelectCommit( found.Id, reveal: true );
 	}
 
 	/// <summary>Shows the working tree beside the graph, or one changed file's diff; called when another view asks for this panel.</summary>
@@ -453,6 +476,7 @@ internal sealed partial class GitContent : PanelContent
 			.GroupBy( item => item.Target, StringComparer.OrdinalIgnoreCase )
 			.ToDictionary( group => group.Key, group => (IReadOnlyList<GitRef>)group.OrderBy( item => item.Kind ).ThenByDescending( item => item.IsCurrent ).ToArray(), StringComparer.OrdinalIgnoreCase );
 		UpdateSelectionAfterLoad();
+		ResolveCommit();
 		MarkChanged();
 	}
 

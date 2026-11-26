@@ -17,6 +17,16 @@ public static partial class SystemFonts
 	/// <summary>Guards the picked families, which the UI thread and startup share.</summary>
 	private static readonly Lock PickedGate = new();
 
+	/// <summary>Holds each registered alias's character advance in ems, read from its upright face; the same for every character of a monospace face.</summary>
+	private static readonly Dictionary<string, double> Advances = new( StringComparer.Ordinal );
+
+	/// <summary>Gets a registered alias's character advance in ems, or null when it is unknown, as for a face found through fontconfig.</summary>
+	public static double? GetAdvanceEms( string alias )
+	{
+		lock ( PickedGate )
+			return Advances.TryGetValue( alias, out var advance ) ? advance : null;
+	}
+
 	/// <summary>Registers every face of an installed family under an alias views can use, or returns null when no font of that family is installed.</summary>
 	/// <remarks>Goo draws only registered faces, so an installed family typed in Settings is found here: on Windows by the family name in each
 	/// font file of the system and per-user Fonts folders, elsewhere through fontconfig. Its regular, bold and italic faces all register.</remarks>
@@ -39,8 +49,10 @@ public static partial class SystemFonts
 			{
 				if ( OperatingSystem.IsWindows() )
 				{
-					foreach ( var (path, index, weight, italic, isVariable) in FindWindowsFaces( family ) )
+					foreach ( var (path, index, weight, italic, isVariable, advance) in FindWindowsFaces( family ) )
 					{
+						if ( !italic && advance > 0 && (weight == 400 || !Advances.ContainsKey( alias )) )
+							Advances[alias] = advance;
 						// A variable face holds every weight on its wght axis, so it registers once per weight Loom draws, each at that weight;
 						// left at its default instance it drew every weight alike.
 						foreach ( var drawn in isVariable ? Styles.Where( style => !style.Italic ).Select( style => style.Weight ) : [weight] )
@@ -74,7 +86,7 @@ public static partial class SystemFonts
 	}
 
 	/// <summary>Finds the faces of a family in the Windows font folders: each file's path, face index, weight and slant.</summary>
-	private static IEnumerable<(string Path, uint Index, int Weight, bool Italic, bool IsVariable)> FindWindowsFaces( string family )
+	private static IEnumerable<(string Path, uint Index, int Weight, bool Italic, bool IsVariable, double Advance)> FindWindowsFaces( string family )
 	{
 		string[] folders =
 		[
@@ -93,16 +105,16 @@ public static partial class SystemFonts
 				foreach ( var face in ReadFaces( path ) )
 				{
 					if ( face.Families.Any( name => name.Equals( family, StringComparison.OrdinalIgnoreCase ) ) )
-						yield return (path, face.Index, face.Weight, face.Italic, face.IsVariable);
+						yield return (path, face.Index, face.Weight, face.Italic, face.IsVariable, face.Advance);
 				}
 			}
 		}
 	}
 
 	/// <summary>Reads each face of a font file: its family names, weight and slant; nothing when the file cannot be read.</summary>
-	private static List<(uint Index, string[] Families, int Weight, bool Italic, bool IsVariable)> ReadFaces( string path )
+	private static List<(uint Index, string[] Families, int Weight, bool Italic, bool IsVariable, double Advance)> ReadFaces( string path )
 	{
-		var faces = new List<(uint, string[], int, bool, bool)>();
+		var faces = new List<(uint, string[], int, bool, bool, double)>();
 		byte[] data;
 		try
 		{
@@ -121,7 +133,7 @@ public static partial class SystemFonts
 			try
 			{
 				if ( ReadFace( data, (int)offsets[index] ) is { } face )
-					faces.Add( ((uint)index, face.Families, face.Weight, face.Italic, face.IsVariable) );
+					faces.Add( ((uint)index, face.Families, face.Weight, face.Italic, face.IsVariable, face.Advance) );
 			}
 			catch ( ArgumentOutOfRangeException )
 			{
@@ -132,11 +144,11 @@ public static partial class SystemFonts
 	}
 
 	/// <summary>Reads one face's family names from its name table, and its weight and slant from its OS/2 table.</summary>
-	private static (string[] Families, int Weight, bool Italic, bool IsVariable)? ReadFace( byte[] data, int offset )
+	private static (string[] Families, int Weight, bool Italic, bool IsVariable, double Advance)? ReadFace( byte[] data, int offset )
 	{
 		var span = data.AsSpan();
 		var tables = BinaryPrimitives.ReadUInt16BigEndian( span[(offset + 4)..] );
-		int name = -1, os2 = -1;
+		int name = -1, os2 = -1, head = -1;
 		var isVariable = false;
 		for ( var i = 0; i < tables; i++ )
 		{
@@ -147,6 +159,8 @@ public static partial class SystemFonts
 				name = at;
 			else if ( tag.SequenceEqual( "OS/2"u8 ) )
 				os2 = at;
+			else if ( tag.SequenceEqual( "head"u8 ) )
+				head = at;
 			else if ( tag.SequenceEqual( "fvar"u8 ) )
 				isVariable = true;
 		}
@@ -171,12 +185,16 @@ public static partial class SystemFonts
 
 		var weight = 400;
 		var italic = false;
+		var advance = 0.0;
 		if ( os2 >= 0 )
 		{
 			weight = BinaryPrimitives.ReadUInt16BigEndian( span[(os2 + 4)..] );
 			italic = (BinaryPrimitives.ReadUInt16BigEndian( span[(os2 + 62)..] ) & 1) != 0;
+			// A monospace face's average character width is its one advance, in font units.
+			if ( head >= 0 && BinaryPrimitives.ReadUInt16BigEndian( span[(head + 18)..] ) is var units and > 0 )
+				advance = (double)BinaryPrimitives.ReadInt16BigEndian( span[(os2 + 2)..] ) / units;
 		}
-		return families.Count == 0 ? null : ([.. families.Distinct()], weight, italic, isVariable);
+		return families.Count == 0 ? null : ([.. families.Distinct()], weight, italic, isVariable, advance);
 	}
 
 	/// <summary>Loads the face fontconfig matches for a family, weight and slant, only when it is that family rather than a substitute.</summary>

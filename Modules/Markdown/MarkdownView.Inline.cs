@@ -167,13 +167,20 @@ public static partial class MarkdownView
 				return;
 
 			var end = e.WindowPosition;
-			if ( Math.Abs( end.X - start.X ) > ClickSlop || Math.Abs( end.Y - start.Y ) > ClickSlop
-				|| !handle.TryGetTextPositionAt( end, TextCoordinateSpace.Window, out var position ) )
+			if ( Math.Abs( end.X - start.X ) > ClickSlop || Math.Abs( end.Y - start.Y ) > ClickSlop )
+				return;
+			// The drawn links say where a mention really is; Goo's own point-to-text ignores the code font and letter spacing.
+			int offset;
+			if ( CodeBoxes.FindLinkAt( handle, end ) is { } drawn )
+				offset = drawn;
+			else if ( handle.TryGetTextPositionAt( end, TextCoordinateSpace.Window, out var position ) )
+				offset = position.Offset;
+			else
 				return;
 
 			foreach ( var (from, to, link) in links )
 			{
-				if ( position.Offset >= from && position.Offset < to )
+				if ( offset >= from && offset < to )
 				{
 					// Ctrl, or Cmd on macOS, asks for the system's own app; the handler reads that while it runs.
 					IsOpeningExternally = e.Modifiers.HasPrimary;
@@ -631,7 +638,7 @@ public static partial class MarkdownView
 				case InlineKind.Code:
 					Flush();
 					// Code that names a file or a web address is a mention of it, which opens it.
-					if ( link is null && (ParseBareUrl( piece.Text ) ?? ParseFileMention( piece.Text )) is { } mention )
+					if ( link is null && (ParseBareUrl( piece.Text ) ?? ParseCommitMention( piece.Text ) ?? ParseFileMention( piece.Text )) is { } mention )
 						runs.Add( new( piece.Text, kind | InlineKind.Code | InlineKind.Link, mention ) );
 					else
 						runs.Add( new( piece.Text, kind | InlineKind.Code, link ) );
@@ -663,16 +670,45 @@ public static partial class MarkdownView
 			if ( ParseWebLink( value ) is not { } uri )
 				continue;
 			if ( match.Index > position )
-				runs.Add( new( text[position..match.Index], kind, null ) );
+				AddHashRuns( text[position..match.Index], kind, runs );
 			runs.Add( new( value, kind | InlineKind.Link, uri ) );
 			position = match.Index + value.Length;
+		}
+		if ( position < text.Length )
+			AddHashRuns( text[position..], kind, runs );
+	}
+
+	/// <summary>Adds plain text, splitting out each commit hash, such as 33f2aab4, as a link that opens the commit.</summary>
+	private static void AddHashRuns( string text, InlineKind kind, List<InlineRun> runs )
+	{
+		var position = 0;
+		foreach ( Match match in CommitHashPattern().Matches( text ) )
+		{
+			if ( match.Index > position )
+				runs.Add( new( text[position..match.Index], kind, null ) );
+			runs.Add( new( match.Value, kind | InlineKind.Code | InlineKind.Link, CreateCommitLink( match.Value ) ) );
+			position = match.Index + match.Length;
 		}
 		if ( position < text.Length )
 			runs.Add( new( text[position..], kind, null ) );
 	}
 
+	/// <summary>Defines the link route that opens a commit by its hash: <c>lokn://git/commit?hash=…</c>; the view that shows the text opens it in the
+	/// repository it works in.</summary>
+	public static Uri CreateCommitLink( string hash ) => new( $"{LoknLinks.Create( "git", "commit" )}?hash={hash}" );
+
+	/// <summary>Reads the commit hash of a link <see cref="CreateCommitLink"/> made, or null for any other link.</summary>
+	public static string? ReadCommitLink( Uri uri ) =>
+		uri.Scheme == LoknLinks.Scheme && uri.Host == "git" && uri.AbsolutePath.TrimStart( '/' ) == "commit" && uri.Query.StartsWith( "?hash=", StringComparison.Ordinal )
+			? uri.Query[6..]
+			: null;
+
 	/// <summary>Reads a code span that is exactly one web address, such as <c>`https://example.com`</c>, or null.</summary>
 	private static Uri? ParseBareUrl( string code ) => BareUrlPattern().Match( code ) is { Success: true } match && match.Length == code.Length ? ParseWebLink( code ) : null;
+
+	/// <summary>Reads a code span that is exactly one commit hash, such as <c>`33f2aab4`</c>, as a link that opens the commit, or null.</summary>
+	private static Uri? ParseCommitMention( string code ) =>
+		CommitHashPattern().Match( code.Trim() ) is { Success: true } match && match.Length == code.Trim().Length ? CreateCommitLink( match.Value ) : null;
 
 	/// <summary>Gets a link that opens the file a piece of code names, such as <c>src/view.cs</c> or <c>Core/Rows.cs:42</c>, or null when it names none.</summary>
 	/// <remarks>Only a known file extension counts, so member access such as <c>node.id</c> or <c>Theme.Current</c> stays code.</remarks>
@@ -681,8 +717,8 @@ public static partial class MarkdownView
 			? ResolveLink( match.Groups["p"].Value )
 			: null;
 
-	/// <summary>Gets the icon a mention leads with: a globe for a web page, a page for a file.</summary>
-	private static string ComputeMentionGlyph( Uri target ) => target.Scheme is "http" or "https" ? "\uE774" : "\uE7C3";
+	/// <summary>Gets the icon a mention leads with: a globe for a web page, a commit mark for a commit, a page for a file.</summary>
+	private static string ComputeMentionGlyph( Uri target ) => target.Scheme is "http" or "https" ? "\uE774" : ReadCommitLink( target ) is not null ? "\uE8EC" : "\uE7C3";
 
 	/// <summary>Reads an absolute http or https address, or null.</summary>
 	private static Uri? ParseWebLink( string destination ) =>
@@ -762,6 +798,11 @@ public static partial class MarkdownView
 	/// <summary>Matches a bare web address in prose; trailing sentence punctuation is trimmed after the match.</summary>
 	[GeneratedRegex( @"https?://[^\s<>()\[\]{}""'`]+" )]
 	private static partial Regex BareUrlPattern();
+
+	/// <summary>Matches a commit hash in prose: 7 to 40 hexadecimal characters as a whole word, with at least one digit and one letter, so numbers and
+	/// words such as "decade" or "1234567" stay text.</summary>
+	[GeneratedRegex( @"(?<![\w./#-])(?=[0-9a-f]{7,40}(?![\w/-]))(?=[a-f]*[0-9])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\w/-])" )]
+	private static partial Regex CommitHashPattern();
 
 	/// <summary>Matches a file path in code: a name with an extension, after any folders and a drive, then an optional line such as <c>:42</c>,
 	/// <c>:10-20</c> or <c>#L42</c>, which the link leaves out.</summary>

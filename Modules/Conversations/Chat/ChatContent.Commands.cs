@@ -111,12 +111,16 @@ public sealed partial class ChatContent
 	/// <summary>Opens, filters, or closes the command list as the prompt changes, connecting so Omp can list its commands.</summary>
 	private void UpdatePromptChange()
 	{
+		var isMentionChanged = UpdateMentionQuery();
 		if ( UpdateCommandQuery() )
 		{
 			if ( _commandQuery is not null && session.Commands.Length == 0 )
 				session.UpdateConnect();
 			MarkChanged();
 		}
+		else if ( isMentionChanged || _mentionQuery is not null )
+			MarkChanged();
+		UpdatePromptLayer();
 		UpdatePromptLines();
 	}
 

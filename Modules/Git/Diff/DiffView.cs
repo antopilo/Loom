@@ -12,6 +12,9 @@ internal static class DiffView
 	/// <summary>Defines the diff text size in logical pixels.</summary>
 	private const int CodeSize = 12;
 
+	/// <summary>Defines the line height of diff rows, as a multiple of <see cref="CodeSize"/>.</summary>
+	private const double CodeLineHeight = 1.5;
+
 	/// <summary>Defines the change bar width in logical pixels.</summary>
 	private const int BarWidth = 3;
 
@@ -222,6 +225,8 @@ internal static class DiffView
 			Padding = new Edges( Theme.Current.Spacing / 2, 0 ),
 			FontFamily = ViewStyle.CodeFontFamily,
 			FontSize = CodeSize,
+			// Code rows set their own line height; inherited prose spacing made each row twice as tall as its text.
+			LineHeight = CodeLineHeight,
 			Children = [.. shown.Select( line => BuildLine( line, digits, selectable, grammar ) )],
 		};
 	}

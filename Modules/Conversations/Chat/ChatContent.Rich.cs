@@ -3,6 +3,7 @@ using System.Text.Json;
 using Goo;
 using Lokn.Core;
 using Lokn.Modules.Conversations;
+using Lokn.Modules.Git;
 using Lokn.Modules.Markdown;
 
 namespace Lokn.Modules.Chat;
@@ -229,30 +230,16 @@ public sealed partial class ChatContent
 	/// <param name="note">Body-font text at the end, such as the agent's stated intent.</param>
 	private static Button BuildDisclosure( string label, bool expanded, Action action, string detail = "", string emphasis = "", string tail = "", string note = "" )
 	{
-		// A tool on a file reads as a bold verb, then its path in code type: "Read ~/src/view.cs:10-20".
+		// A tool on a file reads as a bold verb, then its path: "Read ~/src/view.cs:10-20". The whole head keeps the body font and size: a smaller
+		// code font in the same run sat lower and looked lighter than the words around it.
 		var isPath = emphasis.Length > 0;
-		// Goo aligns separate text boxes by their edges, not their baselines, so the label and its code-font detail share one text run.
 		var spans = new List<TextSpan> { new( label, isPath ? new Style { FontWeight = 600, Color = Theme.Current.Text } : null! ) };
 		if ( detail.Length + emphasis.Length + tail.Length > 0 )
-			spans.Add( new( "  " + detail, new Style
-			{
-				FontFamily = ViewStyle.CodeFontFamily,
-				FontSize = ViewStyle.SmallSize,
-			} ) );
+			spans.Add( new( "  " + detail, null! ) );
 		if ( emphasis.Length > 0 )
-			spans.Add( new( emphasis, new Style
-			{
-				FontFamily = ViewStyle.CodeFontFamily,
-				FontSize = ViewStyle.SmallSize,
-				FontWeight = 600,
-				Color = Theme.Current.Text,
-			} ) );
+			spans.Add( new( emphasis, new Style { FontWeight = 600, Color = Theme.Current.Text } ) );
 		if ( tail.Length > 0 )
-			spans.Add( new( tail, new Style
-			{
-				FontFamily = ViewStyle.CodeFontFamily,
-				FontSize = ViewStyle.SmallSize,
-			} ) );
+			spans.Add( new( tail, null! ) );
 		if ( note.Length > 0 )
 			spans.Add( new( "  " + note, null! ) );
 
@@ -344,6 +331,13 @@ public sealed partial class ChatContent
 		var isExternal = MarkdownView.IsOpeningExternally;
 		context.Run( () =>
 		{
+			// A commit hash opens in the Git panel of the chat's repository.
+			if ( MarkdownView.ReadCommitLink( uri ) is { } hash )
+			{
+				if ( context.App.Modules.Any( module => module.Id == "git" ) )
+					context.App.GetModule<GitModule>().OpenCommit( context.App, context.Id, store.GetDirectory( conversationId ), hash );
+				return;
+			}
 			var resolved = ResolveFileLink( uri );
 			// A file link carries its path; a web page goes as it is; anything else stays in Loom.
 			var target = !isExternal ? null
