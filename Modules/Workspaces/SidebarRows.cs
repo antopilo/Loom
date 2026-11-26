@@ -27,10 +27,6 @@ public sealed partial class SidebarRows( PanelContext context )
 	/// <summary>Defines how far a group's rows are inset so their titles start where the linked heading's name does: past the chevron and the icon column.</summary>
 	public const int ChildIndent = ChevronColumn + GroupIconSize;
 
-	/// <summary>Gets how far a group's rows are inset so their titles start where its linked heading's name does: past the icon column only when the group has an icon.</summary>
-	/// <param name="hasIcon">Whether the heading shows an icon.</param>
-	public static int ComputeChildIndent( bool hasIcon ) => hasIcon ? ChildIndent : ChildIndent - GroupIconSize - Theme.Current.Spacing / 2;
-
 	/// <summary>Defines the fallback selection movement duration when the shell setting is unavailable, in milliseconds.</summary>
 	private const int DefaultMoveDuration = 140;
 

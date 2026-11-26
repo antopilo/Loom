@@ -142,7 +142,7 @@ internal sealed partial class HistoryContent
 	/// <param name="groups">The project's chats by worktree, from <see cref="ComputeShownGroups"/>.</param>
 	/// <param name="worktrees">The working trees of the project's repository, or null when they are not known.</param>
 	/// <param name="actions">The worktree operations, or null while Worktrees is not loaded or the host is a paired one.</param>
-	/// <param name="indent">How far the flat list's rows are inset, such as <see cref="SidebarRows.ComputeChildIndent"/>.</param>
+	/// <param name="indent">How far the flat list's rows are inset, such as <see cref="SidebarRows.ChildIndent"/>.</param>
 	/// <param name="rows">The rows to add to.</param>
 	/// <param name="dialogs">The dialogs to add to, shown outside the list.</param>
 	private void AddProjectChats( ProjectInfo project, IReadOnlyList<WorktreeGroup> groups, IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? actions, int indent,
@@ -182,7 +182,7 @@ internal sealed partial class HistoryContent
 	}
 
 	/// <summary>Adds a list's chats inset under their project's name, its tools' tasks left out; each keeps its place among the listed ones for dragging.</summary>
-	/// <param name="indent">How far the rows are inset, such as <see cref="SidebarRows.ComputeChildIndent"/>.</param>
+	/// <param name="indent">How far the rows are inset, such as <see cref="SidebarRows.ChildIndent"/>.</param>
 	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, int indent, List<SidebarRow> rows )
 	{
 		var index = 0;

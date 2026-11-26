@@ -9,6 +9,9 @@ version being packed. Write for users: what changed for them, not how.
   others keep working hidden; restore it the same way, or by focusing another panel.
 - **Optional pane headers.** Settings › Shell › **Pane headers** gives every pane a header with its title and, when you
   point at it, maximize and close buttons. Drag it to dock or swap, double-click it to maximize. Off by default.
+- **Effort at a glance.** Point at the thinking-effort ring under the prompt to see its effort.
+- **Tidy sidebar.** Chats line up under every project, with or without a project icon.
+- **Round expand button** on image cards.
 
 ## 0.4.26
 

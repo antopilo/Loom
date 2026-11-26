@@ -51,8 +51,10 @@ public static class MediaCard
 		expand.FontFamily = ViewStyle.IconFontFamily;
 		expand.FontSize = ViewStyle.SmallSize + 1;
 		expand.Color = theme.Muted;
-		expand.Width = 26;
+		// A circle, so the button reads as a control rather than a tab of the header.
+		expand.Width = 24;
 		expand.Height = 24;
+		expand.BorderRadius = 12;
 		expand.Padding = 0;
 		expand.FlexShrink = 0;
 		var header = new List<Blob>
