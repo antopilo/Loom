@@ -353,13 +353,18 @@ internal static class WorktreeChecks
 		app.BindDispatcher( null );
 	}
 
-	/// <summary>Walks a built view: every blob, and the context menu and confirmation dialog inputs mounted in it.</summary>
+	/// <summary>Walks a built view: every blob, every row of its virtual lists, and the context menu and confirmation dialog inputs mounted in it.</summary>
 	private static IEnumerable<object> Walk( Blob blob )
 	{
 		yield return blob;
 		if ( blob.GetType().GetProperty( "Children" )?.GetValue( blob ) is IEnumerable<Blob> children )
 		{
 			foreach ( var child in children.SelectMany( Walk ) )
+				yield return child;
+		}
+		if ( blob is Virtual list )
+		{
+			foreach ( var child in CoreChecks.BuildRows( list ).SelectMany( Walk ) )
 				yield return child;
 		}
 

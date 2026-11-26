@@ -27,8 +27,17 @@ internal sealed record OmpSubagentInfo(
 /// <summary>Shows a live Omp subagent roster, transcript and RPC controls.</summary>
 internal sealed class OmpAgentHubContent : PanelContent
 {
-	/// <summary>Defines the roster's fixed width.</summary>
+	/// <summary>Defines the widest the roster grows, in logical pixels.</summary>
 	private const int RosterWidth = 320;
+
+	/// <summary>Defines the roster's share of the panel width below <see cref="RosterWidth"/>.</summary>
+	private const double RosterPercent = 40;
+
+	/// <summary>Defines the height assumed for a roster row until it is measured, in logical pixels.</summary>
+	private const double RosterRowEstimate = 96;
+
+	/// <summary>Defines the height assumed for a transcript message until it is measured, in logical pixels.</summary>
+	private const double MessageRowEstimate = 64;
 
 	/// <summary>Stores the owning panel's dispatch and lifetime.</summary>
 	private readonly PanelContext _context;
@@ -40,7 +49,13 @@ internal sealed class OmpAgentHubContent : PanelContent
 	private readonly Dictionary<string, OmpSubagentInfo> _agents = new( StringComparer.Ordinal );
 
 	/// <summary>Stores the selected agent's plain transcript.</summary>
-	private IReadOnlyList<(string Role, string Text)> _messages = [];
+	private IReadOnlyList<AgentMessageRow> _messages = [];
+
+	/// <summary>Builds one roster row; the same delegate on every build lets unchanged rows be reused.</summary>
+	private readonly Func<AgentRosterRow, Blob> _buildRosterRow;
+
+	/// <summary>Builds one transcript message; the same delegate on every build lets unchanged rows be reused.</summary>
+	private readonly Func<AgentMessageRow, Blob> _buildMessageRow;
 
 	/// <summary>Stores the observed live session, or null for a restored panel that needs a chat.</summary>
 	private OmpSession? _session;
@@ -67,6 +82,8 @@ internal sealed class OmpAgentHubContent : PanelContent
 	internal OmpAgentHubContent( PanelContext context, OmpSession? session )
 	{
 		_context = context;
+		_buildRosterRow = BuildRosterRow;
+		_buildMessageRow = BuildMessageRow;
 		if ( session is not null )
 			UpdateSession( session );
 	}
@@ -159,52 +176,100 @@ internal sealed class OmpAgentHubContent : PanelContent
 	private Blob BuildRoster( IReadOnlyList<OmpSubagentInfo> agents )
 	{
 		var theme = Theme.Current;
-		var children = new List<Blob>();
 		if ( agents.Count == 0 )
-			children.Add( new Text { Content = "No subagents in this session.", Padding = theme.Spacing * 2, Color = theme.Muted } );
-		foreach ( var agent in agents )
 		{
-			var item = agent;
-			var selected = item.Id == _selected;
-			children.Add( new Button
+			return new Container
 			{
-				AccessibilityName = $"Open {item.Id}",
-				Focusable = true,
-				Cursor = Cursor.Pointer,
+				Width = Length.Percent( RosterPercent ),
+				MaxWidth = RosterWidth,
+				FlexShrink = 0,
 				Padding = theme.Spacing,
-				Gap = theme.Spacing / 2,
-				BorderRadius = theme.Radius,
-				BackgroundColor = selected ? theme.Accent.WithAlpha( 0.18 ) : Color.Transparent,
-				OnClick = () => _context.Run( () => SelectAgent( item.Id ) ),
-				Children =
-				[
-					new Row
-					{
-						AlignItems = AlignItems.Center,
-						Gap = theme.Spacing / 2,
-						Children =
-						[
-							BuildStatusDot( item.Status ),
-							new Text { Content = item.Id, FontWeight = 600, FlexGrow = 1, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
-							new Text { Content = item.Status, Color = theme.Muted, FontSize = 12 },
-						],
-					},
-					new Text { Content = item.Task.Length > 0 ? item.Task : item.Activity, Color = theme.Muted, TextMaxLines = 2, TextTrimming = TextTrimming.Ellipsis },
-					new Text { Content = BuildMetrics( item ), Color = theme.Inactive, FontSize = 12, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
-				],
-			} );
+				BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
+				BorderColor = theme.Border,
+				Children = [new Text { Content = "No subagents in this session.", Padding = theme.Spacing * 2, Color = theme.Muted }],
+			};
 		}
-		return new Container
+
+		return new Virtual
 		{
-			Width = RosterWidth,
+			Key = "agent-roster",
+			Source = new MeasuredRowsSource<AgentRosterRow>( [.. agents.Select( agent => new AgentRosterRow( agent.Id, agent, agent.Id == _selected ) )], _buildRosterRow, static _ => RosterRowEstimate, FollowEnd: false ),
+			AccessibilityName = "Subagents",
+			Width = Length.Percent( RosterPercent ),
+			MaxWidth = RosterWidth,
 			FlexShrink = 0,
 			MinHeight = 0,
 			Padding = theme.Spacing,
-			Gap = theme.Spacing / 2,
-			OverflowY = Overflow.Scroll,
-			BorderWidth = new Edges( 0, 0, 0, theme.BorderWidth ),
+			OverflowX = Overflow.Hidden,
+			ScrollbarY = ViewStyle.GetScrollbar(),
+			BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
 			BorderColor = theme.Border,
-			Children = children,
+		};
+	}
+
+	/// <summary>Builds one roster row: status, identifier, task and metrics, selecting the agent on click.</summary>
+	private Blob BuildRosterRow( AgentRosterRow row )
+	{
+		var theme = Theme.Current;
+		var item = row.Agent;
+		return new Container
+		{
+			Padding = new Edges( 0, 0, theme.Spacing / 2, 0 ),
+			Children =
+			[
+				new Button
+				{
+					AccessibilityName = $"Open {item.Id}",
+					Focusable = true,
+					Cursor = Cursor.Pointer,
+					Padding = theme.Spacing,
+					Gap = theme.Spacing / 2,
+					BorderRadius = theme.Radius,
+					BackgroundColor = row.IsSelected ? theme.Accent.WithAlpha( 0.18 ) : Color.Transparent,
+					OnClick = () => _context.Run( () => SelectAgent( item.Id ) ),
+					Children =
+					[
+						new Row
+						{
+							AlignItems = AlignItems.Center,
+							Gap = theme.Spacing / 2,
+							Children =
+							[
+								BuildStatusDot( item.Status ),
+								new Text { Content = item.Id, FontWeight = 600, FlexGrow = 1, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+								new Text { Content = item.Status, Color = theme.Muted, FontSize = ViewStyle.SmallSize },
+							],
+						},
+						new Text { Content = item.Task.Length > 0 ? item.Task : item.Activity, Color = theme.Muted, TextMaxLines = 2, TextTrimming = TextTrimming.Ellipsis },
+						new Text { Content = BuildMetrics( item ), Color = theme.Inactive, FontSize = ViewStyle.SmallSize, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+					],
+				},
+			],
+		};
+	}
+
+	/// <summary>Builds one transcript message: its role and its selectable text.</summary>
+	private Blob BuildMessageRow( AgentMessageRow row )
+	{
+		var theme = Theme.Current;
+		return new Container
+		{
+			Padding = new Edges( 0, 0, theme.Spacing, 0 ),
+			Children =
+			[
+				new Container
+				{
+					Gap = theme.Spacing / 2,
+					Padding = theme.Spacing,
+					BorderRadius = theme.Radius,
+					BackgroundColor = row.Role == "user" ? theme.Accent.WithAlpha( 0.08 ) : theme.Raised,
+					Children =
+					[
+						new Text { Content = row.Role, FontWeight = 600, Color = theme.Muted, FontSize = ViewStyle.SmallSize },
+						new Text { Content = row.Text, Selectable = true },
+					],
+				},
+			],
 		};
 	}
 
@@ -216,24 +281,31 @@ internal sealed class OmpAgentHubContent : PanelContent
 			return new Text { Content = "Select a subagent to inspect its work and transcript.", Padding = theme.Spacing * 2, Color = theme.Muted, FlexGrow = 1 };
 
 		var canControl = agent.Status is "running" or "idle";
-		var transcript = new List<Blob>();
-		foreach ( var (role, text) in _messages )
-		{
-			transcript.Add( new Container
+		Blob transcript = _messages.Count == 0
+			? new Container
 			{
-				Gap = theme.Spacing / 2,
+				FlexGrow = 1,
+				MinHeight = 0,
 				Padding = theme.Spacing,
+				BorderWidth = theme.BorderWidth,
+				BorderColor = theme.Border,
 				BorderRadius = theme.Radius,
-				BackgroundColor = role == "user" ? theme.Accent.WithAlpha( 0.08 ) : theme.Raised,
-				Children =
-				[
-					new Text { Content = role, FontWeight = 600, Color = theme.Muted, FontSize = 12 },
-					new Text { Content = text, Selectable = true },
-				],
-			} );
-		}
-		if ( transcript.Count == 0 )
-			transcript.Add( new Text { Content = _transcriptLoading ? "Reading transcript…" : "No transcript messages yet.", Color = theme.Muted } );
+				Children = [new Text { Content = _transcriptLoading ? "Reading transcript…" : "No transcript messages yet.", Color = theme.Muted }],
+			}
+			: new Virtual
+			{
+				Key = "agent-transcript:" + agent.Id,
+				Source = new MeasuredRowsSource<AgentMessageRow>( _messages, _buildMessageRow, static _ => MessageRowEstimate, FollowEnd: false ),
+				AccessibilityName = "Transcript",
+				FlexGrow = 1,
+				MinHeight = 0,
+				Padding = theme.Spacing,
+				OverflowX = Overflow.Hidden,
+				ScrollbarY = ViewStyle.GetScrollbar(),
+				BorderWidth = theme.BorderWidth,
+				BorderColor = theme.Border,
+				BorderRadius = theme.Radius,
+			};
 		Blob steering = canControl
 			? new TextEntry
 			{
@@ -271,24 +343,13 @@ internal sealed class OmpAgentHubContent : PanelContent
 					Gap = theme.Spacing,
 					Children =
 					[
-						new Text { Content = agent.Id, FontWeight = 600, FontSize = theme.FontSize + 2, FlexGrow = 1 },
+						new Text { Content = agent.Id, FontWeight = 600, FontSize = theme.FontSize + 2, FlexGrow = 1, MinWidth = 0 },
 						theme.BuildButton( "Stop", () => _context.Run( () => StartCancel( agent.Id ) ), !_isBusy && agent.Status == "running" ),
 					],
 				},
 				new Text { Content = BuildInspectorMetadata( agent ), Color = theme.Muted, Selectable = true },
 				new Text { Content = agent.Activity, Color = theme.Text, TextMaxLines = 3 },
-				new Container
-				{
-					FlexGrow = 1,
-					MinHeight = 0,
-					Padding = theme.Spacing,
-					Gap = theme.Spacing,
-					OverflowY = Overflow.Scroll,
-					BorderWidth = theme.BorderWidth,
-					BorderColor = theme.Border,
-					BorderRadius = theme.Radius,
-					Children = transcript,
-				},
+				transcript,
 				new Row
 				{
 					AlignItems = AlignItems.Center,
@@ -346,7 +407,7 @@ internal sealed class OmpAgentHubContent : PanelContent
 					_selected = agents.FirstOrDefault()?.Id ?? "";
 				if ( completesBusyOperation )
 					_isBusy = false;
-				_status = agents.Count == 0 ? "No subagents in this session." : "Live subagent events connected.";
+				_status = "Live subagent events connected.";
 				MarkChanged();
 				StartTranscriptRead();
 			} );
@@ -530,20 +591,20 @@ internal sealed class OmpAgentHubContent : PanelContent
 			ReadText( fallback, "sessionFile" ) );
 	}
 
-	/// <summary>Parses plain user and assistant text from a subagent message response.</summary>
-	private static IReadOnlyList<(string Role, string Text)> BuildMessages( JsonElement result )
+	/// <summary>Parses plain user and assistant text from a subagent message response, keyed by each message's position in the append-only transcript.</summary>
+	private static IReadOnlyList<AgentMessageRow> BuildMessages( JsonElement result )
 	{
 		if ( result.ValueKind != JsonValueKind.Object || !result.TryGetProperty( "messages", out var messages ) || messages.ValueKind != JsonValueKind.Array )
 			return [];
-		var rows = new List<(string Role, string Text)>();
-		foreach ( var message in messages.EnumerateArray() )
+		var rows = new List<AgentMessageRow>();
+		foreach ( var (position, message) in messages.EnumerateArray().Index() )
 		{
 			var role = ReadText( message, "role" );
 			if ( role is not ("user" or "assistant") )
 				continue;
 			var text = ReadMessageText( message );
 			if ( text.Length > 0 )
-				rows.Add( (role, text) );
+				rows.Add( new( position.ToString(), role, text ) );
 		}
 		return rows;
 	}
@@ -653,4 +714,16 @@ internal sealed class OmpAgentHubContent : PanelContent
 
 	/// <summary>Rebuilds after mutable panel state changes.</summary>
 	private void MarkChanged() => _version.Value++;
+
+	/// <summary>Places one subagent in the roster.</summary>
+	/// <param name="Key">The subagent's Omp identifier.</param>
+	/// <param name="Agent">The subagent shown.</param>
+	/// <param name="IsSelected">Whether the inspector shows this subagent.</param>
+	private sealed record AgentRosterRow( string Key, OmpSubagentInfo Agent, bool IsSelected ) : IMeasuredRow;
+
+	/// <summary>Places one transcript message in the inspector.</summary>
+	/// <param name="Key">The message's position in Omp's transcript.</param>
+	/// <param name="Role">The author role, "user" or "assistant".</param>
+	/// <param name="Text">The message's plain text.</param>
+	private sealed record AgentMessageRow( string Key, string Role, string Text ) : IMeasuredRow;
 }

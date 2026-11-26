@@ -74,7 +74,7 @@ public sealed class GitModule : ILoknModule
 			Order = 10,
 			CheckAsync = CheckGitAsync,
 			FixLabel = "Install",
-			FixAsync = ( progress, cancellationToken ) => ToolLocator.InstallWingetAsync( "Git.Git", progress, cancellationToken ),
+			FixAsync = OperatingSystem.IsWindows() ? ( progress, cancellationToken ) => ToolLocator.InstallWingetAsync( "Git.Git", progress, cancellationToken ) : null,
 		} );
 
 	/// <summary>Checks that git runs on this PC, where the Install fix puts it, reporting its version and path.</summary>

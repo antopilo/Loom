@@ -267,13 +267,17 @@ internal static class WorktreeSharing
 		var tracked = await GitWorktrees.ListTrackedAsync( worktree, folder, cancellationToken ).ConfigureAwait( false );
 		if ( tracked.Count > 0 )
 			return $"Did not share {folder}: git tracks files in it, and git deletes through a link to such a folder.";
+		var link = Path.Combine( worktree, folder );
+		var isWindows = OperatingSystem.IsWindows();
+		if ( !isWindows && FolderLinks.IsLink( link ) )
+			return null;
 		if ( !await GitWorktrees.IsIgnoredAsync( worktree, folder + "/", cancellationToken ).ConfigureAwait( false ) )
 			return $"Did not share {folder}: git does not ignore it, so the link would show as a change.";
 
-		var link = Path.Combine( worktree, folder );
-		if ( FolderLinks.IsLink( link ) )
+		if ( isWindows && FolderLinks.IsLink( link ) )
 			return null;
-		if ( Directory.Exists( link ) )
+		var hadDirectory = Directory.Exists( link );
+		if ( hadDirectory )
 		{
 			if ( Directory.EnumerateFileSystemEntries( link ).Any() )
 				return $"Did not share {folder}: the working tree already has its own.";
@@ -281,11 +285,22 @@ internal static class WorktreeSharing
 			Directory.Delete( link );
 		}
 
-		var target = Path.Combine( mainPath, folder );
-		Directory.CreateDirectory( target );
-		Directory.CreateDirectory( Path.GetDirectoryName( link )! );
-		FolderLinks.CreateJunction( link, target );
-		return null;
+		try
+		{
+			if ( !isWindows && !await GitWorktrees.IsIgnoredAsync( worktree, folder, cancellationToken ).ConfigureAwait( false ) )
+				return $"Did not share {folder}: git does not ignore the symbolic link. Use an ignore rule without a trailing slash.";
+
+			var target = Path.Combine( mainPath, folder );
+			Directory.CreateDirectory( target );
+			Directory.CreateDirectory( Path.GetDirectoryName( link )! );
+			FolderLinks.CreateJunction( link, target );
+			return null;
+		}
+		finally
+		{
+			if ( !isWindows && hadDirectory && !FolderLinks.IsLink( link ) )
+				Directory.CreateDirectory( link );
+		}
 	}
 
 	/// <summary>Removes a linked working tree: its folder links go first, so git cannot delete through them into the folders they share.</summary>

@@ -3,6 +3,48 @@ using Lokn.Core;
 
 namespace Lokn.Modules.GitHub;
 
+/// <summary>Names the kinds of rows in the GitHub panel's list.</summary>
+internal enum GitHubRowKind
+{
+	/// <summary>The watcher's status or error.</summary>
+	Status,
+
+	/// <summary>The sign-in action.</summary>
+	SignIn,
+
+	/// <summary>Muted text: loading, or a section's empty note.</summary>
+	Note,
+
+	/// <summary>A section heading with its count.</summary>
+	Section,
+
+	/// <summary>A noticed change.</summary>
+	Update,
+
+	/// <summary>A pull request, with its checks when open.</summary>
+	Pull,
+
+	/// <summary>A workflow run.</summary>
+	Run,
+}
+
+/// <summary>One row of the GitHub panel's list.</summary>
+/// <param name="Key">The stable row key.</param>
+/// <param name="Kind">What the row shows.</param>
+/// <param name="Top">The space above the row in logical pixels, which separates sections.</param>
+/// <param name="Text">A status, note or section title.</param>
+/// <param name="Count">How many items a section holds.</param>
+/// <param name="IsError">Whether a status is an error.</param>
+/// <param name="IsBusy">Whether sign-in is in progress.</param>
+/// <param name="CanClear">Whether a section heading offers Clear.</param>
+/// <param name="ShowAuthor">Whether a pull request names its author.</param>
+/// <param name="IsOpen">Whether a pull request shows its checks.</param>
+/// <param name="Pull">The pull request of a pull request row.</param>
+/// <param name="Run">The workflow run of a run row.</param>
+/// <param name="Update">The change of an update row.</param>
+/// <param name="Now">The time ages are measured from.</param>
+internal sealed record GitHubRow( string Key, GitHubRowKind Kind, double Top, string Text = "", int Count = 0, bool IsError = false, bool IsBusy = false, bool CanClear = false, bool ShowAuthor = false, bool IsOpen = false, PullRequestInfo? Pull = null, WorkflowRunInfo? Run = null, GitHubUpdate? Update = null, DateTimeOffset Now = default ) : IMeasuredRow;
+
 /// <summary>Shows the user's GitHub pull requests with their checks, review requests, workflow runs, and what changed since Lokn started.</summary>
 /// <remarks>Reads the module's <see cref="GitHubWatcher"/>, which polls on the interval set in <see cref="GitHubModule.RefreshSeconds"/> and posts changes to the notification feed.</remarks>
 internal sealed class GitHubContent : PanelContent
@@ -31,61 +73,111 @@ internal sealed class GitHubContent : PanelContent
 	/// <summary>Tracks the pull requests whose checks are shown, by URL.</summary>
 	private readonly State<IReadOnlySet<string>> _expanded = new( new HashSet<string>( StringComparer.Ordinal ) );
 
+	/// <summary>Builds one list row; kept as one delegate so the list reuses unchanged rows.</summary>
+	private readonly Func<GitHubRow, Blob> _buildRow;
+
 	/// <summary>Creates the panel over the module's watcher and asks it for fresh data.</summary>
 	internal GitHubContent( PanelContext context, GitHubWatcher watcher )
 	{
 		_context = context;
 		_watcher = watcher;
+		_buildRow = BuildRow;
 		_watcher.Refresh();
 	}
 
-	/// <summary>Builds sign-in or the changes, pull request, review, and run sections.</summary>
-	public override Blob Build()
+	/// <summary>Builds sign-in or the changes, pull request, review, and run sections as one virtual list that scrolls.</summary>
+	public override Blob Build() => new Virtual
 	{
+		Source = new MeasuredRowsSource<GitHubRow>( ComputeRows(), _buildRow, ComputeEstimate, FollowEnd: false ),
+		AccessibilityRole = AccessibilityRole.Group,
+		AccessibilityName = "Pull Requests",
+		FlexGrow = 1,
+		MinWidth = 0,
+		MinHeight = 0,
+		Padding = ContentPadding,
+		OverflowX = Overflow.Hidden,
+		ScrollbarY = ViewStyle.GetScrollbar(),
+	};
+
+	/// <summary>Lists the status, then sign-in, or the Updates, Pull Requests, Review requests and Workflow runs sections with their items or empty notes.</summary>
+	private List<GitHubRow> ComputeRows()
+	{
+		var section = Theme.Current.Spacing * 2;
 		var snapshot = _watcher.Snapshot;
 		var status = _watcher.Status;
 		var needsSignIn = _watcher.NeedsSignIn;
-		var children = new List<Blob>();
+		var rows = new List<GitHubRow>();
 		if ( status.Length > 0 )
-			children.Add( new Text
-			{
-				Content = status,
-				Color = needsSignIn ? Theme.Current.Text : Theme.Current.Error,
-				Selectable = true,
-			} );
-
+			rows.Add( new( "status", GitHubRowKind.Status, 0, status, IsError: !needsSignIn ) );
 		if ( needsSignIn )
-			children.Add( BuildSignIn() );
-		else if ( snapshot is null )
-			children.Add( BuildMuted( _watcher.IsBusy ? "Loading your pull requests…" : "Nothing loaded yet." ) );
-		else
 		{
-			var now = DateTimeOffset.Now;
-			var cutoff = now - StaleAfter;
-			var mine = snapshot.Mine.Where( pull => pull.UpdatedAt >= cutoff ).ToArray();
-			var reviews = snapshot.Reviews.Where( pull => pull.UpdatedAt >= cutoff ).ToArray();
-			var updates = _watcher.Updates;
-			if ( updates.Count > 0 )
-				children.Add( BuildSection( "Updates", updates.Count, [.. updates.Select( update => BuildUpdate( update, now ) )], "",
-					Theme.Current.BuildButton( "Clear", () => _context.Run( _watcher.ClearUpdates ) ) ) );
-			children.Add( BuildSection( "Pull Requests", mine.Length, [.. mine.Select( pull => BuildPull( pull, now, showAuthor: false ) )], "None of your open pull requests changed in the last three weeks." ) );
-			children.Add( BuildSection( "Review requests", reviews.Length, [.. reviews.Select( pull => BuildPull( pull, now, showAuthor: true ) )], "Nobody is waiting on your review." ) );
-			children.Add( BuildSection( "Workflow runs", snapshot.Runs.Count, [.. snapshot.Runs.Select( run => BuildRun( run, now ) )],
-				"No workflow runs. Your open pull requests' repositories show your runs; add repositories to GitHub › Watched repositories in Settings to see everyone's." ) );
+			rows.Add( new( "sign-in", GitHubRowKind.SignIn, rows.Count > 0 ? section : 0, IsBusy: _watcher.IsBusy ) );
+			return rows;
+		}
+		if ( snapshot is null )
+		{
+			rows.Add( new( "loading", GitHubRowKind.Note, rows.Count > 0 ? section : 0, _watcher.IsBusy ? "Loading your pull requests…" : "Nothing loaded yet." ) );
+			return rows;
 		}
 
-		return new Container
+		var now = DateTimeOffset.Now;
+		var cutoff = now - StaleAfter;
+		var item = Theme.Current.Spacing / 2;
+		var updates = _watcher.Updates;
+		if ( updates.Count > 0 )
 		{
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = "Pull Requests",
-			FlexGrow = 1,
-			MinHeight = 0,
-			Padding = ContentPadding,
-			Gap = Theme.Current.Spacing * 2,
-			OverflowY = Overflow.Scroll,
-			Children = children,
-		};
+			rows.Add( new( "Updates", GitHubRowKind.Section, rows.Count > 0 ? section : 0, "Updates", updates.Count, CanClear: true ) );
+			foreach ( var update in updates )
+				rows.Add( new( $"update:{update.Url}:{update.Kind}:{update.Time.UtcTicks}", GitHubRowKind.Update, item, Update: update, Now: now ) );
+		}
+		AddPulls( rows, "Pull Requests", snapshot.Mine.Where( pull => pull.UpdatedAt >= cutoff ).ToArray(), now, false, "None of your open pull requests changed in the last three weeks." );
+		AddPulls( rows, "Review requests", snapshot.Reviews.Where( pull => pull.UpdatedAt >= cutoff ).ToArray(), now, true, "Nobody is waiting on your review." );
+		rows.Add( new( "Workflow runs", GitHubRowKind.Section, section, "Workflow runs", snapshot.Runs.Count ) );
+		foreach ( var run in snapshot.Runs )
+			rows.Add( new( $"run:{run.Id}", GitHubRowKind.Run, item, Run: run, Now: now ) );
+		if ( snapshot.Runs.Count == 0 )
+			rows.Add( new( "Workflow runs:empty", GitHubRowKind.Note, item, "No workflow runs. Your open pull requests' repositories show your runs; add repositories to GitHub › Watched repositories in Settings to see everyone's." ) );
+		return rows;
 	}
+
+	/// <summary>Adds a pull request section: its heading, then its pull requests or an empty note.</summary>
+	private void AddPulls( List<GitHubRow> rows, string title, PullRequestInfo[] pulls, DateTimeOffset now, bool showAuthor, string empty )
+	{
+		var item = Theme.Current.Spacing / 2;
+		rows.Add( new( title, GitHubRowKind.Section, rows.Count > 0 ? Theme.Current.Spacing * 2 : 0, title, pulls.Length ) );
+		foreach ( var pull in pulls )
+			rows.Add( new( $"{title}:{pull.Url}", GitHubRowKind.Pull, item, ShowAuthor: showAuthor, IsOpen: _expanded.Value.Contains( pull.Url ), Pull: pull, Now: now ) );
+		if ( pulls.Length == 0 )
+			rows.Add( new( title + ":empty", GitHubRowKind.Note, item, empty ) );
+	}
+
+	/// <summary>Estimates a row's height until layout measures it.</summary>
+	private static double ComputeEstimate( GitHubRow row ) => row.Top + row.Kind switch
+	{
+		GitHubRowKind.SignIn => Theme.Current.ControlHeight * 3,
+		GitHubRowKind.Section => Theme.Current.ControlHeight,
+		GitHubRowKind.Update or GitHubRowKind.Pull or GitHubRowKind.Run => Theme.Current.ControlHeight + Theme.Current.Spacing * 2,
+		_ => Theme.Current.FontSize * 1.5,
+	};
+
+	/// <summary>Builds one list row by its kind, with its space above.</summary>
+	private Blob BuildRow( GitHubRow row ) => new Container
+	{
+		Padding = new Edges( row.Top, 0, 0, 0 ),
+		Children =
+		[
+			row.Kind switch
+			{
+				GitHubRowKind.Status => (Blob)new Text { Content = row.Text, Color = row.IsError ? Theme.Current.Error : Theme.Current.Text, MinWidth = 0, Selectable = true },
+				GitHubRowKind.SignIn => BuildSignIn( row.IsBusy ),
+				GitHubRowKind.Note => BuildMuted( row.Text ),
+				GitHubRowKind.Section => BuildSection( row.Text, row.Count, row.CanClear ),
+				GitHubRowKind.Update => BuildUpdate( row.Update!, row.Now ),
+				GitHubRowKind.Pull => BuildPull( row.Pull!, row.Now, row.ShowAuthor, row.IsOpen ),
+				_ => BuildRun( row.Run!, row.Now ),
+			},
+		],
+	};
 
 	/// <summary>Formats how long ago something happened, in the largest whole unit.</summary>
 	internal static string FormatAge( DateTimeOffset time, DateTimeOffset now )
@@ -99,19 +191,19 @@ internal sealed class GitHubContent : PanelContent
 	}
 
 	/// <summary>Builds the sign-in action and where the credential comes from.</summary>
-	private Container BuildSignIn() => new()
+	private Container BuildSignIn( bool isBusy ) => new()
 	{
 		Gap = Theme.Current.Spacing,
 		AlignItems = AlignItems.FlexStart,
 		Children =
 		[
-			Theme.Current.BuildButton( "Sign in to GitHub", () => _context.Run( _watcher.SignIn ), !_watcher.IsBusy ),
+			Theme.Current.BuildButton( "Sign in to GitHub", () => _context.Run( _watcher.SignIn ), !isBusy ),
 			BuildMuted( "Opens Git Credential Manager's GitHub sign-in and keeps the credential with Git, where git push also finds it. Lokn stores no token. You can also set GH_TOKEN before starting Lokn." ),
 		],
 	};
 
-	/// <summary>Builds a titled section with its count, an optional action, and its rows or an empty note.</summary>
-	private static Container BuildSection( string title, int count, List<Blob> rows, string empty, Blob? action = null )
+	/// <summary>Builds a section heading with its count, and Clear when the section offers it.</summary>
+	private Row BuildSection( string title, int count, bool canClear )
 	{
 		var header = new List<Blob>
 		{
@@ -123,24 +215,19 @@ internal sealed class GitHubContent : PanelContent
 			BuildMuted( count.ToString() ),
 			new Spacer(),
 		};
-		if ( action is not null )
-			header.Add( action );
-
-		var children = new List<Blob> { new Row { Gap = Theme.Current.Spacing, AlignItems = AlignItems.Center, Children = header } };
-		if ( rows.Count > 0 )
-			children.AddRange( rows );
-		else if ( empty.Length > 0 )
-			children.Add( BuildMuted( empty ) );
-		return new Container
+		if ( canClear )
 		{
-			Key = title,
-			Gap = Theme.Current.Spacing / 2,
-			Children = children,
-		};
+			var clear = Theme.Current.BuildButton( "Clear", () => _context.Run( _watcher.ClearUpdates ) );
+			clear.Height = Length.Auto;
+			clear.MinHeight = Theme.Current.ControlHeight;
+			header.Add( clear );
+		}
+
+		return new Row { Gap = Theme.Current.Spacing, AlignItems = AlignItems.Center, Children = header };
 	}
 
 	/// <summary>Builds one pull request: its check state, title, and details, opening it on click, with its checks on demand.</summary>
-	private Container BuildPull( PullRequestInfo pull, DateTimeOffset now, bool showAuthor )
+	private Container BuildPull( PullRequestInfo pull, DateTimeOffset now, bool showAuthor, bool isOpen )
 	{
 		var details = new List<string> { $"{pull.Repository}#{pull.Number}" };
 		if ( showAuthor && pull.Author.Length > 0 )
@@ -175,7 +262,6 @@ internal sealed class GitHubContent : PanelContent
 			"CLOSED" => Theme.Current.Muted,
 			_ => ComputeColor( pull.Checks ),
 		};
-		var isOpen = _expanded.Value.Contains( pull.Url );
 		var row = new List<Blob>
 		{
 			BuildLink( pull.Url, $"{pull.Repository}#{pull.Number} {pull.Title}", tone, pull.Title, string.Join( " · ", details.Where( detail => detail.Length > 0 ) ) ),

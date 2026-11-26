@@ -20,7 +20,7 @@ internal sealed partial class AccessContent
 	private const int LevelIconSize = 22;
 
 	/// <summary>Retains the installed Segoe Fluent Icons face drawn by the level picker.</summary>
-	private static readonly FontSource IconFont = RegisterIconFont();
+	private static readonly FontSource IconFont = SystemFonts.Register( "Lokn Remote Icons", 400, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Lists the three sharing levels: their id, icon glyph, label and one line on what they do.</summary>
 	private static readonly (string Level, string Glyph, string Label, string Text)[] Levels =
@@ -95,18 +95,23 @@ internal sealed partial class AccessContent
 		yield return BuildSection( "Sharing", theme );
 		yield return BuildLevels( level, theme );
 		yield return BuildParagraph( Levels.First( item => item.Level == level ).Text, theme.Muted );
-		yield return BuildGroup( theme, [BuildAgentWindows( theme )] );
+		if ( OperatingSystem.IsWindows() )
+			yield return BuildGroup( theme, [BuildAgentWindows( theme )] );
 
 		if ( _pendingNetwork is not null || _module.Switching is not null )
 		{
 			yield return BuildParagraph( DescribeProgress(), theme.Attention );
 			if ( _module.Switching is not { IsWaiting: false } )
-				yield return theme.BuildButton( "Cancel", () => _context.Run( () =>
+			{
+				var cancel = theme.BuildButton( "Cancel", () => _context.Run( () =>
 				{
 					_pendingNetwork = null;
 					_module.CancelSwitch();
 					_version.Value++;
 				} ) );
+				cancel.AlignSelf = AlignSelf.FlexStart;
+				yield return cancel;
+			}
 			yield break;
 		}
 
@@ -336,6 +341,7 @@ internal sealed partial class AccessContent
 			{
 				FlexGrow = 1,
 				FlexShrink = 1,
+				MinWidth = 0,
 				Gap = 2,
 				Children =
 				[
@@ -347,14 +353,6 @@ internal sealed partial class AccessContent
 		if ( !step.IsDone && step.Button is { } label && step.Url is { } url )
 			children.Add( theme.BuildButton( label, () => _context.Run( () => _context.App.OpenLink( new Uri( url ) ) ) ) );
 		return BuildGroupRow( "step:" + index, theme, [.. children] );
-	}
-
-	/// <summary>Registers the installed Segoe Fluent Icons face for the level picker and the setup steps.</summary>
-	private static FontSource RegisterIconFont()
-	{
-		var font = FontSource.FromPath( "Lokn Remote Icons", 400, false, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" ) );
-		font.Register();
-		return font;
 	}
 
 	/// <summary>Builds Pair a device while the daemon serves devices: buttons that show a code to control or to watch, or the shown code.</summary>
@@ -395,12 +393,14 @@ internal sealed partial class AccessContent
 		if ( pairing.Control )
 			yield return BuildParagraph( "The device gets control of this PC, so show the code to that device only.", theme.Attention );
 		yield return BuildParagraph( pairing.Link, theme.Muted, selectable: true );
-		yield return theme.BuildButton( "Done", () => _context.Run( () =>
+		var done = theme.BuildButton( "Done", () => _context.Run( () =>
 		{
 			_pairing = null;
 			_version.Value++;
 			_ = WithdrawPairingAsync( client );
 		} ) );
+		done.AlignSelf = AlignSelf.FlexStart;
+		yield return done;
 	}
 
 	/// <summary>Builds Devices: each paired device with whether it is connected and may control or watch, and Revoke; then the pairings waiting for an answer.</summary>
@@ -426,6 +426,7 @@ internal sealed partial class AccessContent
 				{
 					FlexGrow = 1,
 					FlexShrink = 1,
+					MinWidth = 0,
 					Children =
 					[
 						new Text { Content = name, TextWrap = TextWrap.Wrap },

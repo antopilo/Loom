@@ -14,11 +14,20 @@ internal sealed partial class WorktreesContent : PanelContent
 	/// <summary>Defines the panel heading size in logical pixels.</summary>
 	private const int HeadingSize = 22;
 
+	/// <summary>Defines the height assumed for a page row until layout measures it, in logical pixels.</summary>
+	private const double EstimatedRowHeight = 48;
+
 	/// <summary>Defines the section heading size in logical pixels.</summary>
 	private const int SectionSize = 16;
 
 	/// <summary>Defines the text entry height in logical pixels.</summary>
 	private const int FieldHeight = 34;
+
+	/// <summary>Defines the width each new worktree field starts from before the form wraps it onto its own line.</summary>
+	private const int CreateFieldBasis = 320;
+
+	/// <summary>Defines the narrowest a row's text gets before the row wraps its actions onto the next line.</summary>
+	private const int RowTextMinWidth = 120;
 
 	/// <summary>Defines the path and detail text size in logical pixels.</summary>
 	private const int DetailSize = 12;
@@ -28,9 +37,6 @@ internal sealed partial class WorktreesContent : PanelContent
 
 	/// <summary>Defines the number of bytes in one step between displayed size units.</summary>
 	private const double BytesPerUnit = 1024.0;
-
-	/// <summary>Defines how many branches the list shows; the filter finds the rest.</summary>
-	private const int BranchLimit = 30;
 
 	/// <summary>Defines the label of the repository choice that uses the application's working directory.</summary>
 	private const string WorkspaceName = "Workspace";
@@ -150,47 +156,47 @@ internal sealed partial class WorktreesContent : PanelContent
 		}
 
 		var view = View;
-		var children = new List<Blob>
+		var rows = new List<BuiltRow>
 		{
-			new Text
-			{
-				Content = "Worktrees",
-				FontSize = HeadingSize,
-			},
-			BuildRepositories(),
-			BuildDetail( _repository.Value ),
+			new( "title", () => new Text { Content = "Worktrees", FontSize = HeadingSize } ),
+			new( "repositories", BuildRepositories ),
+			new( "repository", () => BuildDetail( _repository.Value ) ),
 		};
 
-		if ( _status.Value.Length > 0 )
-			children.Add( new Text
-			{
-				Content = _status.Value,
-				Selectable = true,
-			} );
+		if ( _status.Value is { Length: > 0 } status )
+			rows.Add( new( "status", () => new Text { Content = status, Selectable = true } ) );
 
 		if ( view is not null )
 		{
 			if ( _isSetupOpen.Value )
-				children.Add( BuildSetup() );
+				rows.Add( new( "setup", BuildSetup ) );
 
-			children.Add( BuildCreate( view ) );
-			children.AddRange( view.Worktrees.Select( worktree => BuildWorktree( view, worktree ) ) );
-			children.Add( BuildSummary( view ) );
-			children.Add( BuildBranches( view ) );
+			rows.Add( new( "create", () => BuildCreate( view ) ) );
+			rows.AddRange( view.Worktrees.Select( worktree => new BuiltRow( "worktree:" + worktree.Path, () => BuildWorktree( view, worktree ) ) ) );
+			rows.Add( new( "summary", () => BuildSummary( view ) ) );
+			rows.AddRange( BuildBranches( view ) );
 		}
 
-		return new Container
+		return new Virtual
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Worktrees",
+			Source = new MeasuredRowsSource<BuiltRow>( rows, BuildRow, static _ => EstimatedRowHeight, FollowEnd: false ),
 			FlexGrow = 1,
+			MinWidth = 0,
 			MinHeight = 0,
 			Padding = ContentPadding,
-			Gap = Theme.Current.Spacing,
-			OverflowY = Overflow.Scroll,
-			Children = children,
+			OverflowX = Overflow.Hidden,
+			ScrollbarY = ViewStyle.GetScrollbar(),
 		};
 	}
+
+	/// <summary>Builds one row of the page with the gap below it.</summary>
+	private static Container BuildRow( BuiltRow row ) => new()
+	{
+		Padding = new Edges( 0, 0, Theme.Current.Spacing, 0 ),
+		Children = [row.Build()],
+	};
 
 	/// <summary>Captures the shown repository directory for layout restoration and module reloads.</summary>
 	public override JsonElement? CaptureState() => JsonSerializer.SerializeToElement( _repository.Value );
@@ -235,6 +241,7 @@ internal sealed partial class WorktreesContent : PanelContent
 		{
 			var button = Theme.Current.BuildButton( name, () => _context.Run( () => UpdateRepository( directory ) ), isIdle );
 			button.BackgroundColor = IsSamePath( directory, _repository.Value ) ? Theme.Current.Hover : Theme.Current.Raised;
+			button.MaxWidth = Length.Percent( 100 );
 			buttons.Add( button );
 		}
 
@@ -280,6 +287,12 @@ internal sealed partial class WorktreesContent : PanelContent
 	/// <summary>Builds the new worktree form: branch, start point and folders.</summary>
 	private Blob BuildCreate( RepositoryView view )
 	{
+		var branchField = BuildField( "worktree-branch", _branch, "Branch, existing or new", "Worktree branch", UpdateCreateTyped );
+		branchField.FlexBasis = CreateFieldBasis;
+		var startField = BuildField( "worktree-start", _startPoint, "Start point (default: current commit)", "New branch start point", UpdateCreateTyped );
+		startField.FlexBasis = CreateFieldBasis;
+		var create = Theme.Current.BuildButton( "Create worktree", () => _context.Run( UpdateCreateTyped ), !_isBusy.Value );
+		create.FlexShrink = 0;
 		return new Container
 		{
 			Gap = Theme.Current.Spacing,
@@ -289,14 +302,10 @@ internal sealed partial class WorktreesContent : PanelContent
 				{
 					Gap = Theme.Current.Spacing,
 					AlignItems = AlignItems.Center,
-					Children =
-					[
-						BuildField( "worktree-branch", _branch, "Branch: an existing local or remote branch, or a new name", "Worktree branch", UpdateCreateTyped ),
-						BuildField( "worktree-start", _startPoint, "Start point for a new branch (default: current commit)", "New branch start point", UpdateCreateTyped ),
-						Theme.Current.BuildButton( "Create worktree", () => _context.Run( UpdateCreateTyped ), !_isBusy.Value ),
-					],
+					FlexWrap = FlexWrap.Wrap,
+					Children = [branchField, startField, create],
 				},
-				BuildField( "worktree-folders", _folders, "Folders to check out, comma-separated (empty: everything)", "Worktree folders", UpdateCreateTyped ),
+				BuildField( "worktree-folders", _folders, "Folders, comma-separated (empty: all)", "Worktree folders", UpdateCreateTyped ),
 				BuildDetail( view.Setup.SharedFolders.Length > 0 || view.Setup.SharesNative
 					? $"New worktrees share {string.Join( ", ", [.. view.Setup.SharedFolders, .. view.Setup.SharesNative ? [$"{view.Setup.NativeOutput} when native sources match"] : Array.Empty<string>()] )}."
 					: "New worktrees share nothing but git's history. Open Setup to share caches and native builds." ),
@@ -354,6 +363,8 @@ internal sealed partial class WorktreesContent : PanelContent
 			{
 				Content = size,
 				Color = Theme.Current.Muted,
+				TextWrap = TextWrap.NoWrap,
+				FlexShrink = 0,
 			},
 		};
 		if ( details?.Native?.Action is { } action and not NativeAction.None )
@@ -365,11 +376,14 @@ internal sealed partial class WorktreesContent : PanelContent
 				_ => "Stop sharing native",
 			};
 			var button = Theme.Current.BuildButton( label, () => _context.Run( () => UpdateNative( worktree.Path, action ) ), !_isBusy.Value );
+			button.FlexShrink = 0;
 			button.AccessibilityName = $"{label} {title}";
 			actions.Add( button );
 		}
 
-		actions.Add( Theme.Current.BuildButton( "Open folder", () => _context.Run( () => UpdateOpen( worktree.Path ) ), !worktree.IsPrunable ) );
+		var open = Theme.Current.BuildButton( "Open folder", () => _context.Run( () => UpdateOpen( worktree.Path ) ), !worktree.IsPrunable );
+		open.FlexShrink = 0;
+		actions.Add( open );
 		if ( !worktree.IsMain )
 			actions.Add( BuildConfirming( worktree.Path, "Remove", title, () => UpdateRemove( worktree.Path ) ) );
 
@@ -379,6 +393,7 @@ internal sealed partial class WorktreesContent : PanelContent
 			Padding = Theme.Current.Spacing,
 			Gap = Theme.Current.Spacing,
 			AlignItems = AlignItems.Center,
+			FlexWrap = FlexWrap.Wrap,
 			BackgroundColor = Theme.Current.Raised,
 			BorderRadius = Theme.Current.Radius,
 			Children =
@@ -386,7 +401,7 @@ internal sealed partial class WorktreesContent : PanelContent
 				new Container
 				{
 					FlexGrow = 1,
-					MinWidth = 0,
+					MinWidth = RowTextMinWidth,
 					Children = lines,
 				},
 				.. actions,
@@ -404,90 +419,85 @@ internal sealed partial class WorktreesContent : PanelContent
 			: $"{count} working trees using {FormatSize( sizes.Values.Sum() )}, not counting shared folders and shared native builds. The main working tree includes the shared .git directory." );
 	}
 
-	/// <summary>Builds the filtered branch list with each branch's upstream, latest commit, native match and actions.</summary>
-	private Blob BuildBranches( RepositoryView view )
+	/// <summary>Lists the branch rows: the heading, the filter, then each matching branch.</summary>
+	private List<BuiltRow> BuildBranches( RepositoryView view )
 	{
 		var filter = _branchFilter.Value.Trim();
-		var matching = view.Branches
-			.Where( branch => filter.Length == 0 || branch.Name.Contains( filter, StringComparison.OrdinalIgnoreCase ) )
-			.ToArray();
-		var children = new List<Blob>
-		{
-			BuildSection( "Branches" ),
-			BuildField( "branch-filter", _branchFilter, "Filter branches", "Filter branches" ),
-		};
-
 		var now = DateTimeOffset.UtcNow;
-		foreach ( var branch in matching.Take( BranchLimit ) )
+		var rows = new List<BuiltRow>
 		{
-			var heading = branch.Name;
-			if ( branch.Upstream.Length > 0 )
-				heading += branch.Track.Length > 0 ? $" · {branch.Upstream} {branch.Track}" : $" · {branch.Upstream}";
-			else if ( branch.IsRemote )
-				heading += " · remote only";
+			new( "branches", () => BuildSection( "Branches" ) ),
+			new( "branch-filter", () => BuildField( "branch-filter", _branchFilter, "Filter branches", "Filter branches" ) ),
+		};
+		rows.AddRange( view.Branches
+			.Where( branch => filter.Length == 0 || branch.Name.Contains( filter, StringComparison.OrdinalIgnoreCase ) )
+			.Select( branch => new BuiltRow( "branch:" + branch.Reference, () => BuildBranch( view, branch, now ) ) ) );
+		if ( rows.Count == 2 )
+			rows.Add( new( "no-branches", () => BuildDetail( "No branches match." ) ) );
+		return rows;
+	}
 
-			var detail = $"{FormatAge( branch.Date, now )} · {branch.Subject}";
-			if ( view.BranchNative.TryGetValue( branch.Reference, out var holder ) )
-				detail += $" · native sources match the build in {holder}";
+	/// <summary>Builds one branch with its upstream, latest commit, native match and actions.</summary>
+	private Row BuildBranch( RepositoryView view, BranchInfo branch, DateTimeOffset now )
+	{
+		var heading = branch.Name;
+		if ( branch.Upstream.Length > 0 )
+			heading += branch.Track.Length > 0 ? $" · {branch.Upstream} {branch.Track}" : $" · {branch.Upstream}";
+		else if ( branch.IsRemote )
+			heading += " · remote only";
 
-			var actions = new List<Blob>();
-			if ( branch.WorktreePath is { } path )
-				actions.Add( BuildDetail( $"in {Path.GetFileName( path )}" ) );
-			else
-			{
-				var create = Theme.Current.BuildButton( "Create worktree", () => _context.Run( () => UpdateCreate( branch.LocalName, "" ) ), !_isBusy.Value );
-				create.AccessibilityName = $"Create worktree {branch.Name}";
-				actions.Add( create );
-				if ( !branch.IsRemote )
-					actions.Add( BuildConfirming( branch.Reference, "Delete", branch.Name, () => UpdateDeleteBranch( branch ) ) );
-			}
+		var detail = $"{FormatAge( branch.Date, now )} · {branch.Subject}";
+		if ( view.BranchNative.TryGetValue( branch.Reference, out var holder ) )
+			detail += $" · native sources match the build in {holder}";
 
-			children.Add( new Row
-			{
-				Key = branch.Reference,
-				Padding = Theme.Current.Spacing,
-				Gap = Theme.Current.Spacing,
-				AlignItems = AlignItems.Center,
-				BackgroundColor = Theme.Current.Raised,
-				BorderRadius = Theme.Current.Radius,
-				Children =
-				[
-					new Container
-					{
-						FlexGrow = 1,
-						MinWidth = 0,
-						Children =
-						[
-							new Text
-							{
-								Content = heading,
-								TextWrap = TextWrap.NoWrap,
-								TextTrimming = TextTrimming.Ellipsis,
-							},
-							new Text
-							{
-								Content = detail,
-								Color = Theme.Current.Muted,
-								FontSize = DetailSize,
-								TextWrap = TextWrap.NoWrap,
-								TextTrimming = TextTrimming.Ellipsis,
-							},
-						],
-					},
-					.. actions,
-				],
-			} );
+		var actions = new List<Blob>();
+		if ( branch.WorktreePath is { } path )
+			actions.Add( BuildDetail( $"in {Path.GetFileName( path )}" ) );
+		else
+		{
+			var create = Theme.Current.BuildButton( "Create worktree", () => _context.Run( () => UpdateCreate( branch.LocalName, "" ) ), !_isBusy.Value );
+			create.AccessibilityName = $"Create worktree {branch.Name}";
+			create.FlexShrink = 0;
+			actions.Add( create );
+			if ( !branch.IsRemote )
+				actions.Add( BuildConfirming( branch.Reference, "Delete", branch.Name, () => UpdateDeleteBranch( branch ) ) );
 		}
 
-		if ( matching.Length > BranchLimit )
-			children.Add( BuildDetail( $"{matching.Length - BranchLimit} more branches. Type in the filter to find them." ) );
-		else if ( matching.Length == 0 )
-			children.Add( BuildDetail( "No branches match." ) );
-
-		return new Container
+		return new Row
 		{
+			Key = branch.Reference,
+			Padding = Theme.Current.Spacing,
 			Gap = Theme.Current.Spacing,
-			Children = children,
+			AlignItems = AlignItems.Center,
+			FlexWrap = FlexWrap.Wrap,
+			BackgroundColor = Theme.Current.Raised,
+			BorderRadius = Theme.Current.Radius,
+			Children =
+			[
+				new Container
+				{
+					FlexGrow = 1,
+					MinWidth = RowTextMinWidth,
+					Children =
+					[
+						new Text
+						{
+							Content = heading,
+							TextWrap = TextWrap.NoWrap,
+							TextTrimming = TextTrimming.Ellipsis,
+						},
+						new Text
+						{
+							Content = detail,
+							Color = Theme.Current.Muted,
+							FontSize = DetailSize,
+							TextWrap = TextWrap.NoWrap,
+							TextTrimming = TextTrimming.Ellipsis,
+						},
+					],
+				},
+				.. actions,
+			],
 		};
 	}
 
@@ -498,6 +508,7 @@ internal sealed partial class WorktreesContent : PanelContent
 		var text = isConfirming ? $"Confirm {label.ToLowerInvariant()}" : label;
 		var button = Theme.Current.BuildButton( text, () => _context.Run( action ), !_isBusy.Value );
 		button.AccessibilityName = $"{text} {subject}";
+		button.FlexShrink = 0;
 		if ( isConfirming )
 			button.Color = Theme.Current.Accent;
 
@@ -515,10 +526,10 @@ internal sealed partial class WorktreesContent : PanelContent
 			Disabled = _isBusy.Value,
 			Placeholder = placeholder,
 			AccessibilityName = name,
-			Height = FieldHeight,
+			MinHeight = FieldHeight,
 			FlexGrow = 1,
 			MinWidth = 0,
-			Padding = Theme.Current.Spacing,
+			Padding = new Edges( 0, Theme.Current.Spacing ),
 			BackgroundColor = Theme.Current.Raised,
 			BorderColor = Theme.Current.Border,
 			BorderWidth = Theme.Current.BorderWidth,

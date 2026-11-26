@@ -556,7 +556,7 @@ internal sealed partial class NotificationsContent( PanelContext context, Action
 		{
 			card.MaxHeight = height;
 			card.OverflowY = Overflow.Scroll;
-			card.ScrollbarY = ViewStyle.BuildScrollbar();
+			card.ScrollbarY = ViewStyle.GetScrollbar();
 		}
 		return card;
 	}

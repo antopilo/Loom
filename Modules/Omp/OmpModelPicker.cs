@@ -56,9 +56,6 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 	/// <summary>Defines the title and badge emphasis weight.</summary>
 	private const int TitleWeight = 600;
 
-	/// <summary>Defines metadata text size in logical pixels.</summary>
-	private const int SmallSize = 12;
-
 	/// <summary>Holds the check drawn beside the model in use.</summary>
 	private static readonly VectorPath Check = VectorPath.Parse( "M2.5 6.5 L5 9 L9.5 3.5", new ElementRect { Width = 12, Height = 12 } );
 
@@ -80,8 +77,14 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 	/// <summary>Targets the search field, which takes focus when the picker opens.</summary>
 	private readonly ElementHandle _search = new();
 
-	/// <summary>Targets the highlighted row, which keyboard moves scroll into view.</summary>
-	private readonly ElementHandle _highlighted = new();
+	/// <summary>Targets the model list, which keyboard moves scroll to the highlighted row.</summary>
+	private readonly ElementHandle _list = new();
+
+	/// <summary>Builds one list row; the same delegate on every build lets unchanged rows be reused.</summary>
+	private readonly Func<PickerListRow, Blob> _buildListRow;
+
+	/// <summary>Creates the picker and its list row builder.</summary>
+	public OmpModelPicker() => _buildListRow = BuildListRow;
 
 	/// <summary>Shows the last catalog for the profile at once, when there is one, before the first build.</summary>
 	protected override void InputChanged( OmpModelPickerInput input )
@@ -160,9 +163,10 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 		{
 			if ( rows.Count == 0 )
 				return;
-			_highlight.Value = Math.Clamp( highlight + step, 0, rows.Count - 1 );
-			// The highlighted row mounts its handle on the next build, so it scrolls into view after that.
-			Post( () => _highlighted.ScrollIntoView() );
+			var next = Math.Clamp( highlight + step, 0, rows.Count - 1 );
+			_highlight.Value = next;
+			// The list takes the new rows on the next build, so it scrolls to the highlighted one after that.
+			Post( () => _list.ScrollToItem( rows[next].Key, ScrollAlignment.Nearest, true ) );
 		}
 
 		return new Row
@@ -206,46 +210,53 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 						new( Key.Escape, KeyModifiers.None, UpdateClose ),
 					],
 				},
-				new Text { Content = count.ToString(), FontSize = SmallSize, Color = theme.Muted, FlexShrink = 0 },
+				new Text { Content = count.ToString(), FontSize = ViewStyle.SmallSize, Color = theme.Muted, FlexShrink = 0 },
 			],
 		};
 	}
 
-	/// <summary>Builds the scrolling list: section headings with column labels, then one row per model.</summary>
-	private Container BuildList( IReadOnlyList<PickerRow> rows, int highlight, OmpModelPickerInput input )
+	/// <summary>Builds the virtual list: section headings with column labels, then one row per model; or a note when there is no model to show.</summary>
+	private Blob BuildList( IReadOnlyList<PickerRow> rows, int highlight, OmpModelPickerInput input )
 	{
 		var theme = Theme.Current;
-		var children = new List<Blob>();
-		if ( !_isLoaded.Value )
-			children.Add( BuildNote( _error.Value.Length > 0 ? _error.Value : "Loading models…" ) );
-		else if ( _models.Value.Count == 0 )
-			children.Add( BuildNote( $"No models are available for {input.Profile}. Sign in to its Omp account in setup, then open this again." ) );
-		else if ( rows.Count == 0 )
-			children.Add( BuildNote( "No models match your search." ) );
+		if ( rows.Count == 0 )
+		{
+			var note = !_isLoaded.Value ? (_error.Value.Length > 0 ? _error.Value : "Loading models…")
+				: _models.Value.Count == 0 ? $"No models are available for {input.Profile}. Sign in to its Omp account in setup, then open this again."
+				: "No models match your search.";
+			return new Container { Key = "model-picker-list", FlexGrow = 1, MinHeight = 0, Padding = new Edges( theme.Spacing / 2, theme.Spacing ), Children = [BuildNote( note )] };
+		}
 
+		var items = new List<PickerListRow>();
 		string? section = null;
 		foreach ( var (index, row) in rows.Index() )
 		{
 			if ( row.Section != section )
 			{
 				section = row.Section;
-				children.Add( BuildSection( section, rows.Count( item => item.Section == section ), isFirst: index == 0 ) );
+				items.Add( new( "section:" + section, section, rows.Count( item => item.Section == section ), index == 0, -1, null, false, false, false ) );
 			}
 
-			children.Add( BuildRow( index, row.Model, index == highlight, input ) );
+			items.Add( new( row.Key, row.Section, 0, false, index, row.Model, index == highlight, row.Model.Selector == input.Current, row.Model.Selector == input.Default ) );
 		}
 
-		return new Container
+		return new Virtual
 		{
 			Key = "model-picker-list",
+			Handle = _list,
+			Source = new MeasuredRowsSource<PickerListRow>( items, _buildListRow, static _ => Theme.Current.ControlHeight + Theme.Current.Spacing / 2.0, FollowEnd: false ),
+			AccessibilityName = "Models",
+			Height = items.Count * (theme.ControlHeight + theme.Spacing / 2.0) + theme.Spacing,
 			FlexShrink = 1,
 			MinHeight = 0,
-			OverflowY = Overflow.Scroll,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
-			Gap = 1,
-			Children = children,
+			OverflowX = Overflow.Hidden,
+			ScrollbarY = ViewStyle.GetScrollbar(),
 		};
 	}
+
+	/// <summary>Builds one list row: a section heading or a model.</summary>
+	private Blob BuildListRow( PickerListRow row ) => row.Model is { } model ? BuildRow( row, model ) : BuildSection( row.Section, row.Count, row.IsFirst );
 
 	/// <summary>Builds a section heading with its count, and the column labels on the first one.</summary>
 	private static Row BuildSection( string title, int count, bool isFirst )
@@ -253,8 +264,8 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 		var theme = Theme.Current;
 		var children = new List<Blob>
 		{
-			new Text { Content = title, FontSize = SmallSize, Color = theme.Muted },
-			new Text { Content = count.ToString(), FontSize = SmallSize, Color = theme.Inactive, FlexGrow = 1 },
+			new Text { Content = title, FontSize = ViewStyle.SmallSize, Color = theme.Muted },
+			new Text { Content = count.ToString(), FontSize = ViewStyle.SmallSize, Color = theme.Inactive, FlexGrow = 1 },
 		};
 		if ( isFirst )
 		{
@@ -273,7 +284,7 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 	}
 
 	/// <summary>Builds one model row: provider and model, badges, context window and prices, and a check on the model in use.</summary>
-	private Button BuildRow( int index, OmpModelInfo model, bool isHighlighted, OmpModelPickerInput input )
+	private Button BuildRow( PickerListRow row, OmpModelInfo model )
 	{
 		var theme = Theme.Current;
 		var name = new List<Blob>
@@ -287,25 +298,23 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 				TextTrimming = TextTrimming.Ellipsis,
 			},
 		};
-		if ( model.Selector == input.Default )
+		if ( row.IsDefault )
 			name.Add( BuildBadge( "default" ) );
 
 		return new Button
 		{
-			Key = "model:" + index,
-			Handle = isHighlighted ? _highlighted : null,
 			AccessibilityName = "Select " + model.Selector,
 			Focusable = false,
 			Cursor = Cursor.Pointer,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
-			Height = theme.ControlHeight + 4,
+			MinHeight = theme.ControlHeight + theme.Spacing / 2,
 			Padding = new Edges( 0, theme.Spacing ),
 			BorderRadius = theme.Radius,
-			BackgroundColor = isHighlighted ? theme.Hover : Color.Transparent,
-			OnPointerEnter = _ => _highlight.Value = index,
-			OnClick = () => UpdateUse( model, input ),
+			BackgroundColor = row.IsHighlighted ? theme.Hover : Color.Transparent,
+			OnPointerEnter = _ => _highlight.Value = row.Index,
+			OnClick = () => UpdateUse( model, Input ),
 			Children =
 			[
 				new Row { AlignItems = AlignItems.Center, Gap = theme.Spacing, FlexGrow = 1, FlexShrink = 1, MinWidth = 0, Children = name },
@@ -316,7 +325,7 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 					Width = CheckWidth,
 					FlexShrink = 0,
 					AlignItems = AlignItems.FlexEnd,
-					Children = model.Selector == input.Current
+					Children = row.IsCurrent
 						?
 						[
 							new Shape
@@ -362,8 +371,8 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 
 		var children = new List<Blob>();
 		if ( model is not null )
-			children.Add( new Text { Content = FormatDetails( model ), FontSize = SmallSize, Color = theme.Muted, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, MinWidth = 0 } );
-		children.Add( new Row { AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = actions } );
+			children.Add( new Text { Content = FormatDetails( model ), FontSize = ViewStyle.SmallSize, Color = theme.Muted, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, MinWidth = 0 } );
+		children.Add( new Row { AlignItems = AlignItems.Center, Gap = theme.Spacing, FlexWrap = FlexWrap.Wrap, Children = actions } );
 		return new Container
 		{
 			Key = "model-picker-footer",
@@ -443,7 +452,7 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 		Width = width,
 		FlexShrink = 0,
 		TextAlign = TextAlign.Right,
-		FontSize = SmallSize,
+		FontSize = ViewStyle.SmallSize,
 		Color = color,
 		TextWrap = TextWrap.NoWrap,
 	};
@@ -456,7 +465,7 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 		BorderRadius = 4,
 		BorderWidth = Theme.Current.BorderWidth,
 		BorderColor = Theme.Current.Border,
-		Children = [new Text { Content = text, FontSize = SmallSize - 1, Color = Theme.Current.Muted }],
+		Children = [new Text { Content = text, FontSize = ViewStyle.SmallSize - 1, Color = Theme.Current.Muted }],
 	};
 
 	/// <summary>Builds a compact footer action.</summary>
@@ -503,5 +512,21 @@ public sealed class OmpModelPicker : GuardedCell<OmpModelPickerInput>
 	/// <summary>Places one model in a section of the list.</summary>
 	/// <param name="Section">The section heading, "Recent" or "All".</param>
 	/// <param name="Model">The model shown.</param>
-	private readonly record struct PickerRow( string Section, OmpModelInfo Model );
+	private readonly record struct PickerRow( string Section, OmpModelInfo Model )
+	{
+		/// <summary>Gets the row's stable key in the list: its section and model selector.</summary>
+		public string Key => Section + ":" + Model.Selector;
+	}
+
+	/// <summary>Places a section heading or a model in the virtual list.</summary>
+	/// <param name="Key">The stable key: "section:" and the section name, or the model row's <see cref="PickerRow.Key"/>.</param>
+	/// <param name="Section">The section heading, "Recent" or "All".</param>
+	/// <param name="Count">How many models the section holds, for a heading.</param>
+	/// <param name="IsFirst">Whether the heading is the first one, which carries the column labels.</param>
+	/// <param name="Index">The model's position among the visible models, or -1 for a heading.</param>
+	/// <param name="Model">The model shown, or null for a heading.</param>
+	/// <param name="IsHighlighted">Whether the model is highlighted.</param>
+	/// <param name="IsCurrent">Whether the model is the one in use.</param>
+	/// <param name="IsDefault">Whether the model is the profile's default.</param>
+	private sealed record PickerListRow( string Key, string Section, int Count, bool IsFirst, int Index, OmpModelInfo? Model, bool IsHighlighted, bool IsCurrent, bool IsDefault ) : IMeasuredRow;
 }

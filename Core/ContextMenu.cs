@@ -109,7 +109,7 @@ public sealed class ContextMenu : GuardedCell<ContextMenuInput>
 					{
 						Key = "note:" + index,
 						Content = note.Text,
-						Height = NoteHeight,
+						MinHeight = NoteHeight,
 						FlexShrink = 0,
 						Padding = new Edges( 0, theme.Spacing + 2 ),
 						FontSize = theme.FontSize - 1,
@@ -128,6 +128,9 @@ public sealed class ContextMenu : GuardedCell<ContextMenuInput>
 			Handle = _content,
 			Focusable = true,
 			FlexGrow = 1,
+			MinHeight = 0,
+			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			Padding = Inset,
 			BackgroundColor = theme.Raised,
 			BorderColor = theme.Border,
@@ -158,7 +161,7 @@ public sealed class ContextMenu : GuardedCell<ContextMenuInput>
 		return new Button
 		{
 			Key = "action:" + index,
-			Height = RowHeight,
+			MinHeight = RowHeight,
 			FlexShrink = 0,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,

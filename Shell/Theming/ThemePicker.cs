@@ -21,12 +21,6 @@ internal static class ThemePicker
 	/// <summary>Defines the theme name size in logical pixels.</summary>
 	private const int NameSize = 12;
 
-	/// <summary>Defines the theme name's line height in logical pixels, so a card's height is known.</summary>
-	private const int NameLineHeight = 16;
-
-	/// <summary>Defines how many rows of cards show before the list scrolls.</summary>
-	private const int VisibleRows = 4;
-
 	/// <summary>Defines the selected sample's border width in logical pixels.</summary>
 	private const int SelectedBorder = 2;
 
@@ -57,21 +51,16 @@ internal static class ThemePicker
 				{
 					FlexWrap = FlexWrap.Wrap,
 					Gap = Theme.Current.Spacing,
-					Children = [.. entries.Select( entry => BuildCard( entry, string.Equals( entry.Name, selected, StringComparison.OrdinalIgnoreCase ), () => Pick( entry ), module.Preview ) )],
+					Children = [.. entries.Select( entry => BuildCard( entry, string.Equals( entry.Name, selected, StringComparison.OrdinalIgnoreCase ), () => Pick( entry ), module.Hover ) )],
 				},
 			],
 		};
 
-		// Four rows of cards show; the rest scroll inside the picker rather than lengthening the settings page.
-		var spacing = Theme.Current.Spacing;
-		var cardHeight = SampleHeight + NameLineHeight + spacing * 1.5;
 		return new Container
 		{
-			MaxHeight = VisibleRows * cardHeight + (VisibleRows - 1) * spacing,
-			OverflowY = Overflow.Scroll,
-			Gap = spacing,
+			Gap = Theme.Current.Spacing,
 			// Leaving the whole picker ends any preview, even when a card's own leave was missed.
-			OnPointerLeave = _ => module.Preview( null ),
+			OnPointerLeave = _ => module.Hover( null ),
 			Children =
 			[
 				Group( "Light", ThemeCatalog.Entries.Where( entry => entry.IsLight ) ),
@@ -150,7 +139,6 @@ internal static class ThemePicker
 					Content = entry.Name,
 					Color = isSelected ? current.Text : current.Muted,
 					FontSize = NameSize,
-					Height = NameLineHeight,
 					TextWrap = TextWrap.NoWrap,
 					TextTrimming = TextTrimming.Ellipsis,
 				},

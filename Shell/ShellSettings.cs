@@ -14,23 +14,28 @@ internal static class ShellSettings
 	/// <summary>Defines the Windows Acrylic window backdrop value.</summary>
 	internal const string AcrylicBackdrop = "acrylic";
 
-	/// <summary>Defines the native material visible through the translucent shell canvas.</summary>
+	/// <summary>Defines the native material visible through the translucent shell canvas. Linux has one material, glass, which Mica and Acrylic both select.</summary>
 	internal static readonly Setting<string> Backdrop = new(
 		"shell.backdrop",
 		"Window backdrop",
-		"Use an opaque window, wallpaper-based Mica, or desktop-blurring Acrylic.",
+		OperatingSystem.IsWindows() ? "Use an opaque window, wallpaper-based Mica, or desktop-blurring Acrylic." : "Use an opaque window, or translucent glass that shows the desktop behind it.",
 		defaultValue: MicaBackdrop,
 		category: "Appearance",
 		isValid: value => value is NoBackdrop or MicaBackdrop or AcrylicBackdrop )
 	{
-		Choices = [new( NoBackdrop, "Off" ), new( MicaBackdrop, "Mica" ), new( AcrylicBackdrop, "Acrylic" )],
+		Choices = OperatingSystem.IsWindows()
+			? [new( NoBackdrop, "Off" ), new( MicaBackdrop, "Mica" ), new( AcrylicBackdrop, "Acrylic" )]
+			: [new( NoBackdrop, "Off" ), new( MicaBackdrop, "Glass" )],
 	};
+
+	/// <summary>Gets the backdrop choices the opacity settings need, as named on this platform.</summary>
+	private static string TranslucentBackdrops => OperatingSystem.IsWindows() ? "Mica or Acrylic" : "Glass";
 
 	/// <summary>Defines the opacity of the window canvas, titlebar and sidebar over the native material, in percent.</summary>
 	internal static readonly Setting<int> CanvasOpacity = new(
 		"shell.canvas-opacity",
 		"Window opacity",
-		"How much the window background hides the backdrop. Needs Mica or Acrylic.",
+		$"How much the window background hides the backdrop. Needs {TranslucentBackdrops}.",
 		defaultValue: 82,
 		category: "Appearance",
 		isValid: value => value is >= 0 and <= 100 ) { Unit = "%", Step = 5, Minimum = 0, Maximum = 100 };
@@ -39,7 +44,7 @@ internal static class ShellSettings
 	internal static readonly Setting<int> PanelOpacity = new(
 		"shell.panel-opacity",
 		"Panel opacity",
-		"How much panel backgrounds hide the backdrop. Needs Mica or Acrylic.",
+		$"How much panel backgrounds hide the backdrop. Needs {TranslucentBackdrops}.",
 		defaultValue: 100,
 		category: "Appearance",
 		isValid: value => value is >= 0 and <= 100 ) { Unit = "%", Step = 5, Minimum = 0, Maximum = 100 };

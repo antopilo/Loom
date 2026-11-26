@@ -5,7 +5,7 @@
 <h1 align="center">Loom</h1>
 
 <p align="center">
-	A native Windows workspace for AI coding agents.<br>
+	A native Windows and Linux workspace for AI coding agents.<br>
 	Chats, terminals, Git, a browser and your own tools, docked side by side.
 </p>
 
@@ -45,9 +45,10 @@ Download `Loom-win-Setup.exe` from the [releases](https://github.com/antopilo/Lo
 and run it. It installs for the current user, needs no administrator rights and no .NET, and
 you can remove it from **Settings › Apps**. Your data in `%LOCALAPPDATA%\Lokn` stays when you
 uninstall. Loom updates itself and its modules in the background and asks before it applies
-an update.
+an update. On Linux there is no installer yet: build Loom from source. Its data is in
+`~/.local/share/Lokn`, and the browser and Windows notifications are not available there.
 
-**Requirements:** Windows 11 x64, a GPU with Vulkan 1.3 and current drivers, and
+**Requirements:** Windows 11 x64 or Linux x64, a GPU with Vulkan 1.3 and current drivers, and
 [Omp](https://github.com/can1357/oh-my-pi) for chats (Loom's **Get started** panel helps you
 set it up). Git is optional and enables the Git, worktree and change features.
 
@@ -62,6 +63,9 @@ pwsh scripts/run.ps1          # build and start Loom
 pwsh scripts/check.ps1        # build and run the default checks
 pwsh scripts/installer.ps1    # build artifacts\installer\Loom-win-Setup.exe
 ```
+
+On Linux, `dotnet build Lokn.csproj -c Release` builds Loom and its modules, and
+`bin/Release/net10.0/Loom` starts it.
 
 Each script prints a final status line and exits non-zero when it fails. Run
 `Get-Help scripts/<name>.ps1` for the options of a script.

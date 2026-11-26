@@ -52,6 +52,11 @@ internal sealed partial class GitChangesPane
 							Placeholder = "What should Omp's reviewers check here?",
 							AccessibilityName = "Review annotation",
 							FlexGrow = 1,
+							MinWidth = 0,
+							MinHeight = theme.ControlHeight,
+							Padding = new Edges( 0, theme.Spacing ),
+							BackgroundColor = theme.Raised,
+							BorderRadius = theme.Radius,
 							AutoFocus = true,
 							OnChange = value =>
 							{

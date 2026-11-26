@@ -25,7 +25,11 @@ internal sealed partial class ShellView : Cell
 	private const int StatusHeight = 26;
 
 	/// <summary>Creates a shell for an explicitly composed application.</summary>
-	internal ShellView( LoknApplication app ) => _app = app;
+	internal ShellView( LoknApplication app )
+	{
+		_app = app;
+		ModalWindow.TitleBarClearance = TitleBar.BarHeight;
+	}
 
 	/// <summary>Whether mounting gives the window the executable's icon and the input guard. Only check windows turn it off: both borrow the native
 	/// handle through Goo's dialog owner lease, and a lease taken once the window pumps leaves Goo's simulated pointer input dead for the window.</summary>
@@ -154,7 +158,7 @@ internal sealed partial class ShellView : Cell
 		return new Row
 		{
 			Key = "status",
-			Height = StatusHeight,
+			MinHeight = StatusHeight,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			Gap = Theme.Current.Spacing,
@@ -167,6 +171,9 @@ internal sealed partial class ShellView : Cell
 				new Text
 				{
 					Content = $"{_app.Panels.Panels.Count} panels  ·  {_app.Modules.Count} modules",
+					MinWidth = 0,
+					TextWrap = TextWrap.NoWrap,
+					TextTrimming = TextTrimming.Ellipsis,
 				},
 				.. _app.Slots.Get( ShellSlots.StatusLeft ).Select( BuildStatusSlot ),
 				new Spacer(),
@@ -174,6 +181,9 @@ internal sealed partial class ShellView : Cell
 				new Text
 				{
 					Content = "Drag a pane's top grip to dock  ·  Ctrl+K search",
+					MinWidth = 0,
+					TextWrap = TextWrap.NoWrap,
+					TextTrimming = TextTrimming.Ellipsis,
 				},
 			],
 		};

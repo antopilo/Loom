@@ -11,7 +11,7 @@ public static class ViewStyle
 	public const int SmallSize = 12;
 
 	/// <summary>Defines the scrollbar track width in logical pixels.</summary>
-	internal const int TrackWidth = 10;
+	public const int TrackWidth = 10;
 
 	/// <summary>Defines the longest code line rendered, in UTF-16 code units. Shaping and wrapping one line of tens of thousands of characters, such as an embedded file, stalls layout for minutes.</summary>
 	internal const int MaxCodeLineLength = 2000;
@@ -22,8 +22,22 @@ public static class ViewStyle
 	/// <summary>Defines regular font weight on the OpenType scale.</summary>
 	private const int RegularWeight = 400;
 
+	/// <summary>Defines the registered semibold font weight on the OpenType scale.</summary>
+	private const int SemiboldWeight = 600;
+
 	/// <summary>Defines the registered bold font weight on the OpenType scale.</summary>
 	private const int BoldWeight = 700;
+
+	/// <summary>Retains the UI faces registered off Windows in regular, semibold and bold, upright and italic; Windows uses its installed Segoe UI family.</summary>
+	private static readonly FontSource[] UiFonts = OperatingSystem.IsWindows() ? [] :
+	[
+		BuildFont( "Lokn UI", "segoeui.ttf", RegularWeight, italic: false ),
+		BuildFont( "Lokn UI", "seguisb.ttf", SemiboldWeight, italic: false ),
+		BuildFont( "Lokn UI", "seguisbi.ttf", SemiboldWeight, italic: true ),
+		BuildFont( "Lokn UI", "segoeuib.ttf", BoldWeight, italic: false ),
+		BuildFont( "Lokn UI", "segoeuii.ttf", RegularWeight, italic: true ),
+		BuildFont( "Lokn UI", "segoeuiz.ttf", BoldWeight, italic: true ),
+	];
 
 	/// <summary>Retains the registered monospace face used by code and inline code.</summary>
 	private static readonly FontSource CodeFont = BuildFont( "Lokn Code", "consola.ttf", RegularWeight, italic: false );
@@ -37,17 +51,17 @@ public static class ViewStyle
 	/// <summary>Retains the registered bold italic monospace face for combined emphasis.</summary>
 	private static readonly FontSource CodeBoldItalicFont = BuildFont( "Lokn Code", "consolaz.ttf", BoldWeight, italic: true );
 
-	/// <summary>Retains the registered Windows symbol face used by checklist and folding markers.</summary>
+	/// <summary>Retains the registered symbol face used by checklist and folding markers.</summary>
 	private static readonly FontSource SymbolFont = BuildFont( "Lokn Symbols", "seguisym.ttf", RegularWeight, italic: false );
 
 	/// <summary>Retains the installed emoji face used by UTF-8 text.</summary>
 	private static readonly FontSource EmojiFont = BuildFont( "Lokn Chat Emoji", "seguiemj.ttf", RegularWeight, italic: false );
 
-	/// <summary>Retains the installed Windows icon face used by icon buttons.</summary>
+	/// <summary>Retains the icon face used by icon buttons: installed Segoe Fluent Icons, or off Windows the bundled icons when it is missing.</summary>
 	private static readonly FontSource IconFont = BuildFont( "Lokn Icons", "SegoeIcons.ttf", RegularWeight, italic: false );
 
 	/// <summary>Gets the app's UI face with registered symbol and emoji fallback families.</summary>
-	public static string FontFamily => $"Segoe UI, {SymbolFont.Family}, {EmojiFont.Family}";
+	public static string FontFamily => $"{(OperatingSystem.IsWindows() ? "Segoe UI" : UiFonts[0].Family)}, {SymbolFont.Family}, {EmojiFont.Family}";
 
 	/// <summary>Gets registered monospace and Unicode fallback families for code and commands, in every weight and slant.</summary>
 	public static string CodeFontFamily => $"{CodeFont.Family}, {SymbolFont.Family}, {EmojiFont.Family}";
@@ -55,38 +69,65 @@ public static class ViewStyle
 	/// <summary>Gets the registered symbol face's family, for markers that must not fall back to an unregistered font.</summary>
 	public static string SymbolFontFamily => SymbolFont.Family;
 
-	/// <summary>Gets the installed Segoe Fluent Icons family, for the glyphs of icon buttons.</summary>
+	/// <summary>Gets the icon family for the glyphs of icon buttons: installed Segoe Fluent Icons, or off Windows the bundled icons when it is missing.</summary>
 	internal static string IconFontFamily => IconFont.Family;
 
-	/// <summary>Registers an installed Windows font file under a family name.</summary>
-	private static FontSource BuildFont( string family, string filename, int weight, bool italic )
-	{
-		var font = FontSource.FromPath( family, weight, italic, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), filename ) );
-		font.Register();
-		return font;
-	}
+	/// <summary>Registers an installed font file, named as in the Windows Fonts folder, under a family name.</summary>
+	private static FontSource BuildFont( string family, string filename, int weight, bool italic ) => SystemFonts.Register( family, weight, italic, filename );
 
-	/// <summary>Builds a visible vertical scrollbar in the current theme; call it per build because Goo owns a mounted descriptor.</summary>
-	internal static Scrollbar BuildScrollbar()
+	/// <summary>Stores the vertical scrollbar for the current theme.</summary>
+	private static Scrollbar? _verticalScrollbar;
+
+	/// <summary>Stores the horizontal scrollbar for the current theme.</summary>
+	private static Scrollbar? _horizontalScrollbar;
+
+	/// <summary>Stores the theme the cached scrollbars were built in.</summary>
+	private static Theme? _scrollbarTheme;
+
+	/// <summary>Gets the theme's shared scrollbar for one axis. Goo freezes it once mounted, so do not change it.</summary>
+	/// <param name="horizontal">True for a horizontal scrollbar, false for a vertical scrollbar.</param>
+	/// <remarks>Goo hides a scrollbar without fading it when its descriptor is replaced.</remarks>
+	public static Scrollbar GetScrollbar( bool horizontal = false )
 	{
 		var theme = Theme.Current;
-		return new Scrollbar
+		if ( !ReferenceEquals( theme, _scrollbarTheme ) )
+		{
+			_verticalScrollbar = _horizontalScrollbar = null;
+			_scrollbarTheme = theme;
+		}
+
+		ref var scrollbar = ref (horizontal ? ref _horizontalScrollbar : ref _verticalScrollbar);
+		if ( scrollbar is not null )
+			return scrollbar;
+
+		var hover = new Style
+		{
+			BorderRadius = TrackWidth / 2.0,
+			Opacity = 0.8,
+		};
+		var thumb = new Container
+		{
+			BorderRadius = ThumbWidth / 2.0,
+			BackgroundColor = theme.Muted,
+			Opacity = 0.5,
+			HoverStyle = hover,
+		};
+		if ( horizontal )
+		{
+			thumb.Height = ThumbWidth;
+			hover.Height = TrackWidth;
+		}
+		else
+		{
+			thumb.Width = ThumbWidth;
+			hover.Width = TrackWidth;
+		}
+
+		return scrollbar = new Scrollbar
 		{
 			Thickness = TrackWidth,
 			HitThickness = TrackWidth + 4,
-			Thumb = new Container
-			{
-				Width = ThumbWidth,
-				BorderRadius = ThumbWidth / 2.0,
-				BackgroundColor = theme.Muted,
-				Opacity = 0.5,
-				HoverStyle = new Style
-				{
-					Width = TrackWidth,
-					BorderRadius = TrackWidth / 2.0,
-					Opacity = 0.8,
-				},
-			},
+			Thumb = thumb,
 		};
 	}
 

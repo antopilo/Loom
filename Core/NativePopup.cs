@@ -63,6 +63,47 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 	/// <summary>Stores the application whose native surfaces a portal fallback covers, or null when no shell hosts the window.</summary>
 	private LoknApplication? _coveredApp;
 
+	/// <summary>Builds the app's one tooltip: one line of text under <paramref name="anchor"/>.</summary>
+	/// <param name="anchor">The element the tooltip opens beside.</param>
+	/// <param name="text">What the tooltip says, which is also its accessible name.</param>
+	public static Blob BuildTooltip( ElementHandle anchor, string text ) =>
+		BuildTooltip( anchor, text, [new Text { Content = text, TextWrap = TextWrap.NoWrap }] );
+
+	/// <summary>Builds the app's one tooltip: <paramref name="lines"/> on a raised card in a native popup beside <paramref name="anchor"/>,
+	/// which shows over native child surfaces such as browser pages, and takes no input, so the anchor keeps the pointer and keyboard.</summary>
+	/// <param name="anchor">The element the tooltip opens beside.</param>
+	/// <param name="name">The tooltip's accessible name.</param>
+	/// <param name="lines">The card's lines, top to bottom.</param>
+	/// <param name="placement">The preferred side.</param>
+	/// <param name="maximum">The largest size, past which the lines wrap; null for the screen's work area.</param>
+	/// <param name="role">The accessible role, such as <see cref="AccessibilityRole.Dialog"/> for details the user opened.</param>
+	public static Blob BuildTooltip( ElementHandle anchor, string name, IList<Blob> lines, PortalPlacement placement = PortalPlacement.BottomStart,
+		LayoutSize? maximum = null, AccessibilityRole role = AccessibilityRole.Tooltip )
+	{
+		var theme = Theme.Current;
+		var card = new Container
+		{
+			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
+			Gap = theme.Spacing / 4,
+			BackgroundColor = theme.Raised,
+			Color = theme.Text,
+			FontFamily = theme.FontFamily,
+			FontSize = ViewStyle.SmallSize,
+			BorderColor = theme.Border,
+			BorderWidth = theme.BorderWidth,
+			BorderRadius = theme.Radius,
+			Children = lines,
+		};
+		return Cell.Mount<NativePopupInput, NativePopup>( "tooltip", new( anchor, card, null )
+		{
+			Placement = placement,
+			Kind = PopupKind.Tooltip,
+			Maximum = maximum,
+			Role = role,
+			Name = name,
+		} );
+	}
+
 	/// <summary>Builds nothing in the owner's tree while the native popup is open, or the content in a portal when it could not open.</summary>
 	protected override Blob BuildView( NativePopupInput input )
 	{
@@ -90,7 +131,7 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 			portal.OnDismiss = _ => Dismiss();
 		}
 
-		var surface = new Container { Children = [input.Content] };
+		var surface = new Container { FlexGrow = 1, MinHeight = 0, Children = [input.Content] };
 		PopupMotion.Apply( surface, _appear?.Value ?? 1, Rise );
 		portal.Add( surface );
 		return portal;
@@ -239,6 +280,24 @@ public sealed class NativePopup : GuardedCell<NativePopupInput>
 		}
 
 		/// <summary>Builds the content filling the popup.</summary>
-		public override Blob Build() => new Container { FlexGrow = 1, Children = [_content] };
+		public override Blob Build() => new Container { FlexGrow = 1, Layout = new NativeUnitLayout( Host.UiScale ), Children = [_content] };
+	}
+
+	/// <summary>Sizes the popup to its content rounded up to whole native units and stretches the content over it.</summary>
+	/// <remarks>Goo rounds a measured popup size to the nearest native unit, so content a fraction wider than a unit got a smaller window,
+	/// and its text wrapped onto a line the window cut off.</remarks>
+	/// <param name="Scale">The popup window's native units per layout unit.</param>
+	private sealed record NativeUnitLayout( double Scale ) : LayoutAlgorithm
+	{
+		/// <summary>Measures the content and rounds its size up to whole native units.</summary>
+		public LayoutSize Measure( LayoutContext context, LayoutSize available )
+		{
+			var size = context.MeasureChild( 0, available );
+			return new LayoutSize( Math.Ceiling( size.Width * Scale ) / Scale, Math.Ceiling( size.Height * Scale ) / Scale );
+		}
+
+		/// <summary>Stretches the content over the whole popup.</summary>
+		public void Arrange( LayoutContext context, LayoutSize finalSize ) =>
+			context.ArrangeChild( 0, new ElementRect { Width = finalSize.Width, Height = finalSize.Height } );
 	}
 }

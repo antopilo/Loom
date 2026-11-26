@@ -12,7 +12,7 @@ public sealed partial class ChatContent
 	/// <summary>Defines the maximum question card height in logical pixels; taller questions scroll.</summary>
 	private const int DialogHeight = 440;
 
-	/// <summary>Defines the single-line answer height in logical pixels.</summary>
+	/// <summary>Defines the least single-line answer height in logical pixels.</summary>
 	private const int AnswerHeight = 36;
 
 	/// <summary>Defines the Segoe Fluent Cancel glyph of the button that dismisses a question.</summary>
@@ -21,7 +21,7 @@ public sealed partial class ChatContent
 	/// <summary>Defines the Segoe Fluent Return glyph of the Ctrl+Enter key caps.</summary>
 	private const string ReturnGlyph = "\uE751";
 
-	/// <summary>Defines the height of a key cap in the shortcut hint, in logical pixels.</summary>
+	/// <summary>Defines the least height of a key cap in the shortcut hint, in logical pixels.</summary>
 	private const int KeyCapHeight = 18;
 
 	/// <summary>Defines the size of the button that dismisses a question, in logical pixels.</summary>
@@ -156,8 +156,6 @@ public sealed partial class ChatContent
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Tool question",
 			Key = "dialog:" + id,
-			MaxHeight = DialogHeight,
-			OverflowY = Overflow.Scroll,
 			Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 1.5, theme.Spacing * 1.5, theme.Spacing * 2 ),
 			Gap = theme.Spacing * 1.25,
 			BackgroundColor = theme.Raised,
@@ -347,13 +345,13 @@ public sealed partial class ChatContent
 	/// <summary>Builds one key cap: a thin rounded outline around a key's name or glyph.</summary>
 	private static Container BuildKeyCap( Blob face, Color color ) => new()
 	{
-		Height = KeyCapHeight,
+		MinHeight = KeyCapHeight,
 		MinWidth = KeyCapHeight,
 		Padding = new Edges( 0, 4 ),
 		AlignItems = AlignItems.Center,
 		JustifyContent = JustifyContent.Center,
 		BorderRadius = 3,
-		BorderWidth = 1,
+		BorderWidth = Theme.Current.BorderWidth,
 		BorderColor = color.WithAlpha( 0.4 ),
 		Children = [face],
 	};
@@ -449,7 +447,7 @@ public sealed partial class ChatContent
 		Password = isSecret,
 		Placeholder = placeholder,
 		AccessibilityName = name,
-		Height = AnswerHeight,
+		MinHeight = AnswerHeight,
 		Padding = Theme.Current.Spacing,
 		BackgroundColor = Theme.Current.Panel,
 		OnChange = value => context.Run( () => editor.Document.Apply( new TextChange( new TextRange( 0, editor.Document.Length ), value ) ) ),

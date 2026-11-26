@@ -57,14 +57,19 @@ internal sealed partial class AccessContent : GuardedCell<RemoteModule>
 		if ( module.Notice is { } notice )
 		{
 			children.Add( BuildParagraph( notice, theme.Attention, selectable: true ) );
-			children.Add( theme.BuildButton( "Dismiss", () => _context.Run( module.DismissNotice ) ) );
+			var dismiss = theme.BuildButton( "Dismiss", () => _context.Run( module.DismissNotice ) );
+			dismiss.AlignSelf = AlignSelf.FlexStart;
+			children.Add( dismiss );
 		}
 		if ( _message.Length > 0 )
 			children.Add( BuildParagraph( _message, _isError ? theme.Error : theme.Success, selectable: true ) );
 
-		children.AddRange( BuildServe( theme ) );
-		children.AddRange( BuildDevices( theme ) );
-		children.AddRange( BuildPending( theme ) );
+		if ( module.SupportsDaemon )
+		{
+			children.AddRange( BuildServe( theme ) );
+			children.AddRange( BuildDevices( theme ) );
+			children.AddRange( BuildPending( theme ) );
+		}
 		children.AddRange( BuildHosts( theme ) );
 		return new Container { Gap = theme.Spacing, Children = children };
 	}

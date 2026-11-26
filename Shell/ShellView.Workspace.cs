@@ -281,6 +281,7 @@ internal sealed partial class ShellView
 		return new Container
 		{
 			Key = $"empty:{pane.Id}",
+			Overflow = Overflow.Hidden,
 			Handle = handle,
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
@@ -382,7 +383,7 @@ internal sealed partial class ShellView
 			TransitionProperties = [TransitionProperty.BorderColor, TransitionProperty.Opacity],
 			// A panel a workspace switch brings back fades in while it slides from the full area into its pane.
 			Opacity = 1,
-			LayoutTransition = _resize is null ? new( _app.Settings.Get( ShellSettings.MoveDuration ), Easing.EaseOut ) : null,
+			LayoutTransition = _resize is null && !_isSidebarResized ? new( _app.Settings.Get( ShellSettings.MoveDuration ), Easing.EaseOut ) : null,
 			OnPointerDown = _ => _app.Panels.Activate( session.Info.Id ),
 			OnPointerMove = item => UpdateGripZone( pane.Id, handle, item ),
 			OnPointerLeave = _ => ReleaseGripZone( pane.Id ),

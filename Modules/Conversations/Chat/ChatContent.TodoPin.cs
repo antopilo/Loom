@@ -47,7 +47,7 @@ public sealed partial class ChatContent
 			BorderWidth = Theme.Current.BorderWidth,
 			BorderRadius = ChatStyle.BubbleRadius,
 			OverflowY = Overflow.Scroll,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			MinHeight = 0,
 			Children = BuildTodo( phases ),
 		};

@@ -161,7 +161,7 @@ internal sealed partial class GitFileView
 			[
 				new Row
 				{
-					Height = HunkHeight,
+					MinHeight = HunkHeight,
 					AlignItems = AlignItems.Center,
 					Gap = theme.Spacing,
 					Padding = new Edges( 0, theme.Spacing, 0, theme.Spacing - BarWidth ),

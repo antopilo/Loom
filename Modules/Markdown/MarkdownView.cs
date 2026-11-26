@@ -607,6 +607,7 @@ public static partial class MarkdownView
 			Gap = CodeGap,
 			MaxHeight = CodeHeight,
 			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			BackgroundColor = framed ? Theme.Current.Raised : Color.Transparent,
 			BorderRadius = Theme.Current.Radius,
 			Children = children,
@@ -649,7 +650,7 @@ public static partial class MarkdownView
 	{
 		FlexShrink = 0,
 		Padding = new Edges( 1, 6 ),
-		BorderRadius = 4,
+		BorderRadius = Theme.Current.Radius,
 		BackgroundColor = Theme.Current.Hover,
 		Children = [new Text { Content = text, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize - 1, Color = Theme.Current.Muted, TextWrap = TextWrap.NoWrap }],
 	};

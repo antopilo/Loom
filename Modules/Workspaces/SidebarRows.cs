@@ -241,61 +241,75 @@ public sealed partial class SidebarRows( PanelContext context )
 		return (heading, label);
 	}
 
-	/// <summary>Builds the scrollable sidebar around rows whose selection rectangle shares their content layer.</summary>
-	/// <param name="accessibilityName">The sidebar's accessible group name.</param>
-	/// <param name="children">The actions, groups and rows in display order.</param>
-	/// <param name="selectedId">The active row, or null when no visible row is active.</param>
-	public Container BuildViewport( string accessibilityName, List<Blob> children, Guid? selectedId ) =>
-		CreateViewport( accessibilityName, BuildSelectionContent( children, selectedId ) );
+	/// <summary>Defines the space between rows in logical pixels.</summary>
+	public const int RowGap = 2;
 
-	/// <summary>Builds the scrollable sidebar around content that already owns its selection layer.</summary>
-	/// <param name="accessibilityName">The sidebar's accessible group name.</param>
-	/// <param name="children">The sidebar content in display order.</param>
-	public Container BuildViewport( string accessibilityName, List<Blob> children ) =>
-		CreateViewport( accessibilityName, new Container { Key = "content", MinHeight = 0, Gap = 2, Children = children } );
+	/// <summary>Builds a group's container: its heading row and rows.</summary>
+	public static Container BuildGroup( Guid id, List<Blob> children ) => new()
+	{
+		Key = id.ToString(),
+		Gap = RowGap,
+		Children = children,
+	};
 
-	/// <summary>Builds rows and their moving selection rectangle in one layer, so an outer profile animation moves them together.</summary>
-	/// <param name="children">The groups and rows in display order.</param>
+	/// <summary>Defines the height assumed for a list row until layout measures it, in logical pixels.</summary>
+	private const double EstimatedRowHeight = 32;
+
+	/// <summary>Builds one list row with the space above it; one delegate for every build.</summary>
+	private static readonly Func<SidebarRow, Blob> BuildListRow = row => new Container { Padding = new Edges( row.Gap, 0, 0, 0 ), Children = [row.Build()] };
+
+	/// <summary>Builds a sidebar: its actions, which stay in place, over its rows, which scroll and build only while in view.</summary>
+	/// <param name="name">The sidebar's accessible name.</param>
+	/// <param name="actions">The actions at the top, such as New task and Search.</param>
+	/// <param name="rows">The rows, top first.</param>
 	/// <param name="selectedId">The active row, or null when no visible row is active.</param>
-	public Container BuildSelectionContent( List<Blob> children, Guid? selectedId )
+	public Container BuildSidebar( string name, List<Blob> actions, List<SidebarRow> rows, Guid? selectedId ) => new()
+	{
+		AccessibilityRole = AccessibilityRole.Group,
+		AccessibilityName = name,
+		FlexGrow = 1,
+		MinWidth = 0,
+		MinHeight = 0,
+		Children = [BuildActions( actions ), BuildRows( rows, selectedId )],
+	};
+
+	/// <summary>Builds a sidebar's actions, which stay in place above its rows.</summary>
+	public static Container BuildActions( List<Blob> actions ) =>
+		new() { Key = "sidebar-actions", Padding = new Edges( ContentPadding, ContentPadding, 0, ContentPadding ), Gap = RowGap, Children = actions };
+
+	/// <summary>Builds a sidebar's rows, which scroll and build only while in view, over the selection rectangle that moves to the active row.</summary>
+	/// <remarks>The rows and the rectangle share one clipped layer, so an outer profile animation moves them together.</remarks>
+	/// <param name="rows">The rows, top first.</param>
+	/// <param name="selectedId">The active row, or null when no visible row is active.</param>
+	public Container BuildRows( List<SidebarRow> rows, Guid? selectedId )
 	{
 		var target = selectedId is { } id && _rows.TryGetValue( id, out var row ) ? row : null;
 		var duration = context.App.Settings.Definitions.FirstOrDefault( definition => definition.Id == "shell.move-duration" ) is { } motion
 			&& context.App.Settings.GetValue( motion ) is int configured ? configured : DefaultMoveDuration;
 		return new Container
 		{
-			Key = "content",
+			Key = "sidebar-rows",
 			Handle = _surface,
+			FlexGrow = 1,
 			MinHeight = 0,
-			Gap = 2,
+			OverflowX = Overflow.Hidden,
+			OverflowY = Overflow.Hidden,
 			Children =
 			[
 				Cell.Mount<SidebarSelectionInput, SidebarSelection>( "selection", new( _surface, target, duration ) ),
-				.. children,
+				new Virtual
+				{
+					Key = "list",
+					Source = new MeasuredRowsSource<SidebarRow>( rows, BuildListRow, static _ => EstimatedRowHeight, FollowEnd: false ),
+					FlexGrow = 1,
+					MinHeight = 0,
+					Padding = new Edges( 0, ContentPadding, ContentPadding, ContentPadding ),
+					OverflowX = Overflow.Hidden,
+					ScrollbarY = ViewStyle.GetScrollbar(),
+				},
 			],
 		};
 	}
-
-	/// <summary>Builds the common padded and clipped sidebar viewport around its content layer.</summary>
-	private static Container CreateViewport( string accessibilityName, Container content ) => new()
-	{
-		AccessibilityRole = AccessibilityRole.Group,
-		AccessibilityName = accessibilityName,
-		Padding = ContentPadding,
-		OverflowY = Overflow.Scroll,
-		OverflowX = Overflow.Hidden,
-		Children = [content],
-	};
-
-	/// <summary>Builds a group's container: its heading row and rows, set visibly apart from what comes before.</summary>
-	public static Container BuildGroup( Guid id, List<Blob> children ) => new()
-	{
-		Key = id.ToString(),
-		Gap = 2,
-		// Each group starts a visibly separate block.
-		Padding = new Edges( Theme.Current.Spacing * 2, 0, 0, 0 ),
-		Children = children,
-	};
 
 	/// <summary>Builds a row highlighted edge to edge under the pointer or while showing its menu or + grid, with its actions inside the highlight; right-clicking it opens its menu at the pointer.</summary>
 	/// <param name="id">The row.</param>
@@ -465,8 +479,15 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 	/// <summary>Stores the followed selected row while mounted.</summary>
 	private ElementHandle? _target;
 
+	/// <summary>Stores the selected row followed last, which stays set while unmounted, so a new row starts a move.</summary>
+	private ElementHandle? _followed;
+
 	/// <summary>Tracks whether geometry subscriptions are active.</summary>
 	private bool _mounted;
+
+	/// <summary>Stores when the selection last changed rows, in <see cref="Environment.TickCount64"/> milliseconds.</summary>
+	/// <remarks>The rectangle animates only during that move, so it stays fixed to its row while the list scrolls.</remarks>
+	private long _movedAt = long.MinValue / 2;
 
 	/// <summary>Follows a replacement selected row.</summary>
 	protected override void InputChanged( SidebarSelectionInput input )
@@ -506,7 +527,7 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 			BorderRadius = Theme.Current.Radius,
 			BackgroundColor = Theme.Current.Hover,
 			HitTestSelf = false,
-			LayoutTransition = input.Duration > 0 ? new( input.Duration, Easing.EaseOut ) : null,
+			LayoutTransition = input.Duration > 0 && Environment.TickCount64 - _movedAt < input.Duration ? new( input.Duration, Easing.EaseOut ) : null,
 		};
 	}
 
@@ -514,6 +535,9 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 	private void Follow( SidebarSelectionInput input )
 	{
 		Unfollow();
+		if ( _bounds.Value is not null && !ReferenceEquals( input.Target, _followed ) )
+			_movedAt = Environment.TickCount64;
+		_followed = input.Target;
 		_surface = input.Surface;
 		_target = input.Target;
 		_surface.MetricsChanged += UpdateMetrics;
@@ -551,3 +575,9 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 			_bounds.Value = bounds;
 	}
 }
+
+/// <summary>Describes one row of a sidebar's list, built only while it is in view.</summary>
+/// <param name="Key">The stable row key, unique in the list.</param>
+/// <param name="Gap">The space above the row in logical pixels.</param>
+/// <param name="Build">Builds the row's content.</param>
+public sealed record SidebarRow( string Key, double Gap, Func<Blob> Build ) : IMeasuredRow;

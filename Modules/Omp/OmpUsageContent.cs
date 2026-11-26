@@ -95,18 +95,28 @@ public sealed class OmpUsageContent : PanelContent
 		if ( _report is { Accounts.Count: 0 } )
 			children.Add( new Text { Content = "No signed-in account of this profile reports usage limits.", Color = theme.Muted, } );
 
-		foreach ( var account in _report?.Accounts ?? [] )
-			children.Add( BuildAccount( account, now ) );
+		if ( _report is { Accounts.Count: > 0 } report )
+		{
+			children.Add( new Container
+			{
+				FlexGrow = 1,
+				MinHeight = 0,
+				Gap = theme.Spacing * 1.5,
+				OverflowY = Overflow.Scroll,
+				ScrollbarY = ViewStyle.GetScrollbar(),
+				Children = [.. report.Accounts.Select( account => BuildAccount( account, now ) )],
+			} );
+		}
 
 		return new Container
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Omp usage",
 			FlexGrow = 1,
+			MinWidth = 0,
 			MinHeight = 0,
 			Padding = ContentPadding,
 			Gap = theme.Spacing * 1.5,
-			OverflowY = Overflow.Scroll,
 			Children = children,
 		};
 	}
@@ -167,6 +177,7 @@ public sealed class OmpUsageContent : PanelContent
 					Width = BarWidth,
 					Height = BarHeight,
 					FlexShrink = 1,
+					MinWidth = 0,
 					BackgroundColor = theme.Raised,
 					BorderRadius = BarHeight / 2,
 					Overflow = Overflow.Hidden,

@@ -552,7 +552,7 @@ internal sealed partial class BrowserContent : PanelContent
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing, 0 ),
-			Overflow = Overflow.Hidden,
+			OverflowX = Overflow.Scroll,
 			AccessibilityRole = AccessibilityRole.Toolbar,
 			AccessibilityName = "Tabs",
 			Children = children,
@@ -674,16 +674,8 @@ internal sealed partial class BrowserContent : PanelContent
 		return button;
 	}
 
-	/// <summary>Retains the registered Windows icon font for the toolbar.</summary>
-	private static readonly FontSource IconFont = BuildIconFont();
-
-	/// <summary>Registers the installed Segoe Fluent Icons face.</summary>
-	private static FontSource BuildIconFont()
-	{
-		var font = FontSource.FromPath( "Lokn Browser Icons", 400, italic: false, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" ) );
-		font.Register();
-		return font;
-	}
+	/// <summary>Retains the registered icon font for the toolbar.</summary>
+	private static readonly FontSource IconFont = SystemFonts.Register( "Lokn Browser Icons", 400, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Reads the tabs saved by <see cref="CaptureState"/>.</summary>
 	private static SavedPage? ReadRestored( JsonElement? state )

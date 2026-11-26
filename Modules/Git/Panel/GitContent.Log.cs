@@ -65,7 +65,7 @@ internal sealed partial class GitContent
 				MinWidth = 0,
 				MinHeight = 0,
 				OverflowX = Overflow.Hidden,
-				ScrollbarY = ViewStyle.BuildScrollbar(),
+				ScrollbarY = ViewStyle.GetScrollbar(),
 			};
 		var hasDetails = _selectedId is not null;
 		children.Add( new Container
@@ -113,7 +113,7 @@ internal sealed partial class GitContent
 					AccessibilityName = "Search commits",
 					FlexGrow = 1,
 					MinWidth = 0,
-					Height = theme.ControlHeight,
+					MinHeight = theme.ControlHeight,
 					Padding = new Edges( 0, theme.Spacing ),
 					BackgroundColor = theme.Raised,
 					BorderRadius = theme.Radius,
@@ -273,7 +273,8 @@ internal sealed partial class GitContent
 	/// <summary>Builds one small rounded label.</summary>
 	private static Container BuildBadge( string label, Color fill, Color border, Color text, bool isBold ) => new()
 	{
-		FlexShrink = 0,
+		FlexShrink = 1,
+		MinWidth = 0,
 		MaxWidth = 180,
 		Padding = new Edges( 0, Theme.Current.Spacing / 2 ),
 		BackgroundColor = fill,
@@ -288,6 +289,7 @@ internal sealed partial class GitContent
 				FontSize = ViewStyle.SmallSize,
 				FontWeight = isBold ? EmphasisWeight : NormalWeight,
 				Color = text,
+				MinWidth = 0,
 				TextWrap = TextWrap.NoWrap,
 				TextTrimming = TextTrimming.Ellipsis,
 			},

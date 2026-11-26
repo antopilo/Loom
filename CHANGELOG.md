@@ -3,6 +3,19 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.19
+
+- **Loom runs on Linux.** System fonts, local terminals, window backdrops (Off and Glass), worktree links and opening
+  folders in the file manager now work on Linux.
+- **A new sidebar look.** Project names use Fraunces, the fold arrow sits in the margin, and row buttons show on hover
+  without moving anything. Chats rename themselves as their task changes.
+- **Long lists stay fast.** The sidebar and other long lists build only the rows you can see, and long views scroll
+  instead of cutting off. Buttons, rows and pages keep the space they need in small panes.
+- **Scrollbars** stay visible while you hover them and fade after you scroll.
+- **The edited files card** shows when the agent's run ends, and elapsed time past an hour shows in hours, minutes and seconds.
+- **Tooltips** have transparent corners, and WebP images show as thumbnails in chats and as project icons.
+- **Browser pages can hide the address bar**; the design studio uses it and gets **Share**.
+
 ## 0.4.18
 
 - **Act on a notification from the list.** Buttons such as **Restart now** show on the notification's row, under the

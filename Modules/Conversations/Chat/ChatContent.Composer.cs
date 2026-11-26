@@ -82,6 +82,7 @@ public sealed partial class ChatContent
 			Left = ViewStyle.TrackWidth,
 			Right = ViewStyle.TrackWidth,
 			Bottom = 0,
+			MaxHeight = Length.Percent( 100 ),
 			HitTestSelf = false,
 			Children =
 			[
@@ -97,6 +98,8 @@ public sealed partial class ChatContent
 				{
 					Key = "conversation-floating-body",
 					HitTestSelf = false,
+					MinHeight = 0,
+					JustifyContent = JustifyContent.FlexEnd,
 					BackdropBlur = FloatingBlur,
 					BackgroundColor = veil,
 					Children = stack,
@@ -216,6 +219,7 @@ public sealed partial class ChatContent
 			{
 				Key = "conversation-model-rail",
 				AlignItems = AlignItems.Center,
+				FlexWrap = FlexWrap.Wrap,
 				Gap = Theme.Current.Spacing,
 				Padding = new Edges( 0, Theme.Current.Spacing ),
 				Children = rail,
@@ -359,6 +363,7 @@ public sealed partial class ChatContent
 			Padding = theme.Spacing * 1.5,
 			Gap = theme.Spacing,
 			OverflowY = Overflow.Scroll,
+			ScrollbarY = ViewStyle.GetScrollbar(),
 			BackgroundColor = theme.Raised,
 			BorderColor = theme.Border,
 			BorderWidth = theme.BorderWidth,
@@ -429,10 +434,10 @@ public sealed partial class ChatContent
 	private static Button BuildRailButton( string label, Action action )
 	{
 		var button = Theme.Current.BuildButton( label, action );
-		button.Height = Theme.Current.ControlHeight - Theme.Current.Spacing;
+		button.Height = Length.Auto;
+		button.MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing;
 		button.Padding = new Edges( 0, Theme.Current.Spacing / 2 );
-		button.MinWidth = 0;
-		button.FlexShrink = 1;
+		button.FlexShrink = 0;
 		button.Color = Theme.Current.Muted;
 		button.Children =
 		[

@@ -39,8 +39,8 @@ internal static class NotificationViews
 	/// <summary>Defines the Segoe Fluent Cancel glyph of the failed mark.</summary>
 	private const string FailureGlyph = "\uE711";
 
-	/// <summary>Holds the installed Windows icon font, registered once; Goo draws only fonts registered with it.</summary>
-	private static readonly FontSource Icons = BuildIconFont();
+	/// <summary>Holds the installed icon font, registered once; Goo draws only fonts registered with it.</summary>
+	private static readonly FontSource Icons = SystemFonts.Register( "Lokn Notification Icons", 400, italic: false, "SegoeIcons.ttf" );
 
 	/// <summary>Gets the icon font's family.</summary>
 	internal static string IconFont => Icons.Family;
@@ -233,13 +233,5 @@ internal static class NotificationViews
 			break;
 		}
 		return line.Length > PreviewLimit ? line[..(PreviewLimit - 1)].TrimEnd() + "…" : line;
-	}
-
-	/// <summary>Registers Segoe Fluent Icons for the notification views.</summary>
-	private static FontSource BuildIconFont()
-	{
-		var font = FontSource.FromPath( "Lokn Notification Icons", 400, italic: false, Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "SegoeIcons.ttf" ) );
-		font.Register();
-		return font;
 	}
 }

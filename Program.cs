@@ -14,6 +14,9 @@ internal static class Program
 	/// <summary>Defines the initial client height in logical pixels.</summary>
 	private const int InitialHeight = 800;
 
+	/// <summary>Defines the smallest client size in logical pixels, which keeps the sidebar and one panel usable.</summary>
+	private static readonly LayoutSize MinimumSize = new( 640, 400 );
+
 	/// <summary>Defines the app ID Windows groups Lokn's windows and notifications under.</summary>
 	private const string ApplicationId = "dev.lokn.desktop";
 
@@ -119,6 +122,7 @@ internal static class Program
 			Background = Theme.Current.Canvas,
 			Foreground = Theme.Current.Text,
 			Size = new LayoutSize( InitialWidth, InitialHeight ),
+			MinSize = MinimumSize,
 			// Chat composers accept files dragged in from Explorer.
 			NativeFileDropEnabled = true,
 			Root = new ShellView( app ),

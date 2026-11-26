@@ -406,10 +406,12 @@ internal static class ConversationChecks
 		for ( var index = 0; index < 6; index++ )
 			store.CreateConversation( SettingsProfile.Personal );
 		var loose = store.Conversations( SettingsProfile.Personal ).Count;
-		// The profile's rows sit inside the profile slide's mounted input.
+		// The profile's rows sit in a virtual list inside the profile slide's mounted input.
 		static IEnumerable<Blob> Expand( Blob row ) => row.GetType().GetFields( System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public )
-			.Select( field => field.GetValue( row ) ).OfType<ProfileSlideInput>().FirstOrDefault() is { Content: Container { Children: var inner } } ? inner : [row];
-		List<Blob> ReadScratch() => sidebar.Build() is Container { Children: [Container { Key: "content", Children: var rows }] }
+			.Select( field => field.GetValue( row ) ).OfType<ProfileSlideInput>().FirstOrDefault() is { Content: Container { Children: [_, Virtual list] } }
+			? CoreChecks.BuildRows( list ).Select( built => built is Container { Children: [var content] } ? content : built )
+			: [row];
+		List<Blob> ReadScratch() => sidebar.Build() is Container { Children: var rows }
 			? [.. rows.SelectMany( Expand ).SkipWhile( row => row is not Text { Content: ConversationsModule.ChatsTitle } ).Skip( 1 )]
 			: [];
 		var folded = ReadScratch();

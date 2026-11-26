@@ -49,7 +49,9 @@ internal sealed partial class AccessContent
 
 		yield return BuildParagraph( $"The daemon runs another build of Loom ({client.HostVersion ?? "an older one"}; this window runs {RemoteProtocol.AppVersion}). "
 			+ "Restart it to update; that stops its running agent turns.", theme.Attention );
-		yield return theme.BuildButton( "Restart daemon", () => _context.Run( client.RestartDaemon ) );
+		var restart = theme.BuildButton( "Restart daemon", () => _context.Run( client.RestartDaemon ) );
+		restart.AlignSelf = AlignSelf.FlexStart;
+		yield return restart;
 	}
 
 	/// <summary>Builds the devices that paired with view only and wait for the user's answer, each with Allow control and View only.</summary>

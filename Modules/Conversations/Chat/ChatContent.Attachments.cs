@@ -19,8 +19,8 @@ public sealed partial class ChatContent
 	/// <summary>Defines how many thumbnail pixels are decoded per logical pixel of the size limit, so large images stay sharp on high-density displays.</summary>
 	private const int ThumbnailDensity = 2;
 
-	/// <summary>Lists the file types a sent message shows as thumbnails; the thumbnail loader reads PNG, JPEG and a GIF's first frame.</summary>
-	private static readonly string[] _thumbnailExtensions = [".png", ".jpg", ".jpeg", ".gif"];
+	/// <summary>Lists the file types a sent message shows as thumbnails; the thumbnail loader reads PNG, JPEG and the first frame of a GIF or WebP.</summary>
+	private static readonly string[] _thumbnailExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
 
 	/// <summary>Retains attached absolute paths in the order they were added, until a prompt carrying them is accepted.</summary>
 	private readonly List<string> _attachments = [];
@@ -105,7 +105,7 @@ public sealed partial class ChatContent
 			Source = source,
 			Fit = ImageFit.Contain,
 			Width = Math.Max( 1, Math.Round( source.Width * scale ) ),
-			Height = Math.Max( 1, Math.Round( source.Height * scale ) ),
+			AspectRatio = ( double )source.Width / source.Height,
 			MaxWidth = Length.Percent( 100 ),
 			BorderRadius = Theme.Current.Radius,
 			AccessibilityName = Path.GetFileName( path ),
@@ -158,7 +158,7 @@ public sealed partial class ChatContent
 		Key = $"attachment:{path}",
 		AlignItems = AlignItems.Center,
 		Gap = Theme.Current.Spacing / 2,
-		Height = Theme.Current.ControlHeight - Theme.Current.Spacing,
+		MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing,
 		Padding = trailing is null ? new Edges( 0, Theme.Current.Spacing ) : new Edges( 0, 0, 0, Theme.Current.Spacing ),
 		BorderRadius = Theme.Current.Radius,
 		BorderWidth = Theme.Current.BorderWidth,
@@ -339,7 +339,8 @@ public sealed partial class ChatContent
 	{
 		var remove = Theme.Current.BuildButton( "×", () => context.Run( () => UpdateDetach( path ) ) );
 		remove.AccessibilityName = $"Remove {Path.GetFileName( path )}";
-		remove.Height = Theme.Current.ControlHeight - Theme.Current.Spacing;
+		remove.Height = Length.Auto;
+		remove.MinHeight = Theme.Current.ControlHeight - Theme.Current.Spacing;
 		remove.Padding = new Edges( 0, Theme.Current.Spacing / 2 );
 		remove.Color = Theme.Current.Muted;
 		var chip = BuildFileChip( path, remove );

@@ -131,9 +131,12 @@ internal static partial class TerminalInput
 		return translate( key, modifiers.Shift ? KeyChord.Shift : KeyChord.Plain ) is { Length: > 0 } text ? escape + text : null;
 	}
 
-	/// <summary>Names the character a physical key types in the active Windows keyboard layout.</summary>
+	/// <summary>Translates modified character keys. Goo supplies committed text separately.</summary>
 	internal static unsafe string? TranslateKey( Key key, KeyChord chord )
 	{
+		if ( !OperatingSystem.IsWindows() )
+			return chord == KeyChord.AltGraph ? null : TranslateUsKey( key, chord );
+
 		if ( !ScanCodes.TryGetValue( key, out var scanCode ) )
 			return null;
 
@@ -163,6 +166,13 @@ internal static partial class TerminalInput
 		// A dead key types nothing by itself; with no layout mapping, fall back to the US character.
 		if ( count < 0 || chord == KeyChord.AltGraph )
 			return null;
+
+		return TranslateUsKey( key, chord );
+	}
+
+	/// <summary>Looks up a physical key on a US layout when layout translation is unavailable.</summary>
+	private static string? TranslateUsKey( Key key, KeyChord chord )
+	{
 		if ( key is >= Key.A and <= Key.Z )
 			return ((char)((chord == KeyChord.Shift ? 'A' : 'a') + (key - Key.A))).ToString();
 

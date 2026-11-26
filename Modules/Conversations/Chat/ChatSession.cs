@@ -100,6 +100,9 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 	/// <summary>Gets whether a <c>/compact</c> the user ran is still summarizing the session.</summary>
 	private bool _isCompacting;
 
+	/// <summary>Reports whether the agent's run ended and the session stays busy only until background work, such as jobs or subagents, settles.</summary>
+	private bool _isSettling;
+
 	/// <summary>Raised on the UI thread after the session's state changed, so a view rebuilds.</summary>
 	public event Action? Changed;
 
@@ -164,6 +167,9 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 	/// <summary>Gets whether the agent is connecting, working or waiting on tools.</summary>
 	public bool IsBusy => _isBusy;
 
+	/// <summary>Gets whether the agent's run ended and the session stays busy only until background work, such as jobs or subagents, settles.</summary>
+	public bool IsSettling => _isSettling;
+
 	/// <summary>Gets the visible backend status or error.</summary>
 	public string Status => _status;
 
@@ -219,6 +225,7 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 		IsAutoCompaction = _isAutoCompaction,
 		Compaction = _compaction,
 		IsCompacting = _isCompacting,
+		IsSettling = _isSettling,
 		IsAutoCompacting = _isAutoCompacting,
 		Efforts = _efforts,
 		Effort = _effort,
@@ -906,6 +913,7 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 			_sentCommand = null;
 			_shellFolders.Clear();
 			_isBusy = true;
+			_isSettling = false;
 			_status = "Working…";
 		}
 		else if ( type == "session_settled" || type == "agent_end" && ReadText( frame, "isTerminal", "true" ) is not ("False" or "false") )
@@ -919,6 +927,8 @@ public sealed partial class ChatSession( LoknApplication app, ConversationStore 
 			UpdateFollowShell();
 			UpdateContextRequest();
 		}
+		else if ( type == "agent_end" )
+			_isSettling = true;
 		else if ( type is "turn_end" or "thinking_level_changed" )
 			UpdateContextRequest();
 		else if ( type == "model_changed" && _session is { } changed )

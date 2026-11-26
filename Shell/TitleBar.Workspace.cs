@@ -82,28 +82,7 @@ internal sealed partial class TitleBar
 			},
 		};
 		if ( _hoveredAction == label )
-		{
-			// A native popup draws over native child surfaces, such as browser pages, which a portal cannot.
-			var tooltip = new Container
-			{
-				Padding = Theme.Current.Spacing,
-				BackgroundColor = Theme.Current.Raised,
-				Color = Theme.Current.Text,
-				FontFamily = Theme.Current.FontFamily,
-				FontSize = Theme.Current.FontSize,
-				BorderColor = Theme.Current.Border,
-				BorderWidth = Theme.Current.BorderWidth,
-				BorderRadius = Theme.Current.Radius,
-				Children = [new Text { Content = help }],
-			};
-			children.Add( Cell.Mount<NativePopupInput, NativePopup>( "tooltip", new( handle, tooltip, null )
-			{
-				Placement = PortalPlacement.BottomStart,
-				Kind = PopupKind.Tooltip,
-				Role = AccessibilityRole.Tooltip,
-				Name = help,
-			} ) );
-		}
+			children.Add( NativePopup.BuildTooltip( handle, help ) );
 
 		return new Button
 		{

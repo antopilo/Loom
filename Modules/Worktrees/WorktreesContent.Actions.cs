@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using Lokn.Core;
 
 namespace Lokn.Modules.Worktrees;
 
@@ -257,17 +257,10 @@ internal sealed partial class WorktreesContent
 		} );
 	}
 
-	/// <summary>Shows a working tree's directory in File Explorer; only an existing directory is opened, never a file.</summary>
+	/// <summary>Opens a worktree's folder in the file manager if it exists.</summary>
 	private static void UpdateOpen( string path )
 	{
-		if ( !Directory.Exists( path ) )
-			return;
-
-		var start = new ProcessStartInfo( "explorer.exe" )
-		{
-			UseShellExecute = false,
-		};
-		start.ArgumentList.Add( path );
-		Process.Start( start )?.Dispose();
+		if ( Directory.Exists( path ) )
+			FileManager.Open( path );
 	}
 }

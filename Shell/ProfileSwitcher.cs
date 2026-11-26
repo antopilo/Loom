@@ -54,7 +54,7 @@ internal sealed class ProfileSwitcher : GuardedCell<ProfileSwitcherInput>
 	];
 
 	/// <summary>Retains the installed emoji face, registered once for the shell.</summary>
-	private static readonly FontSource EmojiFont = BuildEmojiFont();
+	private static readonly FontSource EmojiFont = SystemFonts.Register( "Lokn Shell Emoji", 400, italic: false, "seguiemj.ttf" );
 
 	/// <summary>Retains the profile whose icon picker is open, or empty when none is.</summary>
 	private readonly State<string> _editing = new( "" );
@@ -177,7 +177,7 @@ internal sealed class ProfileSwitcher : GuardedCell<ProfileSwitcherInput>
 			BorderRadius = theme.Radius * 2,
 			Children =
 			[
-				new Text { Content = $"{profile} icon", FontSize = 12, Color = theme.Muted },
+				new Text { Content = $"{profile} icon", FontSize = ViewStyle.SmallSize, Color = theme.Muted },
 				new Row { FlexWrap = FlexWrap.Wrap, Gap = 2, Children = suggestions },
 				new TextEntry
 				{
@@ -240,14 +240,5 @@ internal sealed class ProfileSwitcher : GuardedCell<ProfileSwitcherInput>
 		var button = Theme.Current.BuildButton( label, action );
 		button.FlexShrink = 0;
 		return button;
-	}
-
-	/// <summary>Registers the installed Windows emoji face.</summary>
-	private static FontSource BuildEmojiFont()
-	{
-		var path = Path.Combine( Environment.GetFolderPath( Environment.SpecialFolder.Fonts ), "seguiemj.ttf" );
-		var font = FontSource.FromPath( "Lokn Shell Emoji", 400, italic: false, path );
-		font.Register();
-		return font;
 	}
 }

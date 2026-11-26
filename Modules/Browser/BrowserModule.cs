@@ -84,6 +84,9 @@ public sealed partial class BrowserModule : ILoknModule
 	/// <summary>Registers the settings, the browser panel, the command that opens an address, the browser a new task can start with, the handler for followed links, the tool agents show pages with, and the tools they use pages with.</summary>
 	public void Register( ModuleBuilder builder )
 	{
+		if ( !OperatingSystem.IsWindows() )
+			return;
+
 		builder
 			.Setting( Home )
 			.Setting( Search )

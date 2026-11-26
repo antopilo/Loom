@@ -65,7 +65,8 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 	/// <summary>Starts and stops reading the rectangle as the caret comes into and out of view.</summary>
 	private readonly MotionSwitch _motion;
 
-	/// <summary>Holds the timer that reads the rectangle while the caret is live, or null; Goo stops it when the caret unmounts.</summary>
+	/// <summary>Holds the window timer that reads the rectangle while the caret is live, or null. A window timer does not rebuild the caret after each
+	/// tick, as a Cell timer would for a Cell with mutable fields; only a changed <see cref="_version"/> does.</summary>
 	private WindowTimer? _poll;
 
 	/// <summary>Creates the caret; a build that finds the prompt focused and attended starts reading the rectangle.</summary>
@@ -103,11 +104,14 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 	{
 		_poll?.Dispose();
 		_poll = null;
+		// The switch applies on a later pump, which can come after the caret unmounted.
+		if ( Lifetime.IsCancellationRequested )
+			return;
 		// The blink starts over, shown, whenever the caret comes back or rests.
 		_movedAt = DateTime.UtcNow;
 		if ( isLive )
 		{
-			_poll = Every( PollMs, UpdateCaret );
+			_poll = Host.Every( PollMs, UpdateCaret );
 			UpdateCaret();
 		}
 		else if ( _isHidden )
@@ -116,6 +120,9 @@ internal sealed class PromptCaret : GuardedCell<PromptCaretInput>
 			_version.Value++;
 		}
 	}
+
+	/// <summary>Stops reading the rectangle; Goo cancels only Cell timers at unmount.</summary>
+	protected override void Unmounting() => _poll?.Dispose();
 
 	/// <summary>Reads the caret rectangle and blink phase, rebuilding only when either changed, and reports a changed row count.</summary>
 	private void UpdateCaret()

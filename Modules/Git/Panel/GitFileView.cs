@@ -297,8 +297,8 @@ internal sealed partial class GitFileView
 		var children = new List<Blob>
 		{
 			GitIcons.Build( GitIcons.File, 15, theme.Accent ),
-			new Text { Content = slash >= 0 ? path[..(slash + 1)] : "", Color = theme.Muted, FlexShrink = 1, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
-			new Text { Content = path[(slash + 1)..], FontWeight = NameWeight, FlexShrink = 0, TextWrap = TextWrap.NoWrap },
+			new Text { Content = slash >= 0 ? path[..(slash + 1)] : "", Color = theme.Muted, FlexShrink = 4, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+			new Text { Content = path[(slash + 1)..], FontWeight = NameWeight, FlexShrink = 1, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
 		};
 		if ( _patch is { } patch && (patch.Added > 0 || patch.Removed > 0) )
 			children.Add( BuildCounts( patch.Added, patch.Removed ) );
@@ -366,6 +366,7 @@ internal sealed partial class GitFileView
 		{
 			Key = "git-file-options",
 			FlexShrink = 0,
+			FlexWrap = FlexWrap.Wrap,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing,
 			Padding = new Edges( 0, theme.Spacing, theme.Spacing / 2, theme.Spacing ),
@@ -443,7 +444,7 @@ internal sealed partial class GitFileView
 			MinHeight = 0,
 			Padding = new Edges( 0, 0, Theme.Current.Spacing * 2, 0 ),
 			OverflowX = Overflow.Hidden,
-			ScrollbarY = ViewStyle.BuildScrollbar(),
+			ScrollbarY = ViewStyle.GetScrollbar(),
 		};
 	}
 
@@ -541,7 +542,8 @@ internal sealed partial class GitFileView
 		button.FlexDirection = FlexDirection.Row;
 		button.AlignItems = AlignItems.Center;
 		button.Gap = theme.Spacing / 2;
-		button.Height = theme.ControlHeight - theme.Spacing / 2;
+		button.Height = Length.Auto;
+		button.MinHeight = theme.ControlHeight - theme.Spacing / 2;
 		button.Padding = new Edges( 0, theme.Spacing );
 		button.BorderWidth = theme.BorderWidth;
 		button.BorderColor = color is { } tint ? tint.WithAlpha( 0.6 ) : theme.Border;
@@ -566,7 +568,8 @@ internal sealed partial class GitFileView
 			var button = theme.BuildButton( label, () => _context.Run( select ), isEnabled );
 			button.AccessibilityName = isOn ? $"{label}, on" : label;
 			button.FlexShrink = 0;
-			button.Height = theme.ControlHeight - theme.Spacing;
+			button.Height = Length.Auto;
+			button.MinHeight = theme.ControlHeight - theme.Spacing;
 			button.Padding = new Edges( 0, theme.Spacing );
 			button.BorderRadius = theme.Radius;
 			button.BackgroundColor = isOn ? theme.Hover : Color.Transparent;

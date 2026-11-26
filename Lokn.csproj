@@ -13,7 +13,7 @@
 		<RootNamespace>Lokn</RootNamespace>
 		<ApplicationIcon>assets\brand\loom.ico</ApplicationIcon>
 		<!-- The release version: the installer's package version, and the version Program reports to Goo. Raise it for every release. -->
-		<Version>0.4.18</Version>
+		<Version>0.4.19</Version>
 		<!-- A publish (scripts/publish.ps1, the installer) precompiles Loom, Core, Goo and their libraries to native code, so starting Loom compiles
 		     about 6,000 fewer methods before its first frame (docs/performance.md#startup). Modules gain nothing from it: they load from their bytes
 		     (Shell/ModuleHost.cs), where the runtime ignores precompiled code, so they stay IL. -->
@@ -73,5 +73,9 @@
 		<ProjectReference Include="Modules\Notifications\Lokn.Modules.Notifications.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Setup\Lokn.Modules.Setup.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
 		<ProjectReference Include="Modules\Remote\Lokn.Modules.Remote.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="Version" />
+	</ItemGroup>
+	<ItemGroup Condition="'$(RuntimeIdentifier)' != ''">
+		<!-- Module project references do not inherit the application's runtime identifier. -->
+		<ProjectReference Update="Modules\**\*.csproj" AdditionalProperties="LoknWindowsFeatures=$(RuntimeIdentifier.StartsWith('win'))" />
 	</ItemGroup>
 </Project>

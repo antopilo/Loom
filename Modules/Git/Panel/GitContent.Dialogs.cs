@@ -91,7 +91,7 @@ internal sealed partial class GitContent
 				Value = _dialogText,
 				Controlled = true,
 				AccessibilityName = dialog.Title,
-				Height = theme.ControlHeight,
+				MinHeight = theme.ControlHeight,
 				Padding = new Edges( 0, theme.Spacing ),
 				BackgroundColor = theme.Panel,
 				BorderColor = theme.Accent,

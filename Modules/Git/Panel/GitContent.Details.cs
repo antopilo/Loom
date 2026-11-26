@@ -52,6 +52,12 @@ internal sealed record GitDetailRow(
 	bool IsLast = false,
 	bool IsFirst = false ) : IMeasuredRow;
 
+/// <summary>One file of the Changes tab's list.</summary>
+/// <param name="Key">The file's path key, the stable row key.</param>
+/// <param name="File">The changed file.</param>
+/// <param name="IsSelected">Whether the file's diff is shown.</param>
+internal sealed record GitChangesTabRow( string Key, GitFileChange File, bool IsSelected ) : IMeasuredRow;
+
 /// <summary>Builds the selected commit's details: the Commit tab with its information and expandable file diffs, and the Changes tab with a file list beside one file's diff.</summary>
 internal sealed partial class GitContent
 {
@@ -64,8 +70,11 @@ internal sealed partial class GitContent
 	/// <summary>Defines the approximate height of one diff line in logical pixels, for estimates before layout.</summary>
 	private const double DiffLineHeight = 17;
 
-	/// <summary>Defines the width of the Changes tab's file list in logical pixels.</summary>
+	/// <summary>Defines the widest the Changes tab's file list gets, in logical pixels.</summary>
 	private const int FileListWidth = 260;
+
+	/// <summary>Defines the Changes tab's file list share of the tab's width, in percent, so a narrow side view keeps room for the diff.</summary>
+	private const double FileListPercent = 40;
 
 	/// <summary>Defines the label column width of the commit information in logical pixels.</summary>
 	private const int LabelWidth = 52;
@@ -78,6 +87,9 @@ internal sealed partial class GitContent
 
 	/// <summary>Builds one details row; kept as one delegate so the list reuses unchanged rows.</summary>
 	private readonly Func<GitDetailRow, Blob> _buildDetailRow;
+
+	/// <summary>Builds one file of the Changes tab's list; kept as one delegate so the list reuses unchanged rows.</summary>
+	private readonly Func<GitChangesTabRow, Blob> _buildFileItem;
 
 	/// <summary>Stores the loaded diffs of the selected commit's files by path key.</summary>
 	private readonly Dictionary<string, DiffFile> _patches = new( StringComparer.OrdinalIgnoreCase );
@@ -190,7 +202,7 @@ internal sealed partial class GitContent
 		MinHeight = 0,
 		Padding = new Edges( Theme.Current.Spacing, Theme.Current.Spacing * 2 ),
 		OverflowX = Overflow.Hidden,
-		ScrollbarY = ViewStyle.BuildScrollbar(),
+		ScrollbarY = ViewStyle.GetScrollbar(),
 	};
 
 	/// <summary>Lists the Commit tab's rows: the information, then the files with the expanded ones' lines.</summary>
@@ -264,9 +276,12 @@ internal sealed partial class GitContent
 		var selected = files.FirstOrDefault( file => string.Equals( ComputePathKey( file.Path ), _selectedFile, StringComparison.OrdinalIgnoreCase ) ) ?? files[0];
 		var selectedKey = ComputePathKey( selected.Path );
 		EnsurePatch( selected );
-		var items = new List<Blob>();
+		var items = new List<GitChangesTabRow>( files.Count );
 		foreach ( var file in files )
-			items.Add( BuildFileItem( file, string.Equals( ComputePathKey( file.Path ), selectedKey, StringComparison.OrdinalIgnoreCase ) ) );
+		{
+			var key = ComputePathKey( file.Path );
+			items.Add( new( key, file, string.Equals( key, selectedKey, StringComparison.OrdinalIgnoreCase ) ) );
+		}
 
 		var rows = new List<GitDetailRow>();
 		AddFileRows( rows, "x:", selected, selectedKey, expanded: true, isFirst: true );
@@ -277,19 +292,20 @@ internal sealed partial class GitContent
 			MinHeight = 0,
 			Children =
 			[
-				new Container
+				new Virtual
 				{
 					Key = "git-changes-files",
-					Width = FileListWidth,
+					Source = new MeasuredRowsSource<GitChangesTabRow>( items, _buildFileItem, static _ => Theme.Current.ControlHeight, FollowEnd: false ),
+					AccessibilityName = "Changed files",
+					Width = Length.Percent( FileListPercent ),
+					MaxWidth = FileListWidth,
 					FlexShrink = 0,
 					MinHeight = 0,
-					OverflowY = Overflow.Scroll,
-					ScrollbarY = ViewStyle.BuildScrollbar(),
+					OverflowX = Overflow.Hidden,
+					ScrollbarY = ViewStyle.GetScrollbar(),
 					Padding = theme.Spacing / 2,
 					BorderWidth = new Edges( 0, theme.BorderWidth, 0, 0 ),
 					BorderColor = theme.Border,
-					AccessibilityName = "Changed files",
-					Children = items,
 				},
 				BuildDetailList( "git-details-changes", rows ),
 			],
@@ -297,10 +313,11 @@ internal sealed partial class GitContent
 	}
 
 	/// <summary>Builds one file of the Changes tab's list: its status letter, name and change counts.</summary>
-	private Button BuildFileItem( GitFileChange file, bool isSelected )
+	private Button BuildFileItem( GitChangesTabRow row )
 	{
 		var theme = Theme.Current;
-		var key = ComputePathKey( file.Path );
+		var file = row.File;
+		var key = row.Key;
 		var children = new List<Blob>
 		{
 			new Text
@@ -335,10 +352,12 @@ internal sealed partial class GitContent
 		} ) );
 		button.Key = "file:" + key;
 		button.AccessibilityName = $"Show {key}";
+		button.Height = Length.Auto;
+		button.MinHeight = theme.ControlHeight;
 		button.FlexDirection = FlexDirection.Row;
 		button.JustifyContent = JustifyContent.FlexStart;
 		button.Gap = theme.Spacing / 2;
-		button.BackgroundColor = isSelected ? theme.Accent.WithAlpha( SelectionOpacity ) : Color.Transparent;
+		button.BackgroundColor = row.IsSelected ? theme.Accent.WithAlpha( SelectionOpacity ) : Color.Transparent;
 		button.Children = children;
 		return button;
 	}
@@ -546,7 +565,7 @@ internal sealed partial class GitContent
 			children.Add( GitIcons.Build( GitIcons.Globe, 13, theme.Text.WithAlpha( 0.6 ) ) );
 		return new Row
 		{
-			Height = 20,
+			MinHeight = 20,
 			MaxWidth = Length.Percent( 100 ),
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
@@ -608,7 +627,7 @@ internal sealed partial class GitContent
 
 		return new Button
 		{
-			Height = 20,
+			MinHeight = 20,
 			FlexShrink = 0,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,

@@ -30,6 +30,12 @@ internal sealed partial class ShellView
 	/// <summary>Holds the timer that brings the hidden sidebar out or sends it back, or null while none waits.</summary>
 	private WindowTimer? _peekTimer;
 
+	/// <summary>Stores the sidebar width the last build laid out, zero while hidden.</summary>
+	private double _builtSidebarWidth;
+
+	/// <summary>Reports whether this build changes the sidebar width, so panels take their new place at once instead of sliding inside a workspace that moved.</summary>
+	private bool _isSidebarResized;
+
 	/// <summary>Reports whether the navigation is the shown sidebar.</summary>
 	private bool IsSidebarShown => _app.Settings.Get( ShellSettings.ShowSidebar ) && _app.Settings.Get( ShellSettings.Navigation ) != ShellSettings.TabsNavigation;
 
@@ -44,6 +50,9 @@ internal sealed partial class ShellView
 	/// <remarks>The edge floats in the gap instead of taking its own column, so the space beside the sidebar equals the gap between panels.</remarks>
 	private Blob BuildBody()
 	{
+		var sidebarWidth = IsSidebarShown ? _sidebarDrag ?? _app.Settings.Get( ShellSettings.SidebarWidth ) : 0;
+		_isSidebarResized = sidebarWidth != _builtSidebarWidth;
+		_builtSidebarWidth = sidebarWidth;
 		var children = new List<Blob>();
 		if ( IsSidebarShown )
 			children.Add( BuildSidebar() );
