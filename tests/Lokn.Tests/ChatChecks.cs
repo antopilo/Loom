@@ -56,6 +56,10 @@ internal static class ChatChecks
 			&& ChatContent.ComputeMentionMatches( ["a/view.cs"], "a/v" ) is ["a/view.cs"], "File matches rank name starts, then names, then paths." );
 		CoreChecks.Check( ChatContent.ComputePromptMarks( "look at #1 and #3 in @src/a.cs or @\"b c.md\"#2", 2 ) is [(8, 2, true), (21, 9, false), (34, 9, false)],
 			"The prompt colors file mentions and references to attached images only." );
+		CoreChecks.Check( ChatContent.ParseConnector( "mcp__strava_get_recent_activities" ) == ("strava", "get_recent_activities") && ChatContent.ParseConnector( "mcp__coros" ) == ("coros", "")
+			&& ChatContent.ParseConnector( "bash" ) is null && ChatContent.ComputeConnectorWords( "get_recent_activities" ) == "Get recent activities"
+			&& ChatContent.ComputeConnectorDomain( "Strava" ) == "strava.com" && ChatContent.ComputeConnectorDomain( "notion" ) == "notion.so",
+			"An MCP tool reads as its server and its action in words, with the server's icon domain." );
 		CheckMarkdownSyntax( Visible );
 		var parse = typeof( ChatContent ).GetMethod( "ParseGrep", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static )!;
 		var grepped = (System.Collections.IList)parse.Invoke( null, ["# Modules/Omp/\n## OmpService.cs#D3F9\n*33:  - draw it\n# Core/\n## Theme.cs#43E9\n 271:a\n*272:b"] )!;

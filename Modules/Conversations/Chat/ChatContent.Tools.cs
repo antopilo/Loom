@@ -83,6 +83,8 @@ public sealed partial class ChatContent
 			return BuildGrep( key, arguments, status, result, intent );
 		if ( name == "web_search" )
 			return BuildWebSearch( key, arguments, status, result );
+		if ( ParseConnector( name ) is var (server, tool) )
+			return BuildConnector( key, server, tool, arguments, status, result );
 		// A tool on one file reads as its verb and path, the file name bold, as "Edit ~/src/view.cs:104"; others show the agent's intent.
 		var path = ComputeToolPath( arguments );
 		// A diff or a written file shows at once; clicking the line folds it away, and clicking again shows it.

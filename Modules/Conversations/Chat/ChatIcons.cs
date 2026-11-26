@@ -208,6 +208,8 @@ internal static class ChatIcons
 		"task" => "\uE716",
 		"wait" => "\uE823",
 		"todo" or "todo_write" => TodoGlyph,
+		// A plug, for an MCP server whose own icon is not known or not loaded.
+		"mcp" => "\uE83E",
 		_ when name.StartsWith( "shell_", StringComparison.Ordinal ) || name.StartsWith( "workspace_", StringComparison.Ordinal ) => "\uE8A9",
 		_ => "\uE90F",
 	};
