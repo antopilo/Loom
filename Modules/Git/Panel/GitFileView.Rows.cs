@@ -316,6 +316,8 @@ internal sealed partial class GitFileView
 		Width = Length.Em( digits * DigitEms ) + Theme.Current.Spacing * 1.5,
 		Padding = new Edges( 0, Theme.Current.Spacing / 2, 0, 0 ),
 		FlexShrink = 0,
+		// A face whose digits are exactly 0.6 em, as Berkeley Mono's, overflowed the column by rounding and wrapped, doubling the row.
+		TextWrap = TextWrap.NoWrap,
 		TextAlign = TextAlign.Right,
 		Color = Theme.Current.Muted,
 	};

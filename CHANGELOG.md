@@ -3,6 +3,12 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.25
+
+- **Even code rows.** Lines in searches and diffs no longer show twice as tall in files with mixed line endings.
+- **File picker reads left to right.** The @ file list lines its names up on the left.
+- **Clearer palette selection.** The selected command shows on every theme.
+
 ## 0.4.24
 
 - **Commit cards.** A commit the agent makes shows as a card under its command, with its subject, branch, hash and counts. Click it to open the

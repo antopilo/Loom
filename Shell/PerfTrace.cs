@@ -188,6 +188,14 @@ internal static class PerfTrace
 			else if ( name.StartsWith( "setting:", StringComparison.Ordinal ) && name[8..].Split( '=', 2 ) is [var id, var value]
 				&& app.Settings.Definitions.FirstOrDefault( definition => definition.Id == id ) is { } setting )
 				app.Settings.SetValue( setting, SettingsScope.Global, value );
+			else if ( name.StartsWith( "key:", StringComparison.Ordinal ) && Enum.TryParse<Key>( name[4..].Split( '+' )[^1], out var pressed ) )
+			{
+				var modifiers = name.Contains( "Ctrl+", StringComparison.Ordinal ) ? KeyModifiers.Primary : KeyModifiers.None;
+				window.PlatformInput.KeyPress( pressed, modifiers );
+				window.PlatformInput.KeyRelease( pressed, modifiers );
+			}
+			else if ( name.StartsWith( "type:", StringComparison.Ordinal ) )
+				window.PlatformInput.CommitText( name[5..] );
 			else
 				app.OpenLink( new Uri( name ) );
 			var handler = Stopwatch.GetElapsedTime( start ).TotalMilliseconds;

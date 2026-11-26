@@ -4,7 +4,7 @@ using Lokn.Core;
 namespace Lokn.Modules.Git;
 
 /// <summary>Builds file diffs: a compact card embedded in the transcript, and full files for the diff panel.</summary>
-internal static class DiffView
+internal static partial class DiffView
 {
 	/// <summary>Defines how many rows a transcript card shows before pointing to the panel.</summary>
 	internal const int CardLines = 12;
@@ -277,6 +277,8 @@ internal static class DiffView
 				Width = Length.Em( digits * DigitEms ) + Theme.Current.Spacing * 2,
 				Padding = new Edges( 0, Theme.Current.Spacing ),
 				FlexShrink = 0,
+				// A face whose digits are exactly 0.6 em, as Berkeley Mono's, overflowed the column by rounding and wrapped, doubling the row.
+				TextWrap = TextWrap.NoWrap,
 				TextAlign = TextAlign.Right,
 				Color = Theme.Current.Muted,
 			},
@@ -339,5 +341,14 @@ internal static class DiffView
 	}
 
 	/// <summary>Expands tabs and keeps an empty line one row tall.</summary>
-	private static string BuildCode( string text ) => text.Length == 0 ? " " : ViewStyle.CutCodeLine( text.Replace( "\t", Tab ) );
+	/// <remarks>A row is one line: a carriage return left by a file with mixed line endings, or another line break, would draw it two lines tall.</remarks>
+	private static string BuildCode( string text )
+	{
+		text = LineBreakPattern().Replace( text.TrimEnd( '\r' ), " " );
+		return text.Length == 0 ? " " : ViewStyle.CutCodeLine( text.Replace( "\t", Tab ) );
+	}
+
+	/// <summary>Matches a character that breaks a line: a carriage return, a vertical tab, a form feed, or a Unicode line or paragraph separator.</summary>
+	[System.Text.RegularExpressions.GeneratedRegex( "[\r\v\f\u0085\u2028\u2029]" )]
+	private static partial System.Text.RegularExpressions.Regex LineBreakPattern();
 }

@@ -387,7 +387,8 @@ internal sealed partial class ShellView
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			BorderRadius = theme.Radius,
-			BackgroundColor = isSelected ? theme.Hover : Color.Transparent,
+			// The palette sits on the raised color, which some themes' hover color matches; an accent tint shows on every theme.
+			BackgroundColor = isSelected ? theme.Accent.WithAlpha( 0.16 ) : Color.Transparent,
 			OnPointerEnter = _ =>
 			{
 				if ( _selectedResult == index )

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<!-- This module's release version; raise it to publish the module as an update (scripts/release.ps1). -->
-		<Version>1.2.0</Version>
+		<Version>1.2.1</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- The chat draws its tool diffs with the diff views and opens the Git and diff panels; those internals stay shared until a UI library holds them. -->

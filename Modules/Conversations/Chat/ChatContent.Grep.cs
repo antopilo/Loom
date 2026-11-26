@@ -179,9 +179,11 @@ public sealed partial class ChatContent
 				continue;
 			}
 
-			var code = line.Text.Length == 0 ? " " : ViewStyle.CutCodeLine( line.Text.Replace( "\t", "    " ) );
+			// A row is one line: a carriage return left by mixed line endings, or another line break, would draw it two lines tall.
+			var text = LineBreakPattern().Replace( line.Text.TrimEnd( '\r' ), " " );
+			var code = text.Length == 0 ? " " : ViewStyle.CutCodeLine( text.Replace( "\t", "    " ) );
 			var isInComment = false;
-			var spans = grammar is null || line.Text.Length == 0 ? [new TextSpan( code, null! )] : CodeHighlighter.BuildSpans( code, grammar, ref isInComment );
+			var spans = grammar is null || text.Length == 0 ? [new TextSpan( code, null! )] : CodeHighlighter.BuildSpans( code, grammar, ref isInComment );
 			rows.Add( new Row
 			{
 				MinWidth = 0,
@@ -197,6 +199,8 @@ public sealed partial class ChatContent
 						Width = Length.Em( digits * 0.6 ) + theme.Spacing * 2,
 						Padding = new Edges( 0, theme.Spacing ),
 						FlexShrink = 0,
+						// A face whose digits are exactly 0.6 em, as Berkeley Mono's, overflowed the column by rounding and wrapped, doubling the row.
+						TextWrap = TextWrap.NoWrap,
 						TextAlign = TextAlign.Right,
 						Color = line.IsMatch ? theme.Accent : theme.Muted,
 						FontWeight = line.IsMatch ? 600 : 400,
@@ -325,4 +329,8 @@ public sealed partial class ChatContent
 	/// <summary>Matches one row of ripgrep's output: <c>path:12:text</c> for a match or <c>path-11-text</c> for context; a Windows path keeps its drive.</summary>
 	[GeneratedRegex( @"^(?<p>(?:[A-Za-z]:)?[^:\r\n]+?)(?<s>[:-])(?<n>\d+)[:-](?<t>.*)$" )]
 	private static partial Regex RipgrepLinePattern();
+
+	/// <summary>Matches a character that breaks a line: a carriage return, a vertical tab, a form feed, or a Unicode line or paragraph separator.</summary>
+	[GeneratedRegex( "[\r\v\f\u0085\u2028\u2029]" )]
+	private static partial Regex LineBreakPattern();
 }
