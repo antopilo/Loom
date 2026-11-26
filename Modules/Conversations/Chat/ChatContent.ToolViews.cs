@@ -187,23 +187,28 @@ public sealed partial class ChatContent
 			_ => ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "bash" ) ),
 		};
 		var box = new List<Blob> { new Container { Key = "command", Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2, 0, theme.Spacing * 2 ), Children = [MarkdownView.BuildCode( command, "bash", framed: false, showLanguage: false )] } };
-		if ( result is { } body && TerminalText.BuildPlain( ComputeResultText( body ) ).TrimEnd() is { Length: > 0 } output )
+		// A backgrounded command's output is Omp's note to the agent, not the command's output, so only its job shows.
+		var job = result is { ValueKind: JsonValueKind.Object } done && done.TryGetProperty( "details", out var details )
+			&& details.ValueKind == JsonValueKind.Object && details.TryGetProperty( "async", out var background ) ? ReadText( background, "jobId" ) : "";
+		if ( job.Length == 0 && result is { } body && TerminalText.BuildPlain( ComputeResultText( body ) ).TrimEnd() is { Length: > 0 } output )
 		{
 			box.Add( new Container { Key = "output-rule", Height = theme.BorderWidth, BackgroundColor = theme.Divider } );
 			box.Add( new Container { Key = "output", Padding = new Edges( 0, theme.Spacing * 2 ), Children = [BuildCodePreview( key + ":output", output, "text", framed: false )] } );
 		}
 		var (word, color) = status switch
 		{
+			_ when job.Length > 0 => ("● In background", theme.AnsiMagenta),
 			"Running" => ("Running", theme.Muted),
 			"Failed" => ("✗ Failed", theme.Error),
 			"Requested" => ("Waiting", theme.Muted),
 			_ => ("✓ Done", theme.AnsiGreen),
 		};
-		box.Add( new Text
+		box.Add( new Text( [
+			new( word, new Style { Color = color } ),
+			new( job.Length > 0 ? "   Job " + job : "", new Style { Color = theme.Muted } ),
+		] )
 		{
 			Key = "outcome",
-			Content = word,
-			Color = color,
 			FontSize = ViewStyle.SmallSize,
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing * 2, theme.Spacing * 1.5, theme.Spacing * 2 ),
 		} );
@@ -230,6 +235,94 @@ public sealed partial class ChatContent
 				},
 			],
 		};
+	}
+
+	/// <summary>Builds a wait: one line with a spinner while it waits; once jobs settled, a count over a card per job with its mark, intent, id, time and output.</summary>
+	private Container BuildWait( string key, string status, JsonElement? result )
+	{
+		var theme = Theme.Current;
+		var jobs = result is { ValueKind: JsonValueKind.Object } done && done.TryGetProperty( "details", out var details ) && details.ValueKind == JsonValueKind.Object
+			&& details.TryGetProperty( "jobs", out var list ) && list.ValueKind == JsonValueKind.Array ? list.EnumerateArray().ToList() : [];
+		if ( jobs.Count > 0 && status != "Running" )
+		{
+			var completed = jobs.Count( job => ReadText( job, "status" ) == "completed" );
+			var failed = jobs.Count - completed;
+			var cards = new List<Blob>();
+			foreach ( var (index, job) in jobs.Index() )
+			{
+				var id = ReadText( job, "jobId", ReadText( job, "id" ) );
+				var ok = ReadText( job, "status" ) == "completed";
+				var seconds = job.TryGetProperty( "durationMs", out var ms ) && ms.TryGetDouble( out var value ) ? $"  {value / 1000:0.0}s" : "";
+				var rows = new List<Blob>
+				{
+					new Row
+					{
+						Key = "job-head",
+						AlignItems = AlignItems.Center,
+						Gap = theme.Spacing,
+						Children =
+						[
+							new Text { Content = ok ? "✓" : "✗", Color = ok ? theme.AnsiGreen : theme.Error, FontSize = ViewStyle.SmallSize, FlexShrink = 0 },
+							new Text { Content = ReadText( job, "intent", ReadText( job, "label", id ) ), Color = theme.Text, FontWeight = 600, FlexShrink = 1, MinWidth = 0, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+							new Spacer(),
+							new Text { Content = id + seconds, Color = theme.Muted, FontFamily = ViewStyle.CodeFontFamily, FontSize = ViewStyle.SmallSize, FlexShrink = 0 },
+						],
+					},
+				};
+				if ( TerminalText.BuildPlain( ReadText( job, "resultText", ReadText( job, "output" ) ) ).Trim() is { Length: > 0 } output )
+					rows.Add( BuildText( output, muted: true ) );
+				cards.Add( new Container
+				{
+					Key = key + ":job:" + index,
+					Gap = theme.Spacing,
+					Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2 ),
+					BackgroundColor = theme.Text.WithAlpha( 0.035 ),
+					BorderWidth = theme.BorderWidth,
+					BorderColor = theme.Border.WithAlpha( 0.45 ),
+					BorderRadius = theme.Radius * 2,
+					Children = rows,
+				} );
+			}
+			var head = new Row
+			{
+				Key = "tool-head",
+				AlignItems = AlignItems.Center,
+				Gap = theme.Spacing,
+				Children =
+				[
+					ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "wait" ) ),
+					new Text( [
+						new( Count( jobs.Count, "job", "jobs" ) + " settled", new Style { FontWeight = 600, Color = theme.Text } ),
+						new( completed > 0 ? $"  {completed} done" : "", new Style { Color = theme.AnsiYellow } ),
+						new( failed > 0 ? $"  {failed} failed" : "", new Style { Color = theme.Error } ),
+					] ),
+				],
+			};
+			return new Container { Key = key, AccessibilityRole = AccessibilityRole.Group, AccessibilityName = "wait tool " + status, Gap = theme.Spacing, Children = [head, .. cards] };
+		}
+		var outcome = result is { } body && status != "Running" ? TerminalText.BuildPlain( ComputeResultText( body ) ).Trim().TrimEnd( '.' ) : "";
+		if ( outcome.StartsWith( "Wait ", StringComparison.Ordinal ) )
+			outcome = outcome[5..];
+		var children = new List<Blob>
+		{
+			ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "wait" ), status == "Failed" ? theme.Error : theme.AnsiMagenta ),
+			new Text( [
+				new( "Wait", new Style { FontWeight = 600, Color = theme.Text } ),
+				new( outcome.Length > 0 ? "  " + outcome : "", new Style { Color = theme.Muted } ),
+			] )
+			{
+				FlexShrink = 1,
+				MinWidth = 0,
+				TextWrap = TextWrap.NoWrap,
+				TextTrimming = TextTrimming.Ellipsis,
+			},
+		};
+		if ( status == "Running" )
+		{
+			children.Add( new Spacer() );
+			children.Add( ChatIcons.BuildSpinner( "wait-spinner" ) );
+		}
+		return new Container { Key = key, Children = [new Row { AccessibilityRole = AccessibilityRole.Group, AccessibilityName = $"wait tool {status}", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = children }] };
 	}
 
 	/// <summary>Builds the line over one file's diff in an edit of several files: its folder muted, its name bold, and its counts at the end.</summary>

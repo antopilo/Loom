@@ -77,6 +77,8 @@ public sealed partial class ChatContent
 			: ReadText( block, "intent", ReadText( arguments, "i" ) );
 		if ( name == "bash" )
 			return BuildBash( key, id, arguments, status, result, intent );
+		if ( name == "wait" )
+			return BuildWait( key, status, result );
 		if ( name == "grep" )
 			return BuildGrep( key, arguments, status, result, intent );
 		// A tool on one file reads as its verb and path, the file name bold, as "Edit ~/src/view.cs:104"; others show the agent's intent.
