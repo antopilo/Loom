@@ -3,6 +3,12 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.28
+
+- **No gap in Settings.** Settings with their own editor under the text, such as the theme picker, no longer leave empty space above it.
+- **Smaller chat inset.** Chats in the sidebar sit closer to their project's name.
+- **Round Expand button** on a command's output.
+
 ## 0.4.27
 
 - **Maximize a pane.** Right-click a pane's grip and choose **Maximize panel** to give it the whole workspace while the

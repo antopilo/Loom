@@ -406,14 +406,15 @@ public sealed partial class ChatContent
 	{
 		var theme = Theme.Current;
 		var pill = BuildMoreToggle( isOpen ? "Collapse" : "Expand", isOpen, action );
-		pill.Padding = new Edges( 1, theme.Spacing );
+		pill.Padding = new Edges( 1, theme.Spacing * 1.25 );
 		pill.Margin = 0;
 		// The disclosure keeps itself to the start of its row; the pill sits in the middle of the rule.
 		pill.AlignSelf = AlignSelf.Center;
 		pill.BackgroundColor = theme.Panel;
 		pill.BorderColor = theme.Border.WithAlpha( 0.6 );
 		pill.BorderWidth = theme.BorderWidth;
-		pill.BorderRadius = theme.Radius;
+		// Fully round ends make it read as a pill on the rule, not a box.
+		pill.BorderRadius = 999;
 		return new Container
 		{
 			Key = "expand",

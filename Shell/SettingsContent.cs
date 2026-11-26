@@ -316,9 +316,10 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		var theme = Theme.Current;
 		var text = new Container
 		{
-			// The text keeps at least this width; with less room the control wraps under it instead of squeezing it.
-			FlexBasis = TextMinWidth,
-			FlexGrow = 1000,
+			// Beside a control, the text keeps at least this width; with less room the control wraps under it instead of squeezing it. Over a control
+			// that takes its own line the column's main axis is height, so a basis there would leave a tall empty gap under the text.
+			FlexBasis = control is null || isBelow ? Length.Auto : TextMinWidth,
+			FlexGrow = control is null || isBelow ? 0 : 1000,
 			FlexShrink = 1,
 			MinWidth = 0,
 			Gap = theme.Spacing / 2,

@@ -127,8 +127,8 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var worktrees = ReadWorktrees( project, worktreeActions );
 		var groups = ComputeShownGroups( project, conversations, worktrees );
 		var isFlat = groups.All( group => group.IsMain );
-		// Chats keep one inset under every project, with or without an icon, so lists line up from project to project.
-		var indent = SidebarRows.ChildIndent;
+		// Chats keep one small inset under every project, with or without an icon, so lists line up from project to project.
+		var indent = SidebarRows.ChevronColumn;
 		// Each project starts a visibly separate block.
 		rows.Add( new( "project:" + project.Id, Theme.Current.Spacing * 2, () => BuildProject( project, conversations, archived.Count, isFlat, worktrees, worktreeActions ) ) );
 		if ( _tidyPlan.Value.ProjectId == project.Id )
