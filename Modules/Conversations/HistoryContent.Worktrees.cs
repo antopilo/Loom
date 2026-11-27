@@ -218,7 +218,8 @@ internal sealed partial class HistoryContent
 			var isActive = panelId == active;
 			halves.Add( new Button
 			{
-				Key = "half:" + conversation.Id,
+				// Keyed by panel: one chat can be open in two panels side by side, and sibling keys must differ.
+				Key = "half:" + panelId,
 				FlexGrow = 1,
 				FlexBasis = 0,
 				MinWidth = 0,
