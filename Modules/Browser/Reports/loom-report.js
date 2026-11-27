@@ -240,7 +240,11 @@
 		cancelAnimationFrame( pending );
 		pending = requestAnimationFrame( sketchBorders );
 	};
+	// The pen lines sit at fixed positions, so any change of layout redraws them: the window's size, another font or type style, fonts that finish
+	// loading, or a revision patched in.
 	addEventListener( "resize", resketch );
+	new ResizeObserver( resketch ).observe( body );
+	document.fonts.addEventListener( "loadingdone", resketch );
 	document.fonts.ready.then( resketch );
 	sketch();
 
@@ -350,6 +354,8 @@
 		body.dataset[button.dataset.set] = button.dataset.value;
 		if ( button.dataset.set === "chart" )
 			sketch();
+		else if ( button.dataset.set === "type" )
+			resketch();
 		save();
 		refresh();
 	} );
