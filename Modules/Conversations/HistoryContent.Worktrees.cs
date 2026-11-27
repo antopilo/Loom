@@ -182,24 +182,28 @@ internal sealed partial class HistoryContent
 	}
 
 	/// <summary>Adds a list's chats inset under their project's name, its tools' tasks left out; each keeps its place among the listed ones for dragging.</summary>
-	/// <remarks>Chats shown side by side on screen also read as one row split in two, as Arc shows a split view, above the first of them; their own rows
-	/// stay.</remarks>
+	/// <remarks>Chats shown side by side on screen merge into one row split in two, as Arc shows a split view, at the place of the first of them; their
+	/// own rows give way to it.</remarks>
 	/// <param name="indent">How far the rows are inset, such as <see cref="SidebarRows.ChildIndent"/>.</param>
 	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, int indent, List<SidebarRow> rows )
 	{
 		var listed = conversations.Where( conversation => !IsToolTask( conversation ) ).ToList();
 		var split = module.ComputeShownChats( context.App )
 			.Where( shown => shown.Chat.HostId == Host.Id && listed.Any( conversation => conversation.Id == shown.Chat.ConversationId ) ).ToList();
-		var isSplitShown = split.Count < 2;
+		var isSplitShown = false;
 		var index = 0;
 		foreach ( var conversation in listed )
 		{
 			var place = index++;
-			if ( !isSplitShown && split.Any( shown => shown.Chat.ConversationId == conversation.Id ) )
+			if ( split.Count >= 2 && split.Any( shown => shown.Chat.ConversationId == conversation.Id ) )
 			{
-				isSplitShown = true;
-				var pair = split.Select( shown => (listed.First( item => item.Id == shown.Chat.ConversationId ), shown.PanelId) ).ToList();
-				rows.Add( new( "split:" + list, SidebarRows.RowGap, () => BuildSplitRow( pair, indent ) ) );
+				if ( !isSplitShown )
+				{
+					isSplitShown = true;
+					var pair = split.Select( shown => (listed.First( item => item.Id == shown.Chat.ConversationId ), shown.PanelId) ).ToList();
+					rows.Add( new( "split:" + list, SidebarRows.RowGap, () => BuildSplitRow( pair, indent ) ) );
+				}
+				continue;
 			}
 			rows.Add( new( "chat:" + conversation.Id, SidebarRows.RowGap, () => BuildConversation( conversation, place, list, indent ) ) );
 		}
