@@ -209,6 +209,9 @@ internal sealed partial class HistoryContent
 		}
 	}
 
+	/// <summary>Defines the inset of a split row's halves from its edge, in logical pixels.</summary>
+	private const int SplitInset = 3;
+
 	/// <summary>Builds one row split into a half per chat shown side by side, each its title; clicking a half makes its panel active.</summary>
 	private Blob BuildSplitRow( IReadOnlyList<(ConversationInfo Conversation, Guid PanelId)> chats, int indent )
 	{
@@ -228,7 +231,8 @@ internal sealed partial class HistoryContent
 				FlexBasis = 0,
 				MinWidth = 0,
 				Padding = new Edges( 0, theme.Spacing ),
-				BorderRadius = theme.Radius + 1,
+				// Nested in the row's padding, so the tile's corners follow the row's.
+				BorderRadius = Math.Max( 0, theme.Radius - SplitInset ),
 				// As Arc draws it: the focused chat's half is a lighter tile inside the lit row.
 				BackgroundColor = isActive ? theme.Text.WithAlpha( 0.1 ) : Color.Transparent,
 				HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( 0.07 ) },
@@ -257,8 +261,9 @@ internal sealed partial class HistoryContent
 			AccessibilityName = "Chats side by side",
 			Height = theme.ControlHeight,
 			Margin = new Edges( 0, 0, 0, indent ),
-			Padding = 3,
-			BorderRadius = theme.Radius + 4,
+			Padding = SplitInset,
+			// A plain row's height and rounding, so the split row reads as one row of the list.
+			BorderRadius = theme.Radius,
 			BackgroundColor = isFocused ? theme.Hover : Color.Transparent,
 			AlignItems = AlignItems.Stretch,
 			Children = halves,
