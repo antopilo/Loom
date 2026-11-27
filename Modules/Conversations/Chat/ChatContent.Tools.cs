@@ -50,13 +50,65 @@ public sealed partial class ChatContent
 		}
 	}
 
+	/// <summary>Gets how far a step's mark sits left of the reading column: the mark and the gap after it, so the step's text starts on the column's edge.</summary>
+	internal static int StepInset => ChatIcons.MarkSize + Theme.Current.Spacing;
+
+	/// <summary>Holds the steps already shown; a step not in it grows the line down to it once.</summary>
+	private readonly HashSet<string> _shownSteps = new( StringComparer.Ordinal );
+
+	/// <summary>Lists the blocks of a part that are steps, reasoning with text or a tool call the transcript lines up, by block index.</summary>
+	private List<int> ComputeSteps( JsonElement content, TranscriptPart part )
+	{
+		var steps = new List<int>();
+		var index = 0;
+		foreach ( var block in content.EnumerateArray() )
+		{
+			var at = index++;
+			if ( at < part.Start || at >= part.End )
+				continue;
+			var type = ReadText( block, "type" );
+			if ( (type == "thinking" && !string.IsNullOrWhiteSpace( ReadText( block, "thinking" ) )) || (type == "toolCall" && IsActivityBlock( block )) )
+				steps.Add( at );
+		}
+		return steps;
+	}
+
+	/// <summary>Builds a tool's head line with its mark in the gutter left of the reading column and its text on the column's edge.</summary>
+	/// <remarks>Every head is one control tall, so the step line meets the mark at the same height on every tool.</remarks>
+	private static Row BuildStepHead( List<Blob> children ) => new()
+	{
+		Key = "tool-head",
+		AlignItems = AlignItems.Center,
+		Gap = Theme.Current.Spacing,
+		MinHeight = Theme.Current.ControlHeight,
+		Margin = new Edges( 0, 0, 0, -StepInset ),
+		Children = children,
+	};
+
+	/// <summary>Builds a reasoning or tool step with the line in the gutter that joins it to the steps before and after it.</summary>
+	/// <remarks>A tool's own head draws its mark in the gutter, so the line leaves room for it; reasoning has no head, so the line holds its mark.
+	/// A step new since the chat loaded grows the line down to it.</remarks>
+	/// <param name="key">The step's block key.</param>
+	/// <param name="step">The built step.</param>
+	/// <param name="isThinking">Whether the step is reasoning, which the line marks itself.</param>
+	/// <param name="joinsAbove">Whether a step comes before it in the same run.</param>
+	/// <param name="joinsBelow">Whether a step comes after it in the same run.</param>
+	/// <param name="gapAbove">The space between it and the step before.</param>
+	private Blob BuildStep( string key, Blob step, bool isThinking, bool joinsAbove, bool joinsBelow, double gapAbove )
+	{
+		var enters = _shownSteps.Add( key ) && (_isRowEntering || _isRowLive);
+		var rail = Cell.Mount<StepRailInput, StepRail>( "step-rail", new( isThinking, joinsAbove, joinsBelow, gapAbove, enters ) );
+		return new Container { Key = "step:" + key, Children = [rail, step] };
+	}
+
 	/// <summary>Builds one tool as its module's card, or as an icon and the agent's intent with its command or path; its code and output open on demand.</summary>
 	/// <remarks>A tool call that joins a row already on screen fades and rises in once.</remarks>
 	private Blob BuildTool( string key, JsonElement block )
 	{
 		var id = ReadText( block, "id" );
 		var isNew = _shownTools.Add( id ) && _isRowLive;
-		return Cell.Mount<RevealInput, Reveal>( key, new( BuildToolBody( key, id, block ), isNew ) );
+		// A tool joining a run on screen waits for the line to reach it, then sharpens into place.
+		return Cell.Mount<RevealInput, Reveal>( key, new( BuildToolBody( key, id, block ), isNew, isNew ? StepRail.GrowMs : 0, Blur: true ) );
 	}
 
 	/// <summary>Builds the tool's card, todo list, or line with its status mark, diffs, images and opened details.</summary>
@@ -139,7 +191,7 @@ public sealed partial class ChatContent
 		}
 		var children = new List<Blob>
 		{
-			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = Theme.Current.Spacing, Children = head, },
+			BuildStepHead( head ),
 		};
 		foreach ( var (index, file) in folded ? [] : diffs.Index() )
 		{

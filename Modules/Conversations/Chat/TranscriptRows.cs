@@ -22,8 +22,10 @@ internal readonly record struct TranscriptPart( ConversationMessage Message, int
 /// <param name="Gap">The space above the row in logical pixels.</param>
 /// <param name="Changes">The files a finished turn changed, for the card at its end; null for every other row.</param>
 /// <param name="IsRunning">Whether the row is the reasoning or tool run the agent works on now, which shows open until the agent writes or stops.</param>
+/// <param name="JoinsAbove">Whether the row's first reasoning or tool step continues a run from the row above, so the step line reaches up to it.</param>
+/// <param name="JoinsBelow">Whether the run continues in the row below, so the step line runs down from the row's last step.</param>
 internal sealed record TranscriptRow( string Key, TranscriptPart[] Parts, bool IsActivity, ConversationMessage[] Results, int Revision, double Gap, ChangedFile[]? Changes = null,
-	bool IsRunning = false ) : IMeasuredRow
+	bool IsRunning = false, bool JoinsAbove = false, bool JoinsBelow = false ) : IMeasuredRow
 {
 	/// <summary>Compares rows by their parts' messages and ranges, by the identity of each paired result, by their changed files, and by view state.</summary>
 	public bool Equals( TranscriptRow? other )
@@ -31,6 +33,7 @@ internal sealed record TranscriptRow( string Key, TranscriptPart[] Parts, bool I
 		if ( ReferenceEquals( this, other ) )
 			return true;
 		if ( other is null || Key != other.Key || IsActivity != other.IsActivity || IsRunning != other.IsRunning || Revision != other.Revision || Gap != other.Gap
+			|| JoinsAbove != other.JoinsAbove || JoinsBelow != other.JoinsBelow
 			|| Parts.Length != other.Parts.Length || Results.Length != other.Results.Length
 			|| (Changes is null ? other.Changes is not null : other.Changes is null || !Changes.SequenceEqual( other.Changes )) )
 			return false;

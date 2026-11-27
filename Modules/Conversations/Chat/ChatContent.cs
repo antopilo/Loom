@@ -46,8 +46,8 @@ public sealed partial class ChatContent : PanelContent
 	/// <summary>Gets the session this view shows.</summary>
 	internal IChatSession Session => session;
 
-	/// <summary>Defines the transcript inset in logical pixels.</summary>
-	internal static int ContentPadding => Theme.Current.Spacing * 2;
+	/// <summary>Defines the transcript inset in logical pixels: wide enough for the gutter where reasoning and tool steps show their marks.</summary>
+	internal static int ContentPadding => Theme.Current.Spacing * 3;
 
 	/// <summary>Defines the vertical space between transcript messages in logical pixels.</summary>
 	private static int MessageGap => Theme.Current.Spacing * 3;
@@ -111,6 +111,12 @@ public sealed partial class ChatContent : PanelContent
 
 	/// <summary>Reports whether the row being built is the run the agent works on now, whose reasoning and activity folds show open.</summary>
 	private bool _isRowRunning;
+
+	/// <summary>Reports whether the row being built continues a run of steps from the row above, and the space above it.</summary>
+	private (bool Above, bool Below, double Gap) _rowJoins;
+
+	/// <summary>Reports whether the row being built enters now, new since the chat loaded, so its steps grow the line down to them.</summary>
+	private bool _isRowEntering;
 
 	/// <summary>Reports whether the chat is connecting so it can open the Agent Hub once.</summary>
 	private bool _isOpeningAgents;
@@ -341,6 +347,9 @@ public sealed partial class ChatContent : PanelContent
 			var start = rows.Count;
 			foreach ( var (index, part) in activity.Index() )
 				Add( [part], false, index == 0 ? null : Theme.Current.Spacing );
+			// One line in the gutter joins the run's steps across its rows.
+			for ( var index = start; index < rows.Count; index++ )
+				rows[index] = rows[index] with { JoinsAbove = index > start, JoinsBelow = index < rows.Count - 1 };
 			lastRun = (start, rows.Count - 1);
 			activity.Clear();
 		}
@@ -441,11 +450,15 @@ public sealed partial class ChatContent : PanelContent
 	private Blob BuildRow( TranscriptRow row )
 	{
 		var isNew = _shown.Add( row.Key );
+		_isRowEntering = isNew;
 		_isRowLive = !_built.Add( row.Key );
 		_isRowRunning = row.IsRunning;
+		_rowJoins = (row.JoinsAbove, row.JoinsBelow, row.Gap);
 		var column = BuildColumn( "message", row.Changes is { } changes ? [BuildChanges( row.Key, changes )] : row.IsActivity ? [BuildActivity( row )] : [.. row.Parts.Select( BuildMessage ).OfType<Blob>()], Theme.Current.Spacing );
 		_isRowLive = false;
 		_isRowRunning = false;
+		_isRowEntering = false;
+		_rowJoins = default;
 		// Folded tool lines were not built, so they count as shown now and an opened fold does not play them.
 		foreach ( var part in row.Parts )
 			UpdateToolsShown( part );
@@ -453,7 +466,7 @@ public sealed partial class ChatContent : PanelContent
 		{
 			Width = Length.Percent( 100 ),
 			Padding = new Edges( row.Gap, 0, 0, 0 ),
-			Children = [Cell.Mount<RevealInput, Reveal>( "message-reveal", new( column, isNew ) )],
+			Children = [Cell.Mount<RevealInput, Reveal>( "message-reveal", new( column, isNew, Blur: true ) )],
 		};
 	}
 

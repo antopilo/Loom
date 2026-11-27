@@ -8,7 +8,8 @@ namespace Lokn.Modules.Chat;
 /// <param name="Animate">Whether the content fades in and rises into place when it mounts; false shows it at rest. Only a mount's first input counts, so later builds never replay the entrance.</param>
 /// <param name="DelayMs">How long the entrance waits after mounting, in milliseconds, to stagger content that enters together.</param>
 /// <param name="Cover">Whether the wrapper covers its parent's whole box, for overlays whose content is placed against the parent's edges.</param>
-internal sealed record RevealInput( Blob Content, bool Animate, double DelayMs = 0, bool Cover = false );
+/// <param name="Blur">Whether the entrance also sharpens the content from a blur, as new steps of the agent's work arrive.</param>
+internal sealed record RevealInput( Blob Content, bool Animate, double DelayMs = 0, bool Cover = false, bool Blur = false );
 
 /// <summary>Shows content that enters once: it fades in while it rises <see cref="ChatMotion.Rise"/> pixels into place.</summary>
 /// <remarks>
@@ -29,6 +30,15 @@ internal sealed class Reveal : GuardedCell<RevealInput>
 	/// <summary>Reports whether the first input was read, after which inputs no longer decide the entrance.</summary>
 	private bool _hasInput;
 
+	/// <summary>Tracks the fade of the blur over the entering content, or null once it has cleared.</summary>
+	private Anim<double>? _blur;
+
+	/// <summary>Reports whether the cell was built with a blur layer, which keeps the content inside a holder for the cell's life.</summary>
+	private bool _hasBlurHolder;
+
+	/// <summary>Defines the blur radius new content sharpens from, in logical pixels.</summary>
+	private const double EnterBlur = 6;
+
 	/// <summary>Starts the content hidden and lowered when its first input asks for an entrance.</summary>
 	protected override void InputChanged( RevealInput input )
 	{
@@ -41,6 +51,12 @@ internal sealed class Reveal : GuardedCell<RevealInput>
 
 		_opacity = AnimateValue( 0.0 );
 		_offset = AnimateValue( new Point { X = 0, Y = ChatMotion.Rise } );
+		// The blur is a layer over the content that fades away; Goo blurs what is behind an element, not the element itself.
+		if ( input.Blur && !input.Cover && Motion.TimeScale > 0 )
+		{
+			_blur = AnimateValue( 1.0 );
+			_hasBlurHolder = true;
+		}
 	}
 
 	/// <summary>Plays the entrance once the content has its place.</summary>
@@ -54,6 +70,16 @@ internal sealed class Reveal : GuardedCell<RevealInput>
 			spec = Motion.Delay( Input.DelayMs, spec );
 		_opacity.To( 1.0, spec );
 		_offset.To( new Point { X = 0, Y = 0 }, spec );
+		if ( _blur is not null )
+		{
+			_blur.To( 0.0, spec );
+			// The blur layer costs a pass every frame while present, so it leaves once the entrance has played.
+			After( (Input.DelayMs + ChatMotion.BaseMs) / Motion.TimeScale + ChatMotion.FastMs, () =>
+			{
+				_blur = null;
+				Rebuild();
+			} );
+		}
 	}
 
 	/// <summary>Builds a fresh wrapper carrying the entrance's fade and offset around the content.</summary>
@@ -73,7 +99,26 @@ internal sealed class Reveal : GuardedCell<RevealInput>
 			wrapper.Right = 0;
 			wrapper.Bottom = 0;
 		}
-		return wrapper;
+		if ( !_hasBlurHolder )
+			return wrapper;
+		return new Container
+		{
+			Children = _blur is null ? [wrapper] :
+			[
+				wrapper,
+				new Container
+				{
+					Key = "reveal-blur",
+					Position = PositionType.Absolute,
+					Left = 0,
+					Top = 0,
+					Right = 0,
+					Bottom = 0,
+					BackdropBlur = EnterBlur,
+					OpacityAnim = _blur,
+				},
+			],
+		};
 	}
 
 	/// <summary>Wraps content its owner removes after a short exit: build it this way while present, then with <paramref name="isLeaving"/> set for <see cref="ChatMotion.FastMs"/> before removing it.</summary>

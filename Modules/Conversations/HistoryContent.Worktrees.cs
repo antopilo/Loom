@@ -299,7 +299,7 @@ internal sealed partial class HistoryContent
 			AlignItems = AlignItems.Center,
 			Children =
 			[
-				new Text { Content = title, Color = theme.Text, MinWidth = 0, FlexShrink = 1, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+				SidebarFade.Apply( new Text { Content = title, Color = theme.Text, MinWidth = 0, FlexShrink = 1, TextWrap = TextWrap.NoWrap } ),
 			],
 		};
 	}

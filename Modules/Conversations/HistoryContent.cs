@@ -371,9 +371,9 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 				: conversation.IsPinned ? $"{conversation.Title}, pinned" : null );
 			// Dragged onto a pane, the chat opens there, beside the chat it lands next to.
 			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order, ( pane, placement ) => module.OpenConversationAt( context.App, chat, pane, placement ) );
-			// A long title stays on one line and ends with an ellipsis rather than growing the row; a generated title replacing the first line rolls in.
+			// A long title stays on one line and fades out at the row's end rather than growing the row; a generated title replacing the first line rolls in.
 			// Emoji the user typed in it fall back to the emoji face.
-			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily } )];
+			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily, Fade = true } )];
 			main = button;
 		}
 		// A chat dragged onto this one shows it merged while the pointer stays, as the split it makes when dropped; the row keeps its drop target.

@@ -20,6 +20,7 @@ param()
 $effects = @(
 	@{ Source = 'Modules\Conversations\Chat\Shaders\shimmer.slang'; SourceIndependent = 'false' }
 	@{ Source = 'Modules\Conversations\Chat\Shaders\glow.slang'; SourceIndependent = 'true' }
+	@{ Source = 'Modules\Workspaces\Shaders\fade.slang'; SourceIndependent = 'false' }
 )
 
 $root = Split-Path -Parent $PSScriptRoot

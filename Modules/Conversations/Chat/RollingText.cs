@@ -27,6 +27,10 @@ internal sealed record RollingTextInput( string Text, double FontSize, Color Col
 
 	/// <summary>Gets whether every change rolls up, as a clock's does, rather than numbers that fell rolling down.</summary>
 	public bool Rising { get; init; }
+
+	/// <summary>Gets whether a settled one-line label that runs out of room fades out at its end, as the sidebar's titles do, rather than ending in an
+	/// ellipsis.</summary>
+	public bool Fade { get; init; }
 }
 
 /// <summary>Shows a label whose changes move instead of popping: only the changed run moves, the rest of the text stays put.</summary>
@@ -136,7 +140,7 @@ internal sealed class RollingText : GuardedCell<RollingTextInput>
 		return input.MaxLines == 1 ? BuildRoll( input, progress ) : BuildFade( input, progress );
 	}
 
-	/// <summary>Builds the settled label: one text that ends in an ellipsis when it runs out of room.</summary>
+	/// <summary>Builds the settled label: one text that ends in an ellipsis when it runs out of room, or fades out there when asked to.</summary>
 	private static Text BuildRest( RollingTextInput input )
 	{
 		var text = BuildText( input, input.Text );
@@ -145,7 +149,7 @@ internal sealed class RollingText : GuardedCell<RollingTextInput>
 		text.MinWidth = 0;
 		text.TextMaxLines = Math.Max( 1, input.MaxLines );
 		text.TextTrimming = TextTrimming.Ellipsis;
-		return text;
+		return input.Fade && input.MaxLines == 1 ? Workspaces.SidebarFade.Apply( text ) : text;
 	}
 
 	/// <summary>Builds a single-line change: the still start, the clipped box where the runs roll, and the still end.</summary>

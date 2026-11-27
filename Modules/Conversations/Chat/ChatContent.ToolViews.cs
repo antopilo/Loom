@@ -240,7 +240,7 @@ public sealed partial class ChatContent
 
 		var children = new List<Blob>
 		{
-			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = [mark, BuildToolTitle( "Bash", intent )] },
+			BuildStepHead( [mark, BuildToolTitle( "Bash", intent )] ),
 			new Container
 			{
 				Key = "bash-box:" + id,
@@ -321,22 +321,16 @@ public sealed partial class ChatContent
 					Children = rows,
 				} );
 			}
-			var head = new Row
-			{
-				Key = "tool-head",
-				AlignItems = AlignItems.Center,
-				Gap = theme.Spacing,
-				Children =
-				[
-					ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "wait" ) ),
-					new Text( [
-						new( Count( jobs.Count - running, "job", "jobs" ) + " settled", new Style { FontWeight = 600, Color = theme.Text } ),
-						new( completed > 0 ? $"  {completed} done" : "", new Style { Color = theme.AnsiYellow } ),
-						new( running > 0 ? $"  {running} in background" : "", new Style { Color = theme.AnsiMagenta } ),
-						new( failed > 0 ? $"  {failed} failed" : "", new Style { Color = theme.Error } ),
-					] ),
-				],
-			};
+			var head = BuildStepHead(
+			[
+				ChatIcons.BuildIcon( ChatIcons.ComputeToolGlyph( "wait" ) ),
+				new Text( [
+					new( Count( jobs.Count - running, "job", "jobs" ) + " settled", new Style { FontWeight = 600, Color = theme.Text } ),
+					new( completed > 0 ? $"  {completed} done" : "", new Style { Color = theme.AnsiYellow } ),
+					new( running > 0 ? $"  {running} in background" : "", new Style { Color = theme.AnsiMagenta } ),
+					new( failed > 0 ? $"  {failed} failed" : "", new Style { Color = theme.Error } ),
+				] ),
+			] );
 			return new Container { Key = key, AccessibilityRole = AccessibilityRole.Group, AccessibilityName = "wait tool " + status, Gap = theme.Spacing, Children = [head, .. cards] };
 		}
 		var outcome = result is { } body && status != "Running" ? TerminalText.BuildPlain( ComputeResultText( body ) ).Trim().TrimEnd( '.' ) : "";
@@ -361,7 +355,10 @@ public sealed partial class ChatContent
 			children.Add( new Spacer() );
 			children.Add( ChatIcons.BuildSpinner( "wait-spinner" ) );
 		}
-		return new Container { Key = key, Children = [new Row { AccessibilityRole = AccessibilityRole.Group, AccessibilityName = $"wait tool {status}", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = children }] };
+		var line = BuildStepHead( children );
+		line.AccessibilityRole = AccessibilityRole.Group;
+		line.AccessibilityName = $"wait tool {status}";
+		return new Container { Key = key, Children = [line] };
 	}
 
 	/// <summary>Builds the line over one file's diff in an edit of several files: its folder muted, its name bold, and its counts at the end.</summary>

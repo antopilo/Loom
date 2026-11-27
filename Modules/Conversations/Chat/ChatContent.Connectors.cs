@@ -95,7 +95,9 @@ public sealed partial class ChatContent
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing,
 			Padding = new Edges( 2, theme.Spacing / 2 ),
-			Margin = new Edges( 0, -theme.Spacing / 2 ),
+			// The mark sits in the gutter left of the reading column, as every step's does.
+			Margin = new Edges( 0, -theme.Spacing / 2, 0, -theme.Spacing / 2 - StepInset ),
+			MinHeight = theme.ControlHeight,
 			BorderRadius = theme.Radius,
 			Cursor = Cursor.Pointer,
 			HoverStyle = new Style { BackgroundColor = theme.Hover },

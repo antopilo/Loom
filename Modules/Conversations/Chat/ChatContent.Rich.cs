@@ -62,6 +62,8 @@ public sealed partial class ChatContent
 		{
 			if ( content.ValueKind == JsonValueKind.Array )
 			{
+				// The part's reasoning and tool steps, joined by a line in the gutter.
+				List<int> steps = message.Role == "assistant" ? ComputeSteps( content, part ) : [];
 				var index = 0;
 				foreach ( var block in content.EnumerateArray() )
 				{
@@ -70,6 +72,12 @@ public sealed partial class ChatContent
 						continue;
 					if ( message.Role == "user" && ReadText( block, "type" ) == "text" )
 						body.AddRange( BuildSentText( message.Id, ReadText( block, "text" ) ) );
+					else if ( steps.IndexOf( index - 1 ) is var step and >= 0 )
+					{
+						var isThinking = ReadText( block, "type" ) == "thinking";
+						foreach ( var built in BuildRichBlock( key, block, message.Role ) )
+							body.Add( BuildStep( key, built, isThinking, step > 0 || _rowJoins.Above, step < steps.Count - 1 || _rowJoins.Below, step > 0 ? ActionGap : _rowJoins.Gap ) );
+					}
 					else
 						body.AddRange( BuildRichBlock( key, block, message.Role ) );
 				}
@@ -162,7 +170,11 @@ public sealed partial class ChatContent
 				yield return BuildStreamText( key, text );
 		}
 		else if ( type == "thinking" )
-			yield return BuildThinking( key, ReadText( block, "thinking" ) );
+		{
+			// Empty reasoning, such as an encrypted summary, shows nothing and takes no space between steps.
+			if ( !string.IsNullOrWhiteSpace( ReadText( block, "thinking" ) ) )
+				yield return BuildThinking( key, ReadText( block, "thinking" ) );
+		}
 		else if ( type == "toolCall" )
 			yield return BuildTool( key, block );
 		else if ( type == "image" )

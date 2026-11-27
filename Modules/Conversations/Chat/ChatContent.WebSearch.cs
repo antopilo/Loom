@@ -46,7 +46,7 @@ public sealed partial class ChatContent
 			} );
 		var children = new List<Blob>
 		{
-			new Row { Key = "tool-head", AlignItems = AlignItems.Center, Gap = theme.Spacing, Children = head },
+			BuildStepHead( head ),
 		};
 
 		if ( text.Length > 0 )

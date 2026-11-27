@@ -85,7 +85,8 @@ public sealed partial class SidebarRows
 			button.Children =
 			[
 				.. BuildPanelIcons( task ),
-				new Text
+				// A long name fades out at the row's end, as Arc's titles do.
+				SidebarFade.Apply( new Text
 				{
 					Content = task.Name,
 					FontSize = Theme.Current.FontSize,
@@ -94,8 +95,7 @@ public sealed partial class SidebarRows
 					FlexShrink = 1,
 					TextWrap = TextWrap.NoWrap,
 					TextMaxLines = 1,
-					TextTrimming = TextTrimming.Ellipsis,
-				},
+				} ),
 			];
 			main = button;
 		}
