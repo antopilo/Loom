@@ -3,6 +3,10 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.30
+
+- **Tab between panels.** With no text field focused, Tab and Shift+Tab move to the next and previous panel.
+
 ## 0.4.29
 
 - **Chats side by side.** Drag a chat from the sidebar onto an open chat to show it beside it, like Arc's split view. The sidebar shows the

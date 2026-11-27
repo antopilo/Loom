@@ -240,10 +240,30 @@ internal sealed partial class ShellView : Cell
 		if ( _app.Popups.Top is not null )
 			return false;
 
+		// Tab and Shift+Tab move between panels while no text field has focus; in a text field they stay its own keys.
+		if ( key == Key.Tab && (modifiers == KeyModifiers.None || modifiers == ShiftOnly) && !Host.Focus.EditsText && CyclePanel( modifiers == ShiftOnly ) )
+			return true;
+
 		if ( _app.Commands.FindShortcut( key, modifiers ) is not { } id )
 			return false;
 
 		_ = _app.Commands.ExecuteAsync( id );
 		return true;
 	}
+
+	/// <summary>Makes the next pane with a panel active, in the layout's order, wrapping around; the previous one when <paramref name="backward"/>.</summary>
+	/// <returns>Whether another pane became active.</returns>
+	private bool CyclePanel( bool backward )
+	{
+		var panes = _app.Panels.Panes.Where( pane => pane.PanelId is not null ).ToList();
+		if ( panes.Count < 2 || _app.Panels.MaximizedPanelId is not null )
+			return false;
+
+		var index = panes.FindIndex( pane => pane.Id == _app.Panels.ActivePaneId );
+		var next = index < 0 ? 0 : (index + (backward ? panes.Count - 1 : 1)) % panes.Count;
+		return _app.Panels.ActivatePane( panes[next].Id );
+	}
+
+	/// <summary>Defines Shift alone, the modifier that cycles panels backward.</summary>
+	private static readonly KeyModifiers ShiftOnly = new() { Shift = true };
 }
