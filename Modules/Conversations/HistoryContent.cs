@@ -384,7 +384,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var row = _sidebar.BuildHoverRow( conversation.Id,
 		[
 			main,
-			BuildStateColumn( conversation.Id, $"{conversation.Title} options", mark ),
+			BuildStateColumn( conversation.Id, $"{conversation.Title} options", mark, hasMore: false ),
 		], order );
 		row.Margin = new Edges( 0, 0, 0, indent );
 		var children = new List<Blob> { row };

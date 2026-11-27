@@ -159,16 +159,22 @@ internal sealed partial class HistoryContent
 	/// <param name="menuName">The menu's accessible name.</param>
 	/// <param name="mark">The state mark at rest, or null for none.</param>
 	/// <param name="buttons">Buttons before …, such as a folder's tools.</param>
-	private Container BuildStateColumn( Guid id, string menuName, Blob? mark, IReadOnlyList<Blob>? buttons = null )
+	/// <param name="hasMore">Whether the row shows a … button; a row without one opens its menu by right-click only.</param>
+	private Container BuildStateColumn( Guid id, string menuName, Blob? mark, IReadOnlyList<Blob>? buttons = null, bool hasMore = true )
 	{
 		var theme = Theme.Current;
 		var isRevealed = _sidebar.IsHovered( id ) || _sidebar.IsMenuOpen( id );
-		var more = _sidebar.BuildMoreButton( id, menuName, isRevealed );
-		more.Width = StateWidth;
-		more.Height = ToolSize;
 		// Each button fades on its own, as the sidebar's icon buttons do; hidden ones stay focusable, and their focus or hover shows them.
 		foreach ( var button in (buttons ?? []).SelectMany( Flatten ).OfType<Button>() )
 			button.Opacity = isRevealed ? 1 : 0;
+		var children = new List<Blob>( buttons ?? [] );
+		if ( hasMore )
+		{
+			var more = _sidebar.BuildMoreButton( id, menuName, isRevealed );
+			more.Width = StateWidth;
+			more.Height = ToolSize;
+			children.Add( more );
+		}
 		var overlay = new Row
 		{
 			Key = "buttons",
@@ -179,8 +185,8 @@ internal sealed partial class HistoryContent
 			AlignItems = AlignItems.Center,
 			Gap = ToolGap,
 			Padding = new Edges( 0, 0, 0, FadeWidth ),
-			BackgroundGradient = isRevealed ? new LinearGradient( 90, [theme.Hover.WithAlpha( 0 ), theme.Hover, theme.Hover, theme.Hover] ) : null,
-			Children = [.. buttons ?? [], more],
+			BackgroundGradient = isRevealed && children.Count > 0 ? new LinearGradient( 90, [theme.Hover.WithAlpha( 0 ), theme.Hover, theme.Hover, theme.Hover] ) : null,
+			Children = children,
 		};
 		return new Container
 		{
@@ -190,7 +196,7 @@ internal sealed partial class HistoryContent
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
-			Children = mark is not null && !isRevealed ? [mark, overlay] : [overlay],
+			Children = mark is not null && !(isRevealed && children.Count > 0) ? [mark, overlay] : [overlay],
 		};
 	}
 

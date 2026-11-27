@@ -353,9 +353,9 @@ public sealed partial class SidebarRows( PanelContext context )
 		return button;
 	}
 
-	/// <summary>Builds a row's open menu: below its … button, or at the pointer when a right-click opened it.</summary>
+	/// <summary>Builds a row's open menu: below its … button, or at the pointer when a right-click opened it or the row has no … button.</summary>
 	public Blob BuildMenu( Guid id, string name, IReadOnlyList<MenuEntry> entries ) => Cell.Mount<ContextMenuInput, ContextMenu>( "menu", new(
-		_menuAt is null ? _moreButtons[id] : _rows[id],
+		_menuAt is null && _moreButtons.TryGetValue( id, out var more ) ? more : _rows[id],
 		name,
 		entries,
 		() => context.Run( CloseMenu ) )

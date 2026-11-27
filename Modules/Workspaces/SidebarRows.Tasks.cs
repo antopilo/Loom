@@ -58,7 +58,7 @@ public sealed partial class SidebarRows
 		return tasks.Length;
 	}
 
-	/// <summary>Builds one task row: its name, highlighted while it is the open task, its pin and … actions, its menu while open, and its name editor while renaming.</summary>
+	/// <summary>Builds one task row: its name, highlighted while it is the open task, its pin, its menu while open (right-click opens it), and its name editor while renaming.</summary>
 	/// <remarks>Double-click the name, press F2 on it, or choose Rename in its menu to rename it in place; drag it onto another task of its session, pinned or not as it is, to move it there.</remarks>
 	/// <param name="workspaces">The module that keeps the task.</param>
 	/// <param name="session">The task's session key.</param>
@@ -111,7 +111,6 @@ public sealed partial class SidebarRows
 			[
 				main,
 				pin,
-				BuildMoreButton( task.Id, $"{task.Name} options", isHovered || isMenuOpen ),
 			], order ),
 		};
 		if ( isMenuOpen )
