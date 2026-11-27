@@ -725,6 +725,9 @@ internal sealed partial class ShellView
 	/// <summary>Accepts only live panel drags from this application workspace.</summary>
 	private DragEffect QueryPanelDrop( DragEvent item )
 	{
+		// A module's drag, such as a chat from the sidebar, opens its panel where it lands.
+		if ( item.Data.Value is IPanelDrop { CanDrop: true } )
+			return DragEffect.Move;
 		return item.Data.Value is PanelDrag drag && drag.Workspace == _app.Panels
 			&& _app.Panels.Panels.Any( panel => panel.Id == drag.PanelId ) ? DragEffect.Move : DragEffect.None;
 	}
@@ -751,6 +754,12 @@ internal sealed partial class ShellView
 		{
 			_app.Panels.Move( drag.PanelId, paneId, placement );
 			UpdateDropPreview( null );
+			return;
+		}
+		if ( item.Kind == DragEventKind.Drop && item.Data.Value is IPanelDrop { CanDrop: true } opened )
+		{
+			UpdateDropPreview( null );
+			opened.Drop( paneId, placement );
 			return;
 		}
 

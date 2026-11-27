@@ -3,6 +3,11 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.29
+
+- **Chats side by side.** Drag a chat from the sidebar onto an open chat to show it beside it, like Arc's split view. The sidebar shows the
+  two chats as one row split in two; click a half to focus that chat.
+
 ## 0.4.28
 
 - **No gap in Settings.** Settings with their own editor under the text, such as the theme picker, no longer leave empty space above it.

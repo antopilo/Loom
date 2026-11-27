@@ -458,6 +458,44 @@ public sealed partial class ConversationsModule(
 		return opened;
 	}
 
+	/// <summary>Shows a conversation against a pane it was dragged onto: beside it in a new split, or in its place for <see cref="PanelPlacement.Swap"/>.</summary>
+	/// <remarks>A panel already showing the conversation moves there; otherwise one opens in a new pane first, then moves, so no other chat is replaced.</remarks>
+	public void OpenConversationAt( LoknApplication app, ChatRef chat, Guid paneId, PanelPlacement placement )
+	{
+		var shown = GetChat( chat );
+		if ( shown.Conversation.Profile != app.Settings.ActiveProfile )
+			return;
+		UpdateSeen( app, chat );
+		shown.Host.Store.AddChat( shown.Conversation.Id );
+		Select( shown.Conversation.Profile, chat );
+		var panelId = FindPanels( app ).FirstOrDefault( item => item.Panel.Chat == chat ).Id;
+		if ( panelId == Guid.Empty || !app.Panels.IsShown( panelId ) )
+		{
+			app.Panels.ActivatePane( paneId );
+			var pane = app.Panels.SplitActive( SplitAxis.Horizontal );
+			if ( panelId == Guid.Empty )
+				panelId = app.Panels.Open( ChatPanelType, pane, BuildInput( chat, shown.Conversation.Profile ), shown.Host.Id );
+			else
+				app.Panels.Show( panelId, pane );
+		}
+		if ( app.Panels.Panes.FirstOrDefault( pane => pane.PanelId == panelId ) is { } source && source.Id != paneId )
+			app.Panels.Move( panelId, paneId, placement );
+		app.Panels.Activate( panelId );
+	}
+
+	/// <summary>Lists the chats shown on screen now, in pane order: two or more read as one split row in the sidebar.</summary>
+	internal List<(ChatRef Chat, Guid PanelId)> ComputeShownChats( LoknApplication app )
+	{
+		var panels = FindPanels( app );
+		var shown = new List<(ChatRef Chat, Guid PanelId)>();
+		foreach ( var pane in app.Panels.Panes )
+		{
+			if ( pane.PanelId is { } id && panels.FirstOrDefault( item => item.Id == id ).Panel is { IsEmpty: false, Chat: { } chat } )
+				shown.Add( (chat, id) );
+		}
+		return shown;
+	}
+
 	/// <summary>Opens a new conversation panel on a chat's host, in the active pane.</summary>
 	private static Guid OpenChatPanel( LoknApplication app, HostedChat chat ) =>
 		app.Panels.Open( ChatPanelType, input: BuildInput( chat.Ref, chat.Conversation.Profile ), hostId: chat.Host.Id );

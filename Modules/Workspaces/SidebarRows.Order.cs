@@ -25,13 +25,15 @@ public sealed partial class SidebarRows
 	/// <summary>Holds the place of each reorderable row from the latest build, by row.</summary>
 	private readonly Dictionary<Guid, RowOrder> _orders = [];
 
-	/// <summary>Builds the drag that starts on a row's main button, carrying the row to another place in its group.</summary>
+	/// <summary>Builds the drag that starts on a row's main button, carrying the row to another place in its group, or, given
+	/// <paramref name="openAt"/>, onto a pane to open there.</summary>
 	/// <param name="id">The row.</param>
 	/// <param name="order">The row's place among its group's rows.</param>
-	public DragSource BuildRowDrag( Guid id, RowOrder order ) => new( start =>
+	/// <param name="openAt">Shows the row's panel against a pane it is dropped on, or null for a row that opens no panel.</param>
+	public DragSource BuildRowDrag( Guid id, RowOrder order, Action<Guid, PanelPlacement>? openAt = null ) => new( start =>
 	{
 		context.Run( () => _drag.Value = StartDrag( id, order, start.WindowPosition.Y ) );
-		return new DragData( new RowDrag( this, order.Group, id, order.Index ), DragEffect.Move );
+		return new DragData( new RowDrag( this, order.Group, id, order.Index, openAt ), DragEffect.Move );
 	}, _ => context.Run( () => _drag.Value = null ) );
 
 	/// <summary>Builds what a row does with a row of its group dragged over it, the dragged row itself included, since it stays under the pointer:
@@ -151,5 +153,14 @@ public sealed partial class SidebarRows
 	/// <param name="Group">The rows it moves among.</param>
 	/// <param name="Id">The row.</param>
 	/// <param name="Index">Its place among the group's rows when the drag started.</param>
-	private sealed record RowDrag( SidebarRows Owner, string Group, Guid Id, int Index );
+	/// <param name="OpenAt">Shows the row's panel against a pane it is dropped on, or null.</param>
+	private sealed record RowDrag( SidebarRows Owner, string Group, Guid Id, int Index, Action<Guid, PanelPlacement>? OpenAt ) : IPanelDrop
+	{
+		/// <inheritdoc/>
+		public bool CanDrop => OpenAt is not null;
+
+		/// <inheritdoc/>
+		/// <remarks>The shell calls it on the UI thread, where the drop arrives.</remarks>
+		public void Drop( Guid paneId, PanelPlacement placement ) => OpenAt?.Invoke( paneId, placement );
+	}
 }

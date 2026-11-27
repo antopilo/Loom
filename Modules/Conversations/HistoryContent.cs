@@ -367,7 +367,8 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 				() => _sidebar.BeginRename( conversation.Id, conversation.Title ),
 				isWorking ? $"{conversation.Title}, working" : isWaiting ? $"{conversation.Title}, waiting for you"
 				: conversation.IsPinned ? $"{conversation.Title}, pinned" : null );
-			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order );
+			// Dragged onto a pane, the chat opens there, beside the chat it lands next to.
+			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order, ( pane, placement ) => module.OpenConversationAt( context.App, chat, pane, placement ) );
 			// A long title stays on one line and ends with an ellipsis rather than growing the row; a generated title replacing the first line rolls in.
 			// Emoji the user typed in it fall back to the emoji face.
 			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily } )];

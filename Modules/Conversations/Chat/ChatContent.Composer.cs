@@ -41,8 +41,6 @@ public sealed partial class ChatContent
 	/// <summary>Stores the last provider usage loading error, or empty.</summary>
 	private string _usageError = "";
 
-	/// <summary>Defines the blur radius of the transcript under the floating prompt, in logical pixels.</summary>
-	private const double FloatingBlur = 6;
 
 	/// <summary>Defines how much of the panel color veils the transcript under the floating prompt; the blurred text still shows through faintly.</summary>
 	private const double FloatingVeil = 0.5;
@@ -100,7 +98,6 @@ public sealed partial class ChatContent
 					HitTestSelf = false,
 					MinHeight = 0,
 					JustifyContent = JustifyContent.FlexEnd,
-					BackdropBlur = FloatingBlur,
 					BackgroundColor = veil,
 					Children = stack,
 				},

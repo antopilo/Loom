@@ -182,15 +182,82 @@ internal sealed partial class HistoryContent
 	}
 
 	/// <summary>Adds a list's chats inset under their project's name, its tools' tasks left out; each keeps its place among the listed ones for dragging.</summary>
+	/// <remarks>Chats shown side by side on screen read as one row split in two, as Arc shows a split view, at the place of the first of them.</remarks>
 	/// <param name="indent">How far the rows are inset, such as <see cref="SidebarRows.ChildIndent"/>.</param>
 	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, int indent, List<SidebarRow> rows )
 	{
+		var listed = conversations.Where( conversation => !IsToolTask( conversation ) ).ToList();
+		var split = module.ComputeShownChats( context.App )
+			.Where( shown => shown.Chat.HostId == Host.Id && listed.Any( conversation => conversation.Id == shown.Chat.ConversationId ) ).ToList();
 		var index = 0;
-		foreach ( var conversation in conversations.Where( conversation => !IsToolTask( conversation ) ) )
+		foreach ( var conversation in listed )
 		{
 			var place = index++;
+			if ( split.Count >= 2 && split.Any( shown => shown.Chat.ConversationId == conversation.Id ) )
+			{
+				if ( split[0].Chat.ConversationId != conversation.Id && listed.FindIndex( item => item.Id == split[0].Chat.ConversationId ) < place )
+					continue;
+				if ( rows.Any( row => row.Key == "split:" + list ) )
+					continue;
+				var pair = split.Select( shown => (listed.First( item => item.Id == shown.Chat.ConversationId ), shown.PanelId) ).ToList();
+				rows.Add( new( "split:" + list, SidebarRows.RowGap, () => BuildSplitRow( pair, indent ) ) );
+				continue;
+			}
 			rows.Add( new( "chat:" + conversation.Id, SidebarRows.RowGap, () => BuildConversation( conversation, place, list, indent ) ) );
 		}
+	}
+
+	/// <summary>Builds one row split into a half per chat shown side by side, each its title; clicking a half makes its panel active.</summary>
+	private Blob BuildSplitRow( IReadOnlyList<(ConversationInfo Conversation, Guid PanelId)> chats, int indent )
+	{
+		var theme = Theme.Current;
+		var active = context.App.Panels.ActivePanelId;
+		var halves = new List<Blob>();
+		foreach ( var (index, (conversation, panelId)) in chats.Index() )
+		{
+			if ( index > 0 )
+				halves.Add( new Container { Width = theme.BorderWidth, AlignSelf = AlignSelf.Stretch, Margin = new Edges( 4, 0 ), BackgroundColor = theme.Border } );
+			var isActive = panelId == active;
+			halves.Add( new Button
+			{
+				Key = "half:" + conversation.Id,
+				FlexGrow = 1,
+				FlexBasis = 0,
+				MinWidth = 0,
+				Padding = new Edges( 0, theme.Spacing ),
+				BorderRadius = theme.Radius,
+				BackgroundColor = isActive ? theme.Hover : Color.Transparent,
+				HoverStyle = new Style { BackgroundColor = theme.Hover },
+				Cursor = Cursor.Pointer,
+				AccessibilityName = isActive ? $"{conversation.Title}, active in split" : $"{conversation.Title}, in split",
+				OnClick = () => context.Run( () => context.App.Panels.Activate( panelId ) ),
+				Children =
+				[
+					new Text
+					{
+						Content = conversation.Title,
+						Color = isActive ? theme.Text : theme.Muted,
+						MinWidth = 0,
+						TextWrap = TextWrap.NoWrap,
+						TextTrimming = TextTrimming.Ellipsis,
+					},
+				],
+			} );
+		}
+		return new Row
+		{
+			Key = "split",
+			AccessibilityRole = AccessibilityRole.Group,
+			AccessibilityName = "Chats side by side",
+			Height = theme.ControlHeight,
+			Margin = new Edges( 0, 0, 0, indent ),
+			Padding = 2,
+			BorderRadius = theme.Radius + 2,
+			BorderWidth = theme.BorderWidth,
+			BorderColor = theme.Border,
+			AlignItems = AlignItems.Stretch,
+			Children = halves,
+		};
 	}
 
 	/// <summary>Builds the label of a worktree: a branch icon in the project icon's column, its branch or folder name, then on This PC its tools, and its …
