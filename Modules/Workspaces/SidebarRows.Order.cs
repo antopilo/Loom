@@ -38,6 +38,10 @@ public sealed partial class SidebarRows
 		return new DragData( new RowDrag( this, order.Group, id, order.Index, openAt ), DragEffect.Move );
 	}, _ => context.Run( () => _drag.Value = null ) );
 
+	/// <summary>Gets the row being dragged and the row it joins if dropped now, or null; reading it in a build rebuilds as the pointer moves, so the
+	/// joined row can show itself merged while the drag hovers it.</summary>
+	public (Guid Dragged, Guid Onto)? JoinPreview => _drag.Value is { Onto: { } onto } drag ? (drag.Id, onto) : null;
+
 	/// <summary>Builds what a row does with a row of its group dragged over it, the dragged row itself included, since it stays under the pointer:
 	/// it follows the pointer, and a drop moves the dragged row to the place it shows.</summary>
 	private DropTarget BuildRowDrop( RowOrder order ) => new(
@@ -141,12 +145,9 @@ public sealed partial class SidebarRows
 			return;
 		}
 
-		// The row it would join is lit instead of moving aside.
+		// The row it would join draws its own merged preview through JoinPreview, so it stays in place.
 		if ( drag.Onto == id )
-		{
-			row.BackgroundColor = Theme.Current.Accent.WithAlpha( 0.18 );
 			return;
-		}
 		var shift = drag.Onto is not null ? 0
 			: order.Index > drag.Index && order.Index <= drag.Target ? -drag.Slot
 			: order.Index < drag.Index && order.Index >= drag.Target ? drag.Slot

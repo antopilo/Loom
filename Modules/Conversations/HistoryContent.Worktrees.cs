@@ -212,63 +212,112 @@ internal sealed partial class HistoryContent
 	/// <summary>Defines the inset of a split row's halves from its edge, in logical pixels.</summary>
 	private const int SplitInset = 3;
 
-	/// <summary>Builds one row split into a half per chat shown side by side, each its title; clicking a half makes its panel active.</summary>
+	/// <summary>Holds the split half being dragged, by its panel, or empty while none is.</summary>
+	private readonly State<Guid> _draggedHalf = new( Guid.Empty );
+
+	/// <summary>Reports whether the dragged half is over its split row, where letting go keeps it in the split.</summary>
+	private readonly State<bool> _isHalfInside = new( true );
+
+	/// <summary>Identifies a split half being dragged out of its row.</summary>
+	/// <param name="PanelId">The half's panel.</param>
+	private sealed record SplitHalfDrag( Guid PanelId );
+
+	/// <summary>Builds one row split into a half per chat shown side by side; clicking a half focuses its chat, and dragging a half out of the row takes
+	/// its chat out of the split, the row showing it gone while the pointer is outside and back while it returns.</summary>
 	private Blob BuildSplitRow( IReadOnlyList<(ConversationInfo Conversation, Guid PanelId)> chats, int indent )
 	{
 		var theme = Theme.Current;
 		var active = context.App.Panels.ActivePanelId;
+		var leaving = _isHalfInside.Value ? Guid.Empty : _draggedHalf.Value;
 		var halves = new List<Blob>();
-		foreach ( var (index, (conversation, panelId)) in chats.Index() )
+		foreach ( var (conversation, panelId) in chats.Where( item => item.PanelId != leaving ) )
 		{
-			if ( index > 0 )
+			if ( halves.Count > 0 )
 				halves.Add( new Container { Width = 4, FlexShrink = 0 } );
-			var isActive = panelId == active;
-			halves.Add( new Button
+			var half = BuildSplitTile( "half:" + panelId, conversation.Title, panelId == active, () => context.App.Panels.Activate( panelId ) );
+			half.DragSource = new DragSource( _ =>
 			{
-				// Keyed by panel: one chat can be open in two panels side by side, and sibling keys must differ.
-				Key = "half:" + panelId,
-				FlexGrow = 1,
-				FlexBasis = 0,
-				MinWidth = 0,
-				Padding = new Edges( 0, theme.Spacing ),
-				// Nested in the row's padding, so the tile's corners follow the row's.
-				BorderRadius = Math.Max( 0, theme.Radius - SplitInset ),
-				// As Arc draws it: the focused chat's half is a lighter tile inside the lit row.
-				BackgroundColor = isActive ? theme.Text.WithAlpha( 0.1 ) : Color.Transparent,
-				HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( 0.07 ) },
-				Cursor = Cursor.Pointer,
-				AccessibilityName = isActive ? $"{conversation.Title}, active in split" : $"{conversation.Title}, in split",
-				OnClick = () => context.Run( () => context.App.Panels.Activate( panelId ) ),
-				Children =
-				[
-					new Text
-					{
-						Content = conversation.Title,
-						Color = theme.Text,
-						MinWidth = 0,
-						TextWrap = TextWrap.NoWrap,
-						TextTrimming = TextTrimming.Ellipsis,
-					},
-				],
-			} );
+				context.Run( () => (_draggedHalf.Value, _isHalfInside.Value) = (panelId, true) );
+				return new DragData( new SplitHalfDrag( panelId ), DragEffect.Move );
+			}, _ => context.Run( () =>
+			{
+				// Let go outside the row, the chat leaves the split: its panel closes and the other chat fills the space; the chat stays in the list.
+				if ( !_isHalfInside.Value && _draggedHalf.Value == panelId )
+					context.App.Panels.Close( panelId );
+				(_draggedHalf.Value, _isHalfInside.Value) = (Guid.Empty, true);
+			} ) );
+			halves.Add( half );
 		}
-		// No border, so the row keeps a plain row's size; it is lit while one of its chats is focused.
-		var isFocused = chats.Any( item => item.PanelId == active );
-		return new Row
+		return BuildSplitFrame( "split", indent, chats.Any( item => item.PanelId == active ), halves, new DropTarget(
+			drop => drop.Data.Value is SplitHalfDrag ? DragEffect.Move : DragEffect.None,
+			drop => context.Run( () =>
+			{
+				var isInside = drop.Kind != DragEventKind.Leave;
+				if ( _isHalfInside.Value != isInside )
+					_isHalfInside.Value = isInside;
+			} ) ) );
+	}
+
+	/// <summary>Builds the split row's frame: a plain row's size, without a border, lit while one of its chats is focused.</summary>
+	private static Row BuildSplitFrame( string key, int indent, bool isFocused, List<Blob> halves, DropTarget? drop = null ) => new()
+	{
+		Key = key,
+		AccessibilityRole = AccessibilityRole.Group,
+		AccessibilityName = "Chats side by side",
+		Height = Theme.Current.ControlHeight,
+		Margin = new Edges( 0, 0, 0, indent ),
+		Padding = SplitInset,
+		BorderRadius = Theme.Current.Radius,
+		BackgroundColor = isFocused ? Theme.Current.Hover : Color.Transparent,
+		AlignItems = AlignItems.Stretch,
+		DropTarget = drop,
+		Children = halves,
+	};
+
+	/// <summary>Builds one half of a split row: the chat's title on a tile, lighter for the focused chat, as Arc draws it.</summary>
+	private Button BuildSplitTile( string key, string title, bool isActive, Action click )
+	{
+		var theme = Theme.Current;
+		return new Button
 		{
-			Key = "split",
-			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = "Chats side by side",
-			Height = theme.ControlHeight,
-			Margin = new Edges( 0, 0, 0, indent ),
-			Padding = SplitInset,
-			// A plain row's height and rounding, so the split row reads as one row of the list.
-			BorderRadius = theme.Radius,
-			BackgroundColor = isFocused ? theme.Hover : Color.Transparent,
-			AlignItems = AlignItems.Stretch,
-			Children = halves,
+			Key = key,
+			FlexGrow = 1,
+			FlexBasis = 0,
+			MinWidth = 0,
+			Padding = new Edges( 0, theme.Spacing ),
+			// Nested in the row's padding, so the tile's corners follow the row's.
+			BorderRadius = Math.Max( 0, theme.Radius - SplitInset ),
+			BackgroundColor = isActive ? theme.Text.WithAlpha( 0.1 ) : Color.Transparent,
+			HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( 0.07 ) },
+			Cursor = Cursor.Pointer,
+			AccessibilityName = isActive ? $"{title}, active in split" : $"{title}, in split",
+			OnClick = () => context.Run( click ),
+			FlexDirection = FlexDirection.Row,
+			AlignItems = AlignItems.Center,
+			Children =
+			[
+				new Text { Content = title, Color = theme.Text, MinWidth = 0, FlexShrink = 1, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis },
+			],
 		};
 	}
+
+	/// <summary>Builds a chat's row content as it would look merged with the chat dragged onto it: both titles side by side, the dragged one lit.</summary>
+	private Row BuildJoinPreview( ConversationInfo conversation, Guid dragged ) => new()
+	{
+		Key = "join-preview",
+		FlexGrow = 1,
+		MinWidth = 0,
+		Padding = SplitInset,
+		BorderRadius = Theme.Current.Radius,
+		BackgroundColor = Theme.Current.Hover,
+		AlignItems = AlignItems.Stretch,
+		Children =
+		[
+			BuildSplitTile( "half:" + conversation.Id, conversation.Title, false, () => { } ),
+			new Container { Width = 4, FlexShrink = 0 },
+			BuildSplitTile( "half:" + dragged, Host.Store.Find( dragged )?.Title ?? "", true, () => { } ),
+		],
+	};
 
 	/// <summary>Builds the label of a worktree: a branch icon in the project icon's column, its branch or folder name, then on This PC its tools, and its …
 	/// button on hover.</summary>

@@ -376,6 +376,9 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily } )];
 			main = button;
 		}
+		// A chat dragged onto this one shows it merged while the pointer stays, as the split it makes when dropped; the row keeps its drop target.
+		if ( _sidebar.JoinPreview is var (dragged, onto) && onto == conversation.Id )
+			main = BuildJoinPreview( conversation, dragged );
 
 		var mark = isWorking ? BuildWorkingMark() : isWaiting ? BuildWaitingDot() : conversation.IsPinned ? BuildPinMark() : null;
 		var row = _sidebar.BuildHoverRow( conversation.Id,
