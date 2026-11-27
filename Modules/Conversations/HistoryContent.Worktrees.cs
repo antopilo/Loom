@@ -258,17 +258,19 @@ internal sealed partial class HistoryContent
 			} ) ) );
 	}
 
-	/// <summary>Builds the split row's frame: a plain row's size, without a border, lit while one of its chats is focused.</summary>
+	/// <summary>Builds the split row's frame, as Arc draws it: always lit, and set around its tiles rather than inside a plain row's box, so each title
+	/// keeps a plain row's height and starts where other titles do.</summary>
 	private static Row BuildSplitFrame( string key, int indent, bool isFocused, List<Blob> halves, DropTarget? drop = null ) => new()
 	{
 		Key = key,
 		AccessibilityRole = AccessibilityRole.Group,
-		AccessibilityName = "Chats side by side",
-		Height = Theme.Current.ControlHeight,
-		Margin = new Edges( 0, 0, 0, indent ),
+		AccessibilityName = isFocused ? "Chats side by side, focused" : "Chats side by side",
+		Height = Theme.Current.ControlHeight + SplitInset * 2,
+		// Reaching out by its inset on every side keeps the tiles where a plain row's text sits, and the list's spacing unchanged.
+		Margin = new Edges( -SplitInset, -SplitInset, -SplitInset, indent - SplitInset ),
 		Padding = SplitInset,
-		BorderRadius = Theme.Current.Radius,
-		BackgroundColor = isFocused ? Theme.Current.Hover : Color.Transparent,
+		BorderRadius = Theme.Current.Radius + SplitInset,
+		BackgroundColor = Theme.Current.Hover,
 		AlignItems = AlignItems.Stretch,
 		DropTarget = drop,
 		Children = halves,
@@ -286,7 +288,8 @@ internal sealed partial class HistoryContent
 			MinWidth = 0,
 			Padding = new Edges( 0, theme.Spacing ),
 			// Nested in the row's padding, so the tile's corners follow the row's.
-			BorderRadius = Math.Max( 0, theme.Radius - SplitInset ),
+			BorderRadius = theme.Radius,
+			// The focused chat's tile is lighter; the other stays on the frame's color.
 			BackgroundColor = isActive ? theme.Text.WithAlpha( 0.1 ) : Color.Transparent,
 			HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( 0.07 ) },
 			Cursor = Cursor.Pointer,
@@ -307,8 +310,9 @@ internal sealed partial class HistoryContent
 		Key = "join-preview",
 		FlexGrow = 1,
 		MinWidth = 0,
+		Margin = -SplitInset,
 		Padding = SplitInset,
-		BorderRadius = Theme.Current.Radius,
+		BorderRadius = Theme.Current.Radius + SplitInset,
 		BackgroundColor = Theme.Current.Hover,
 		AlignItems = AlignItems.Stretch,
 		Children =
