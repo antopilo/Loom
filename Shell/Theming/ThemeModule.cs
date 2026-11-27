@@ -39,6 +39,17 @@ public sealed class ThemeModule : ILoknModule
 		defaultValue: "",
 		category: "Theme" );
 
+	/// <summary>Defines whether the Theme section of Settings is folded. Its heading folds it, so the settings editor and Search leave it out.</summary>
+	internal static readonly Setting<bool> SectionCollapsed = new(
+		"theme.section-collapsed",
+		"Theme section collapsed",
+		"Whether the Theme section of Settings is folded.",
+		defaultValue: false,
+		category: "Theme" )
+	{
+		IsHidden = true,
+	};
+
 	/// <summary>Stores the watched theme file path.</summary>
 	private readonly string _path;
 
@@ -90,6 +101,17 @@ public sealed class ThemeModule : ILoknModule
 		_debounce = new( _ => PostOverrides(), null, Timeout.Infinite, Timeout.Infinite );
 	}
 
+	/// <summary>Describes the theme a folded Theme section holds: the picked theme, then each font that is set, for the scope being edited.</summary>
+	/// <param name="settings">The settings the picked theme and fonts are read from.</param>
+	/// <param name="scope">The scope being edited.</param>
+	internal static string Summarize( SettingsService settings, SettingsScope scope )
+	{
+		var picked = settings.Get( Selected, scope );
+		var parts = new[] { ThemeCatalog.Find( picked )?.Name ?? picked, settings.Get( InterfaceFont, scope ), settings.Get( CodeFont, scope ) }
+			.Where( part => !string.IsNullOrWhiteSpace( part ) );
+		return string.Join( " · ", parts );
+	}
+
 	/// <summary>Registers the theme setting and the command that opens the theme file for editing.</summary>
 	public void Register( ModuleBuilder builder )
 	{
@@ -97,6 +119,7 @@ public sealed class ThemeModule : ILoknModule
 			.Setting( Selected )
 			.Setting( InterfaceFont )
 			.Setting( CodeFont )
+			.Setting( SectionCollapsed )
 			.Command( "edit", "Theme: edit theme file", _ => OpenFile() );
 	}
 

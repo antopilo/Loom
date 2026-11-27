@@ -87,10 +87,24 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		_query.Value = "";
 		_focus.Value = definition.Id;
 		_isScrollPending = true;
+		// A folded section hides its rows, so revealing one unfolds the section.
+		if ( FoldableCategories.TryGetValue( definition.Category, out var folding ) )
+			context.App.Settings.Set( folding.Folding, SettingsScope.Global, false );
 	}
 
 	/// <summary>Defines the modules built into the shell, whose settings share the Shell tab.</summary>
 	private static readonly HashSet<string> ShellModules = ["shell", "theme", "hotload"];
+
+	/// <summary>Maps each category a user can fold to how it folds: the hidden setting that remembers the folding, and the summary its folded heading shows.</summary>
+	private static readonly IReadOnlyDictionary<string, FoldableCategory> FoldableCategories = new Dictionary<string, FoldableCategory>
+	{
+		[ThemeModule.SectionCollapsed.Category] = new( ThemeModule.SectionCollapsed, ThemeModule.Summarize ),
+	};
+
+	/// <summary>Describes how a category folds.</summary>
+	/// <param name="Folding">The hidden setting that remembers the folding.</param>
+	/// <param name="Summarize">Describes the category's values for the scope being edited, which its folded heading shows.</param>
+	private sealed record FoldableCategory( Setting<bool> Folding, Func<SettingsService, SettingsScope, string> Summarize );
 
 	/// <summary>Defines the Shell tab's key.</summary>
 	private const string ShellTab = "";
@@ -191,7 +205,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			}
 
 			foreach ( var category in categories )
-				children.AddRange( BuildCategory( category.Key, [.. category], scope ) );
+				children.AddRange( BuildCategory( category.Key, [.. category], scope, FoldableCategories.GetValueOrDefault( category.Key ) ) );
 		}
 
 		// The highlighted row mounts its handle with this build, so it scrolls into view after it.
@@ -254,14 +268,27 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		|| definition.Description.Contains( query, StringComparison.CurrentCultureIgnoreCase )
 		|| definition.Category.Contains( query, StringComparison.CurrentCultureIgnoreCase );
 
-	/// <summary>Builds a category's heading and its card of rows.</summary>
-	private IEnumerable<Blob> BuildCategory( string title, IReadOnlyList<SettingDefinition> items, SettingsScope scope )
+	/// <summary>Builds a category's heading and its card of rows. A foldable category's heading is the card's top bar, and a folded card holds only that bar.</summary>
+	/// <param name="folding">How the category folds, or null for a category that cannot fold.</param>
+	private IEnumerable<Blob> BuildCategory( string title, IReadOnlyList<SettingDefinition> items, SettingsScope scope, FoldableCategory? folding = null )
 	{
-		yield return BuildHeading( title );
+		var isCollapsed = folding is not null && context.App.Settings.Get( folding.Folding, SettingsScope.Global );
 		var rows = new List<Blob>();
-		foreach ( var definition in items )
-			rows.Add( BuildSetting( definition, scope, isFirst: rows.Count == 0 ) );
-		yield return BuildCard( "category:" + title, title, rows );
+		if ( folding is null )
+			yield return BuildHeading( title );
+		else
+			rows.Add( BuildFoldingHeading( title, folding, isCollapsed, scope ) );
+		if ( !isCollapsed )
+		{
+			foreach ( var definition in items )
+				// The bar already names the category, so a row with the same title leaves its own title out.
+				rows.Add( BuildSetting( definition, scope, isFirst: rows.Count == 0, showTitle: folding is null || definition.Title != title ) );
+		}
+		var card = BuildCard( "category:" + title, title, rows );
+		// A folding card keeps the gap that its bar had above it as a heading.
+		if ( folding is not null )
+			card.Margin = new Edges( Theme.Current.Spacing * 2, 0, 0, 0 );
+		yield return card;
 	}
 
 	/// <summary>Builds a section's heading, with controls such as a search field at its right.</summary>
@@ -280,6 +307,51 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 				new Text { Content = title.ToUpper( CultureInfo.CurrentCulture ), Color = theme.Muted, FontSize = theme.FontSize - 1, FlexGrow = 1 },
 				.. tools,
 			],
+		};
+	}
+
+	/// <summary>Builds a foldable category's bar: its name, a summary of its values while it is folded, and a chevron at its right edge. It is the top row of the category's card, and clicking it folds or unfolds the rows under it.</summary>
+	/// <param name="folding">How the category folds.</param>
+	/// <param name="isCollapsed">Whether the card is folded; it sets the summary, the chevron and the accessible name.</param>
+	/// <param name="scope">The scope being edited, whose values the summary describes.</param>
+	private Blob BuildFoldingHeading( string title, FoldableCategory folding, bool isCollapsed, SettingsScope scope )
+	{
+		var theme = Theme.Current;
+		Action toggle = () => context.Run( () => context.App.Settings.Set( folding.Folding, SettingsScope.Global, !isCollapsed ) );
+		var children = new List<Blob>
+		{
+			new Text { Content = title, FontWeight = TitleWeight, FlexGrow = 1, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
+		};
+		if ( isCollapsed )
+			children.Add( new Text { Content = folding.Summarize( context.App.Settings, scope ), Color = theme.Muted, FontSize = theme.FontSize - 1, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis } );
+		children.Add( theme.BuildChevron( !isCollapsed, theme.Text ) );
+		return new Button
+		{
+			Key = "heading:" + title,
+			FlexDirection = FlexDirection.Row,
+			AlignItems = AlignItems.Center,
+			Gap = theme.Spacing,
+			Padding = new Edges( theme.Spacing * 1.5, theme.Spacing * 2 ),
+			BackgroundColor = Color.Transparent,
+			BorderWidth = 0,
+			Cursor = Cursor.Pointer,
+			Focusable = true,
+			AccessibilityName = isCollapsed ? $"Expand {title}" : $"Collapse {title}",
+			HoverStyle = new Style
+			{
+				BackgroundColor = theme.Hover,
+			},
+			FocusStyle = new Style
+			{
+				BackgroundColor = theme.Hover,
+			},
+			OnClick = toggle,
+			KeyBindings =
+			[
+				new( Key.Enter, KeyModifiers.None, toggle ),
+				new( Key.Space, KeyModifiers.None, toggle ),
+			],
+			Children = children,
 		};
 	}
 
@@ -351,8 +423,8 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		};
 	}
 
-	/// <summary>Builds one setting's row: the title, description and where the value comes from, beside its widget, or above a module's own editor.</summary>
-	private Container BuildSetting( SettingDefinition definition, SettingsScope scope, bool isFirst )
+	/// <summary>Builds one setting's row: the title, description and where the value comes from, beside its widget, or above a module's own editor. The title is left out when showTitle is false.</summary>
+	private Container BuildSetting( SettingDefinition definition, SettingsScope scope, bool isFirst, bool showTitle = true )
 	{
 		var theme = Theme.Current;
 		var settings = context.App.Settings;
@@ -360,7 +432,7 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		// A module's own editor, such as the theme picker, takes its own line; segments sit beside the text, as other widgets do.
 		var row = BuildRow( $"{scope}:{definition.Id}", definition.Title,
 			[
-				new Text { Content = definition.Title, FontWeight = TitleWeight },
+				.. showTitle ? [new Text { Content = definition.Title, FontWeight = TitleWeight }] : Array.Empty<Blob>(),
 				.. definition.Description.Length > 0 ? [new Text { Content = definition.Description, Color = theme.Muted }] : Array.Empty<Blob>(),
 				.. BuildSource( definition, scope ) is { } source ? [source] : Array.Empty<Blob>(),
 			],
