@@ -619,6 +619,12 @@ public static partial class MarkdownView
 		get; set;
 	}
 
+	/// <summary>Defines the most lines a code block shows without scrolling or clipping; at the code line height they stay under <see cref="CodeHeight"/>.</summary>
+	private const int ShortCodeLines = 10;
+
+	/// <summary>Defines the most characters a short code block holds, so its wrapped lines also stay under <see cref="CodeHeight"/>.</summary>
+	private const int ShortCodeCharacters = 900;
+
 	/// <summary>Builds a selectable code or diff block with a language badge, syntax colors and internal scrolling.</summary>
 	/// <param name="code">The code to show.</param>
 	/// <param name="language">The fenced-code or tool language; it picks the colors and labels the block.</param>
@@ -630,7 +636,9 @@ public static partial class MarkdownView
 	/// <param name="lineNumbers">Whether a muted line number column runs beside the code, as for a written file.</param>
 	public static Blob BuildCode( string code, string language = "", bool framed = true, bool showLanguage = true, int fadeLines = 0, bool isRunnable = false, bool lineNumbers = false, int fadeHeadLines = 0 )
 	{
-		var lines = code.Replace( "\r\n", "\n" ).Split( '\n' );
+		// Tabs show as four spaces. A tab has no glyph, and Goo looks for one through every fallback face each time it shapes the line: one tab-indented
+		// tool output took 180 ms to lay out, a visible stall while scrolling. Copy still copies the code as written.
+		var lines = code.Replace( "\r\n", "\n" ).Replace( "\t", "    " ).Split( '\n' );
 		var children = new List<Blob>();
 		// The language, a Run button for shell snippets and a Copy button, which copies every line, also those not shown, float over the block's
 		// corner while the pointer is over it, so they take no row of their own.
@@ -685,19 +693,24 @@ public static partial class MarkdownView
 		if ( lines.Length > MaxCodeLines )
 			children.Add( new Text { Content = $"… {lines.Length - MaxCodeLines:N0} more lines not shown", Color = Theme.Current.Muted, FontFamily = ViewStyle.FontFamily, FontSize = CodeSize, Selectable = true, MinWidth = 0 } );
 
+		// Goo draws a clipping viewport with rounded corners into a layer of its own, and every layer adds to every later frame's work, so a block
+		// short enough never to reach the scroll height neither scrolls nor clips: tool previews and most snippets. Lines may wrap, so the test
+		// counts characters as well as lines.
+		var isShort = shown <= ShortCodeLines && lines.Take( shown ).Sum( line => line.Length + 1 ) <= ShortCodeCharacters;
 		var block = new Container
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = language == "diff" ? "Diff" : "Code block",
 			Padding = framed ? BlockInset : 0,
 			Gap = CodeGap,
-			MaxHeight = CodeHeight,
-			OverflowY = Overflow.Scroll,
+			OverflowY = isShort ? Overflow.Visible : Overflow.Scroll,
 			ScrollbarY = ViewStyle.GetScrollbar(),
 			BackgroundColor = framed ? Theme.Current.Raised : Color.Transparent,
-			BorderRadius = Theme.Current.Radius,
+			BorderRadius = framed ? Theme.Current.Radius : 0,
 			Children = children,
 		};
+		if ( !isShort )
+			block.MaxHeight = CodeHeight;
 		// A container holds the cell, since a mounted cell drops the margin blocks are spaced with.
 		return header.Count == 0 ? block
 			: new Container { MinWidth = 0, Children = [Cell.Mount<HoverActionsInput, HoverActions>( "code-actions", new( block, [.. header] ) )] };

@@ -617,8 +617,10 @@ internal static class ChatChecks
 		var panel = BuildChat( new PanelContext( app, Guid.NewGuid(), CancellationToken.None, input: null ), store, chat.Id, module.Service );
 		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
 		var rows = (List<TranscriptRow>)typeof( ChatContent ).GetMethod( "ComputeRows", flags )!.Invoke( panel, [store.GetMessages( chat.Id )] )!;
-		CoreChecks.Check( rows.Count == 6 && rows.All( row => !row.IsActivity ) && rows[1].Parts.Length == 2 && rows[3].Parts.Length == 1,
-			"Reasoning and tool calls read in order as plain rows, never folded under a summary; the agent's prose and a todo list each start a new row." );
+		// A run of tool calls across messages is a row per message, spaced as one run: a long run as one row stalled scrolling while it was laid out.
+		CoreChecks.Check( rows.Count == 7 && rows.All( row => !row.IsActivity && row.Parts.Length == 1 )
+			&& rows[1].Parts[0].Message.Id != rows[2].Parts[0].Message.Id && rows[2].Gap < rows[1].Gap,
+			"Reasoning and tool calls read in order as plain rows, a row per message, never folded under a summary; the agent's prose and a todo list each start a new run." );
 
 		// The pinned list is the newest one with work left; a call that only marks a task while running defers to the list before it.
 		CoreChecks.Check( panel.ComputeCurrentTodo( store.GetMessages( chat.Id ) ).Count == 0, "A todo call without a list or result pins nothing." );

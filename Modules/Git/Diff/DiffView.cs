@@ -42,7 +42,13 @@ internal static partial class DiffView
 		var grammar = CodeHighlighter.FindForPath( file.Path );
 		var body = new List<Blob>();
 		if ( header )
-			body.Add( BuildHeader( file, expanded: null, open ) );
+		{
+			// The card does not clip, since Goo draws a rounded clip into a layer every later frame pays for, so its header rounds its own top.
+			var head = BuildHeader( file, expanded: null, open );
+			head.BorderTopLeftRadius = Math.Max( 0, Theme.Current.Radius - Theme.Current.BorderWidth );
+			head.BorderTopRightRadius = Math.Max( 0, Theme.Current.Radius - Theme.Current.BorderWidth );
+			body.Add( head );
+		}
 		body.Add( BuildLines( file.Lines, expanded ? file.Lines.Count : CardLines, selectable: false, grammar ) );
 		var card = new Button
 		{
@@ -51,7 +57,6 @@ internal static partial class DiffView
 			FlexDirection = FlexDirection.Column,
 			AlignItems = AlignItems.Stretch,
 			MinWidth = 0,
-			Overflow = Overflow.Hidden,
 			BackgroundColor = Theme.Current.Text.WithAlpha( 0.035 ),
 			BorderColor = Theme.Current.Border.WithAlpha( 0.45 ),
 			BorderWidth = Theme.Current.BorderWidth,

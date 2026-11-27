@@ -184,15 +184,16 @@ public sealed partial class ChatContent
 			var code = text.Length == 0 ? " " : ViewStyle.CutCodeLine( text.Replace( "\t", "    " ) );
 			var isInComment = false;
 			var spans = grammar is null || text.Length == 0 ? [new TextSpan( code, null! )] : CodeHighlighter.BuildSpans( code, grammar, ref isInComment );
+			// Context reads as background to the match, so it dims rather than losing its colors. The dimming goes on each text, not the row: Goo
+			// draws a dimmed element that has children into a layer of its own, which every later frame pays for.
+			var opacity = line.IsMatch ? fade : fade * 0.55;
 			rows.Add( new Row
 			{
 				MinWidth = 0,
-				// Context reads as background to the match, so it dims rather than losing its colors.
-				Opacity = line.IsMatch ? fade : fade * 0.55,
-				BackgroundColor = line.IsMatch ? theme.Accent.WithAlpha( 0.07 ) : Color.Transparent,
+				BackgroundColor = line.IsMatch ? theme.Accent.WithAlpha( 0.07 * fade ) : Color.Transparent,
 				Children =
 				[
-					new Container { Width = MatchBarWidth, FlexShrink = 0, BackgroundColor = line.IsMatch ? theme.Accent : Color.Transparent },
+					new Container { Width = MatchBarWidth, FlexShrink = 0, BackgroundColor = line.IsMatch ? theme.Accent.WithAlpha( fade ) : Color.Transparent },
 					new Text
 					{
 						Content = line.Number.ToString(),
@@ -204,6 +205,7 @@ public sealed partial class ChatContent
 						TextAlign = TextAlign.Right,
 						Color = line.IsMatch ? theme.Accent : theme.Muted,
 						FontWeight = line.IsMatch ? 600 : 400,
+						Opacity = opacity,
 					},
 					new Text( spans )
 					{
@@ -214,6 +216,7 @@ public sealed partial class ChatContent
 						TextWrap = TextWrap.NoWrap,
 						TextTrimming = TextTrimming.Ellipsis,
 						Color = theme.Text,
+						Opacity = opacity,
 					},
 				],
 			} );
@@ -223,7 +226,6 @@ public sealed partial class ChatContent
 		{
 			Key = key,
 			MinWidth = 0,
-			Overflow = Overflow.Hidden,
 			Padding = new Edges( theme.Spacing / 2, 0 ),
 			BackgroundColor = theme.Canvas,
 			BorderColor = theme.Border.WithAlpha( 0.45 ),

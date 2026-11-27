@@ -170,3 +170,31 @@ Same machine, `scripts/bench.ps1 -Seconds 15` with the `--open-link` fix, a copy
 Home focused stays at 22 frames/s by design: the logo animates while Home is seen and Loom has the keyboard (20), and
 Goo's caret blink adds 2 (issue 2). It stops as soon as Home is hidden, covered by a modal window, minimized or in the
 background.
+
+## Scrolling a real chat (Goo 0.32.10)
+
+`bench.ps1 -Scenario scroll -NoProfile -RealChat <chat id or copied file> -ScrollSteps 3:20,3:20,...` scrolls a copy of one of the user's
+own chats, in their theme and fonts, by fast flicks of sixty notches; `-CpuTrace` adds a dotnet-trace sample of the run. Goo's frame
+profile writes to the console fast enough to stall frames itself (spikes of about 400 ms), so frame gaps are measured with `-NoProfile`.
+
+A 954-message chat on a 180 Hz display, before and after:
+
+| | Before | After |
+|---|---|---|
+| Frames per flick step | 44 | 145 |
+| Frame gap p50 / p95 | 5.9 / 64 ms | 5.6 / 12 ms |
+| Worst gap | about 450 ms | 33 ms |
+
+Causes and fixes:
+
+1. **A run of tool calls was one virtual row.** Calls across messages, up to the agent's next prose, made one row; mounting it laid out
+   every tool box in it, 300 to 450 ms for long runs. Each message's part of a run is now a row of its own (`ChatContent.ComputeRows`),
+   spaced as lines of one row.
+2. **Effect layers.** Goo compiles a node into a layer of its own when it clips with rounded corners, or is dimmed (`Opacity < 1`) and has
+   children, and every frame's damage pass walks every layer (`VulkanSceneCompiler.GrowDamageToEffectLayers`): two thirds of the UI
+   thread. Short code blocks no longer scroll or clip, bash boxes and diff cards no longer clip, grep rows dim their texts and finished
+   reasoning dims through its text colors.
+3. Tabs in code blocks show as four spaces.
+
+What remains is Goo's text shaping: it keeps no shaping cache, so every row that scrolls into view shapes all its text again
+(`TextShaping.ShapeUncached`), and its lock per glyph range (`TypefaceLease.Provider`) is a large share of that.

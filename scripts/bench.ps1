@@ -70,7 +70,21 @@ param(
 	[string] $Label = 'run',
 
 	# A JSON file the results are written to.
-	[string] $Out
+	[string] $Out,
+
+	# The id of one of the user's own chats (a file name under %LOCALAPPDATA%\Lokn\conversations, without .json) whose copy replaces the
+	# generated long chat, so the chat scenarios measure a real transcript. The user's file is only read.
+	[string] $RealChat,
+
+	# Wheel steps the scroll scenario turns instead of its notch and flick, each <notches>:<count>, such as 3:20 for twenty quick turns of
+	# three notches up; repeat a step to scroll further through a long chat.
+	[string[]] $ScrollSteps,
+
+	# Records a dotnet-trace CPU sample of Loom while the scroll scenario scrolls (dotnet-trace must be installed).
+	[switch] $CpuTrace,
+
+	# Runs the scroll scenario without Goo's frame profile, whose console output can itself stall frames.
+	[switch] $NoProfile
 )
 
 . "$PSScriptRoot\common.ps1"
@@ -418,10 +432,20 @@ function New-Template( [string] $Path )
 	}
 
 	Write-Json "$Path\projects.json" @{ Version = 1; Projects = $projects }
+	$global = @{ 'omp.executable' = $Fixture; 'terminal.shell' = 'cmd.exe' }
+	# A real chat is measured as the user sees it: in their theme and fonts.
+	if ( $RealChat )
+	{
+		$user = Get-Content -Raw ( Join-Path $env:LOCALAPPDATA 'Lokn\settings.json' ) | ConvertFrom-Json
+		foreach ( $setting in $user.Global.PSObject.Properties | Where-Object { $_.Name -like 'theme.*' } )
+		{
+			$global[$setting.Name] = $setting.Value
+		}
+	}
 	Write-Json "$Path\settings.json" @{
 		Version = 1
 		ActiveProfile = 'Work'
-		Global = @{ 'omp.executable' = $Fixture; 'terminal.shell' = 'cmd.exe' }
+		Global = $global
 		Work = @{}
 		Personal = @{}
 	}
@@ -454,7 +478,21 @@ function New-Template( [string] $Path )
 			BackendSessionPath = $null; Draft = $null; IsPinned = $false; IsTitleChosen = $true; IsTitleGenerated = $false; HasChat = $true
 			Directory = $null; Worktree = $null; IsTaskCheckOff = $false; Position = $null
 		}
-		Write-Json "$Path\conversations\$( $id.ToString( 'N' ) ).json" @{ Version = 2; ConversationId = $id.ToString(); Messages = $messages }
+		$file = "$Path\conversations\$( $id.ToString( 'N' ) ).json"
+		# -RealChat copies one of the user's own chats in place of the generated long one; the user's file is only read.
+		if ( $chat -eq 0 -and $RealChat )
+		{
+			# The text is copied as written, only its id swapped, so no JSON round trip changes the rich payloads the chat draws.
+			$source = if ( Test-Path -LiteralPath $RealChat -PathType Leaf ) { $RealChat } else { Join-Path $env:LOCALAPPDATA "Lokn\conversations\$RealChat.json" }
+			$real = Get-Content -Raw $source
+			$real = [regex]::new( '"ConversationId"\s*:\s*"[^"]*"' ).Replace( $real, "`"ConversationId`": `"$id`"", 1 )
+			New-Item -ItemType Directory -Force ( Split-Path -Parent $file ) | Out-Null
+			[IO.File]::WriteAllText( $file, $real, [Text.UTF8Encoding]::new( $false ) )
+		}
+		else
+		{
+			Write-Json $file @{ Version = 2; ConversationId = $id.ToString(); Messages = $messages }
+		}
 		$chats[$chat] = $id
 	}
 
@@ -973,12 +1011,23 @@ try
 				# a flick of six notches up, then the same down. Each step's frames are measured for 900 ms: a smooth scroll presents a frame every display
 				# interval until it settles, so the gaps between frames show whether it kept the display's rate.
 				$at = 'wheel:700:450'
-				$steps = @( "${at}:1:1", "${at}:1:6", "${at}:-1:1", "${at}:-1:6" )
-				$run = Start-Loom 'chat' '' -Profile -Drive ( '1200|' + ( $steps -join '|' ) )
+				$steps = if ( $ScrollSteps ) { @( $ScrollSteps | ForEach-Object { "${at}:$_" } ) } else { @( "${at}:1:1", "${at}:1:6", "${at}:-1:1", "${at}:-1:6" ) }
+				$run = Start-Loom 'chat' '' -Profile:( -not $NoProfile ) -Drive ( '1200|' + ( $steps -join '|' ) )
 				try
 				{
 					Set-Focused $run
-					Start-Sleep -Seconds ( $Seconds + 4 )
+					if ( $CpuTrace )
+					{
+						# Samples Loom's stacks while it scrolls, for dotnet-trace report <file> topN.
+						$nettrace = Join-Path $Root 'scroll.nettrace'
+						& dotnet-trace collect -p $run.Process.Id --profile dotnet-sampled-thread-time --duration ( [TimeSpan]::FromSeconds( $Seconds ).ToString( 'hh\:mm\:ss' ) ) -o $nettrace | Out-Null
+						Write-Host "scroll     cpu trace: $nettrace"
+						Start-Sleep -Seconds 4
+					}
+					else
+					{
+						Start-Sleep -Seconds ( $Seconds + 4 )
+					}
 				}
 				finally
 				{
@@ -990,7 +1039,8 @@ try
 				$switches = @( Read-Trace $run | Where-Object { $_.Event -like 'switch wheel:*' } | Select-Object -Skip $steps.Count | ForEach-Object {
 					$fields = $_.Event.Split( ' ' )
 					$gaps = if ( $fields.Count -gt 13 -and $fields[13] ) { @( $fields[13].Split( ',' ) | Select-Object -Skip 1 | ForEach-Object { [double]$_ } ) } else { @() }
-					[pscustomobject]@{ Step = $labels[$fields[1]]; First = [double]$fields[5]; Frames = [int]$fields[7]; MaxGap = [double]$fields[9]; Gaps = $gaps }
+					$step = if ( $labels.ContainsKey( $fields[1] ) ) { $labels[$fields[1]] } else { $fields[1].Substring( $at.Length + 1 ) }
+					[pscustomobject]@{ Step = $step; First = [double]$fields[5]; Frames = [int]$fields[7]; MaxGap = [double]$fields[9]; Gaps = $gaps }
 				} )
 				foreach ( $group in ( $switches | Group-Object Step ) )
 				{
@@ -1010,7 +1060,10 @@ try
 				}
 
 				# Goo prints frame statistics every 240 frames after 60 warm-up frames.
-				$lines = if ( $run.Output.Wait( 5000 ) ) { $run.Output.Result -split "`r?`n" } else { @() }
+				$lines = if ( $run.Output -and $run.Output.Wait( 5000 ) ) { $run.Output.Result -split "`r?`n" } else { @() }
+				# The whole output, with Goo's per-phase frame statistics, stays beside the bench data for a closer look.
+				$lines | Set-Content ( Join-Path $Root 'scroll-output.log' )
+				Write-Host "scroll     output: $( Join-Path $Root 'scroll-output.log' )"
 				$tails = @( $lines | Where-Object { $_ -like '*goo.profile.tail_ms/frame*phase=frame *' } )
 				$p50 = @( $tails | ForEach-Object { [double]( [regex]::Match( $_, 'p50=([\d.]+)' ).Groups[1].Value ) } )
 				$p99 = @( $tails | ForEach-Object { [double]( [regex]::Match( $_, 'p99=([\d.]+)' ).Groups[1].Value ) } )

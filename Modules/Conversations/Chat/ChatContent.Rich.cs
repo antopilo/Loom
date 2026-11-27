@@ -291,21 +291,27 @@ public sealed partial class ChatContent
 			return new Container();
 		var isLong = text.Length > ThinkingPreviewChars + ThinkingFadeChars / 2;
 		var expanded = !isLong || _expanded.Contains( key );
+		// Reasoning reads dimmed. A finished block dims through its text's colors: Goo draws a dimmed element that has children into a layer of its
+		// own, which every later frame pays for, and a long chat holds many reasoning blocks. Only text still streaming in dims as a whole.
+		var isLive = IsStreaming( key );
 		Blob body = expanded
-			? BuildStreamText( key, text )
-			: MarkdownView.Build( text[..ThinkingPreviewChars].TrimEnd() + "…", OpenLink, distance => Math.Clamp( distance / ThinkingFadeChars, 0.05, 1 ) );
+			? isLive ? BuildStreamText( key, text ) : MarkdownView.Build( text, OpenLink, _ => ThinkingOpacity )
+			: MarkdownView.Build( text[..ThinkingPreviewChars].TrimEnd() + "…", OpenLink, distance => Math.Clamp( distance / ThinkingFadeChars, 0.05, 1 ) * ThinkingOpacity );
 		return new Container
 		{
 			Key = key,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Reasoning",
-			Opacity = 0.6,
+			Opacity = expanded && isLive ? ThinkingOpacity : 1,
 			FontStyle = FontStyle.Italic,
 			Cursor = isLong ? Cursor.Pointer : Cursor.Default,
 			OnClick = isLong ? () => context.Run( () => UpdateExpanded( key ) ) : null,
 			Children = [body],
 		};
 	}
+
+	/// <summary>Defines how far reasoning is dimmed: its text's opacity.</summary>
+	private const double ThinkingOpacity = 0.6;
 
 	/// <summary>Builds a fold's "more lines · Show all" or "Show less" line in small text, as an accessory under its content.</summary>
 	private static Button BuildMoreToggle( string label, bool expanded, Action action )

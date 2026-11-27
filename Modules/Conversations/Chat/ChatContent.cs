@@ -303,10 +303,10 @@ public sealed partial class ChatContent : PanelContent
 
 		var rows = new List<TranscriptRow>( messages.Count );
 		var activity = new List<TranscriptPart>();
-		// The index of the row the last reasoning or tool run became, so the run the agent works on now shows open.
-		var lastRun = -1;
+		// The rows the last reasoning or tool run became, so the run the agent works on now shows open.
+		var lastRun = (Start: -1, End: -1);
 		string? previous = null;
-		void Add( TranscriptPart[] parts, bool isActivity )
+		void Add( TranscriptPart[] parts, bool isActivity, double? gapOverride = null )
 		{
 			var first = parts[0];
 			var results = new List<ConversationMessage>();
@@ -326,7 +326,7 @@ public sealed partial class ChatContent : PanelContent
 				}
 			}
 			// An agent turn reads as one flow of lines; the wider gap only separates it from the user's turns.
-			var gap = previous is null ? 0 : previous == "user" || first.Message.Role == "user" ? MessageGap : ActionGap;
+			var gap = gapOverride ?? (previous is null ? 0 : previous == "user" || first.Message.Role == "user" ? MessageGap : ActionGap);
 			rows.Add( new( $"{first.Message.Id:N}:{first.Start}", parts, isActivity, [.. results], revision, gap ) );
 			previous = first.Message.Role;
 		}
@@ -335,9 +335,13 @@ public sealed partial class ChatContent : PanelContent
 			if ( activity.Count == 0 )
 				return;
 
-			// Reasoning and tool calls read in order, one line each, rather than folded under a summary.
-			Add( [.. activity], false );
-			lastRun = rows.Count - 1;
+			// Reasoning and tool calls read in order, one line each, rather than folded under a summary. Each message's part of a run is a row
+			// of its own, spaced as lines of one row are: a run of a hundred tool calls was one row, which the list had to build and lay out
+			// whole, hundreds of milliseconds, as soon as any of it scrolled into view.
+			var start = rows.Count;
+			foreach ( var (index, part) in activity.Index() )
+				Add( [part], false, index == 0 ? null : Theme.Current.Spacing );
+			lastRun = (start, rows.Count - 1);
 			activity.Clear();
 		}
 
@@ -403,8 +407,11 @@ public sealed partial class ChatContent : PanelContent
 			_runningClosed.Clear();
 			AddChanges();
 		}
-		else if ( lastRun >= 0 && lastRun == rows.Count - 1 )
-			rows[lastRun] = rows[lastRun] with { IsRunning = true };
+		else if ( lastRun.End >= 0 && lastRun.End == rows.Count - 1 )
+		{
+			for ( var index = lastRun.Start; index <= lastRun.End; index++ )
+				rows[index] = rows[index] with { IsRunning = true };
+		}
 		return rows;
 	}
 

@@ -249,7 +249,7 @@ public sealed partial class ChatContent
 				BorderWidth = theme.BorderWidth,
 				BorderColor = theme.Border.WithAlpha( 0.45 ),
 				BorderRadius = theme.Radius * 2,
-				Overflow = Overflow.Hidden,
+				// No clip: nothing inside paints into the corners, and Goo draws a rounded clip into a layer every later frame pays for.
 				Children = box,
 			},
 		};
