@@ -7,7 +7,9 @@ namespace Lokn.Modules.Workspaces;
 /// <param name="Group">The rows it moves among, such as a project's unpinned tasks; rows of other groups do not drop on it.</param>
 /// <param name="Index">Its place among the group's rows as shown, top first.</param>
 /// <param name="MoveHere">Moves a dropped row of the group to this row's place, the rows between shifting toward where it was.</param>
-public sealed record RowOrder( string Group, int Index, Action<Guid> MoveHere );
+/// <param name="JoinHere">Joins a row of the group dropped onto the middle of this one, such as a chat shown beside this one; null for a row that
+/// takes no row onto it.</param>
+public sealed record RowOrder( string Group, int Index, Action<Guid> MoveHere, Action<Guid>? JoinHere = null );
 
 /// <summary>Lets the user drag rows to another place among their group's rows: the dragged row follows the pointer up and down, and the rows it
 /// passes slide aside to open the place it lands in.</summary>
@@ -73,26 +75,34 @@ public sealed partial class SidebarRows
 			case DragEventKind.Enter or DragEventKind.Move:
 			{
 				var pointerY = drop.WindowPosition.Y;
-				var target = ComputeTarget( drag, pointerY );
-				if ( pointerY != drag.PointerY || target != drag.Target )
-					_drag.Value = drag with { PointerY = pointerY, Target = target };
+				var (target, onto) = ComputeTarget( drag, pointerY );
+				if ( pointerY != drag.PointerY || target != drag.Target || onto != drag.Onto )
+					_drag.Value = drag with { PointerY = pointerY, Target = target, Onto = onto };
 				break;
 			}
 			case DragEventKind.Drop:
 			{
 				_drag.Value = null;
-				if ( drag.Target != drag.Index && drag.Rows.FirstOrDefault( row => row.Index == drag.Target ).Id is var targetId && _orders.TryGetValue( targetId, out var targetOrder ) )
+				if ( drag.Onto is { } ontoId && _orders.TryGetValue( ontoId, out var ontoOrder ) && ontoOrder.JoinHere is { } join )
+					join( drag.Id );
+				else if ( drag.Target != drag.Index && drag.Rows.FirstOrDefault( row => row.Index == drag.Target ).Id is var targetId && _orders.TryGetValue( targetId, out var targetOrder ) )
 					targetOrder.MoveHere( drag.Id );
 				break;
 			}
 		}
 	}
 
-	/// <summary>Finds the place the dragged row lands: below every row whose middle its own middle passed going down, or above every one it passed going up.</summary>
-	private static int ComputeTarget( RowDragState drag, double pointerY )
+	/// <summary>Finds where the dragged row lands: onto a row that takes rows when its middle is over that row's middle, else below every row whose
+	/// middle it passed going down, or above every one it passed going up.</summary>
+	private (int Target, Guid? Onto) ComputeTarget( RowDragState drag, double pointerY )
 	{
 		var self = drag.Rows.FirstOrDefault( row => row.Id == drag.Id );
 		var center = self.Center + ClampOffset( drag, pointerY - drag.StartY );
+		foreach ( var row in drag.Rows )
+		{
+			if ( row.Id != drag.Id && Math.Abs( center - row.Center ) < drag.Slot * OntoBand && _orders.TryGetValue( row.Id, out var order ) && order.JoinHere is not null )
+				return (drag.Index, row.Id);
+		}
 		var target = drag.Index;
 		foreach ( var row in drag.Rows )
 		{
@@ -101,8 +111,11 @@ public sealed partial class SidebarRows
 			else if ( row.Index < drag.Index && center < row.Center )
 				target = Math.Min( target, row.Index );
 		}
-		return target;
+		return (target, null);
 	}
+
+	/// <summary>Defines how close, as a share of a row's place, the dragged row's middle comes to another's for a drop onto it rather than beside it.</summary>
+	private const double OntoBand = 0.25;
 
 	/// <summary>Keeps the dragged row's offset within its group, from its first row's place to its last.</summary>
 	private static double ClampOffset( RowDragState drag, double offset )
@@ -128,7 +141,14 @@ public sealed partial class SidebarRows
 			return;
 		}
 
-		var shift = order.Index > drag.Index && order.Index <= drag.Target ? -drag.Slot
+		// The row it would join is lit instead of moving aside.
+		if ( drag.Onto == id )
+		{
+			row.BackgroundColor = Theme.Current.Accent.WithAlpha( 0.18 );
+			return;
+		}
+		var shift = drag.Onto is not null ? 0
+			: order.Index > drag.Index && order.Index <= drag.Target ? -drag.Slot
 			: order.Index < drag.Index && order.Index >= drag.Target ? drag.Slot
 			: 0;
 		row.Transform = new PanelTransform { TranslateY = shift };
@@ -146,7 +166,8 @@ public sealed partial class SidebarRows
 	/// <param name="Slot">The height of one row's place: the dragged row's height and the gap after it.</param>
 	/// <param name="Target">The place it lands if dropped now.</param>
 	/// <param name="Rows">Each row of the group with its place and the middle of its box when the drag started, top first.</param>
-	private sealed record RowDragState( Guid Id, string Group, int Index, double StartY, double PointerY, double Slot, int Target, IReadOnlyList<(Guid Id, int Index, double Center)> Rows );
+	/// <param name="Onto">The row it joins if dropped now, or null.</param>
+	private sealed record RowDragState( Guid Id, string Group, int Index, double StartY, double PointerY, double Slot, int Target, IReadOnlyList<(Guid Id, int Index, double Center)> Rows, Guid? Onto = null );
 
 	/// <summary>Identifies a row being dragged among its group's rows.</summary>
 	/// <param name="Owner">The sidebar view that started the drag; another view's rows do not take it.</param>

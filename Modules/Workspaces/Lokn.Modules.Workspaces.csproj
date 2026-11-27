@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<!-- This module's release version; raise it to publish the module as an update (scripts/release.ps1). -->
-		<Version>1.7.1</Version>
+		<Version>1.7.2</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<!-- The sidebar's faces, Fraunces, under the SIL Open Font License beside them. -->

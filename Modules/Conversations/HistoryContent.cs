@@ -347,7 +347,9 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var chat = host.Ref( conversation.Id );
 		// Pinned tasks lead, so a task moves only among those pinned as it is, and only within the list it shows in.
 		var order = new RowOrder( $"{conversation.ProjectId}:{list}:{conversation.IsPinned}", index,
-			dragged => history.MoveConversation( dragged, conversation.Id ) );
+			dragged => history.MoveConversation( dragged, conversation.Id ),
+			// A chat dropped onto this one shows beside it, as Arc's split view does.
+			dragged => module.SplitConversations( context.App, host.Ref( dragged ), chat ) );
 		var isWorking = history.IsWorking( conversation.Id );
 		var isWaiting = !isWorking && _waiting.Contains( chat );
 		var isMenuOpen = _sidebar.IsMenuOpen( conversation.Id );

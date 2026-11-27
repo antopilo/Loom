@@ -483,6 +483,16 @@ public sealed partial class ConversationsModule(
 		app.Panels.Activate( panelId );
 	}
 
+	/// <summary>Shows a chat on the right of another, opening that one first when it is not on screen, so the two read as one split.</summary>
+	public void SplitConversations( LoknApplication app, ChatRef dragged, ChatRef target )
+	{
+		if ( dragged == target )
+			return;
+		var targetPanel = OpenConversation( app, target );
+		if ( app.Panels.Panes.FirstOrDefault( pane => pane.PanelId == targetPanel ) is { } pane )
+			OpenConversationAt( app, dragged, pane.Id, PanelPlacement.Right );
+	}
+
 	/// <summary>Lists the chats shown on screen now, in pane order: two or more read as one split row in the sidebar.</summary>
 	internal List<(ChatRef Chat, Guid PanelId)> ComputeShownChats( LoknApplication app )
 	{

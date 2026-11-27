@@ -182,26 +182,24 @@ internal sealed partial class HistoryContent
 	}
 
 	/// <summary>Adds a list's chats inset under their project's name, its tools' tasks left out; each keeps its place among the listed ones for dragging.</summary>
-	/// <remarks>Chats shown side by side on screen read as one row split in two, as Arc shows a split view, at the place of the first of them.</remarks>
+	/// <remarks>Chats shown side by side on screen also read as one row split in two, as Arc shows a split view, above the first of them; their own rows
+	/// stay.</remarks>
 	/// <param name="indent">How far the rows are inset, such as <see cref="SidebarRows.ChildIndent"/>.</param>
 	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, int indent, List<SidebarRow> rows )
 	{
 		var listed = conversations.Where( conversation => !IsToolTask( conversation ) ).ToList();
 		var split = module.ComputeShownChats( context.App )
 			.Where( shown => shown.Chat.HostId == Host.Id && listed.Any( conversation => conversation.Id == shown.Chat.ConversationId ) ).ToList();
+		var isSplitShown = split.Count < 2;
 		var index = 0;
 		foreach ( var conversation in listed )
 		{
 			var place = index++;
-			if ( split.Count >= 2 && split.Any( shown => shown.Chat.ConversationId == conversation.Id ) )
+			if ( !isSplitShown && split.Any( shown => shown.Chat.ConversationId == conversation.Id ) )
 			{
-				if ( split[0].Chat.ConversationId != conversation.Id && listed.FindIndex( item => item.Id == split[0].Chat.ConversationId ) < place )
-					continue;
-				if ( rows.Any( row => row.Key == "split:" + list ) )
-					continue;
+				isSplitShown = true;
 				var pair = split.Select( shown => (listed.First( item => item.Id == shown.Chat.ConversationId ), shown.PanelId) ).ToList();
 				rows.Add( new( "split:" + list, SidebarRows.RowGap, () => BuildSplitRow( pair, indent ) ) );
-				continue;
 			}
 			rows.Add( new( "chat:" + conversation.Id, SidebarRows.RowGap, () => BuildConversation( conversation, place, list, indent ) ) );
 		}
@@ -216,7 +214,7 @@ internal sealed partial class HistoryContent
 		foreach ( var (index, (conversation, panelId)) in chats.Index() )
 		{
 			if ( index > 0 )
-				halves.Add( new Container { Width = theme.BorderWidth, AlignSelf = AlignSelf.Stretch, Margin = new Edges( 4, 0 ), BackgroundColor = theme.Border } );
+				halves.Add( new Container { Width = 4, FlexShrink = 0 } );
 			var isActive = panelId == active;
 			halves.Add( new Button
 			{
@@ -225,9 +223,10 @@ internal sealed partial class HistoryContent
 				FlexBasis = 0,
 				MinWidth = 0,
 				Padding = new Edges( 0, theme.Spacing ),
-				BorderRadius = theme.Radius,
-				BackgroundColor = isActive ? theme.Hover : Color.Transparent,
-				HoverStyle = new Style { BackgroundColor = theme.Hover },
+				BorderRadius = theme.Radius + 1,
+				// As Arc draws it: the focused chat's half is a lighter tile inside the lit row.
+				BackgroundColor = isActive ? theme.Text.WithAlpha( 0.1 ) : Color.Transparent,
+				HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( 0.07 ) },
 				Cursor = Cursor.Pointer,
 				AccessibilityName = isActive ? $"{conversation.Title}, active in split" : $"{conversation.Title}, in split",
 				OnClick = () => context.Run( () => context.App.Panels.Activate( panelId ) ),
@@ -236,7 +235,7 @@ internal sealed partial class HistoryContent
 					new Text
 					{
 						Content = conversation.Title,
-						Color = isActive ? theme.Text : theme.Muted,
+						Color = theme.Text,
 						MinWidth = 0,
 						TextWrap = TextWrap.NoWrap,
 						TextTrimming = TextTrimming.Ellipsis,
@@ -244,6 +243,8 @@ internal sealed partial class HistoryContent
 				],
 			} );
 		}
+		// No border, so the row keeps a plain row's size; it is lit while one of its chats is focused.
+		var isFocused = chats.Any( item => item.PanelId == active );
 		return new Row
 		{
 			Key = "split",
@@ -251,10 +252,9 @@ internal sealed partial class HistoryContent
 			AccessibilityName = "Chats side by side",
 			Height = theme.ControlHeight,
 			Margin = new Edges( 0, 0, 0, indent ),
-			Padding = 2,
-			BorderRadius = theme.Radius + 2,
-			BorderWidth = theme.BorderWidth,
-			BorderColor = theme.Border,
+			Padding = 3,
+			BorderRadius = theme.Radius + 4,
+			BackgroundColor = isFocused ? theme.Hover : Color.Transparent,
 			AlignItems = AlignItems.Stretch,
 			Children = halves,
 		};
