@@ -21,6 +21,7 @@
 	defs.setAttribute( "width", "0" );
 	defs.setAttribute( "height", "0" );
 	defs.setAttribute( "aria-hidden", "true" );
+	defs.setAttribute( "data-loom-ui", "" );
 	defs.style.position = "absolute";
 	defs.innerHTML = `<defs>
 		<pattern id="loom-hatch" width="4.5" height="4.5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="4.5" height="4.5" style="fill: color-mix(in srgb, var(--ink) 30%, var(--paper))"/><line x1="0" y1="0" x2="0" y2="4.5" style="stroke: var(--ink)" stroke-width="1.5"/></pattern>
@@ -227,6 +228,7 @@
 		}
 		overlay = document.createElementNS( ns, "svg" );
 		overlay.setAttribute( "class", "loom-sketch" );
+		overlay.setAttribute( "data-loom-ui", "" );
 		overlay.setAttribute( "aria-hidden", "true" );
 		overlay.setAttribute( "width", "1" );
 		overlay.setAttribute( "height", "1" );
@@ -244,51 +246,75 @@
 
 	const style = document.createElement( "style" );
 	style.textContent = `
+		:root { --loom-panel: #222220; --loom-raised: #2d2d29; --loom-hover: #3a3a34; --loom-text: #e8e6df; --loom-muted: #a09f96; --loom-border: #3b3b35;
+			--loom-accent: #d5a583; --loom-radius: 5px; --loom-font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
 		.loom-sketched { border-color: transparent !important; }
 		.loom-sketched.timeline::before { border-color: transparent; }
 		.loom-sketch { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
-		.loom-capturing .loom-cog, .loom-capturing .loom-panel { display: none; }
-		.loom-cog, .loom-panel { position: fixed; z-index: 2147483000; font: 13px/1.4 "Segoe UI", system-ui, sans-serif; color: #1a1a1a; }
-		.loom-cog { right: 20px; bottom: 20px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid rgba(0,0,0,.08); background: #fff;
-			box-shadow: 0 2px 10px rgba(0,0,0,.08); cursor: pointer; display: grid; place-items: center; font-size: 18px; opacity: .55; transition: opacity .2s; }
-		.loom-cog:hover, .loom-cog[aria-expanded="true"] { opacity: 1; }
-		.loom-panel { right: 20px; bottom: 72px; width: 300px; padding: 20px; border-radius: 16px; background: #fff; border: 1px solid rgba(0,0,0,.06);
-			box-shadow: 0 12px 40px rgba(0,0,0,.14); }
+
+		/* Loom's own controls on the page wear Loom's theme, which Loom sends the page, not the report's paper. */
+		.loom-cog, .loom-panel, .loom-comment, .loom-tray, .loom-chip { font: 13px/1.45 var(--loom-font); color: var(--loom-text); color-scheme: dark; }
+		.loom-cog, .loom-panel, .loom-comment, .loom-tray { background: var(--loom-panel); border: 1px solid var(--loom-border); box-shadow: 0 12px 32px rgba(0,0,0,.28); }
+		.loom-cog, .loom-panel, .loom-tray { position: fixed; z-index: 2147483000; }
+		.loom-cog { right: 16px; bottom: 16px; width: 32px; height: 32px; border-radius: calc(var(--loom-radius) * 2); cursor: pointer; display: grid; place-items: center;
+			font-size: 15px; color: var(--loom-muted); opacity: .7; transition: opacity .15s, color .15s; }
+		.loom-cog:hover, .loom-cog[aria-expanded="true"] { opacity: 1; color: var(--loom-text); }
+		.loom-panel { right: 16px; bottom: 56px; width: 280px; padding: 14px; border-radius: calc(var(--loom-radius) * 2); }
 		.loom-panel[hidden] { display: none; }
-		.loom-panel h6 { margin: 0 0 12px; font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #8a8a8a; }
-		.loom-panel h6 + * { margin-bottom: 20px; }
-		.loom-papers { display: flex; flex-wrap: wrap; gap: 8px; }
-		.loom-papers button { width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(0,0,0,.1); cursor: pointer; padding: 0; }
-		.loom-papers button[aria-pressed="true"] { outline: 2px solid #1a1a1a; outline-offset: 2px; }
-		.loom-charts { display: flex; gap: 8px; }
-		.loom-charts button { width: 52px; height: 52px; border-radius: 10px; border: 1px solid rgba(0,0,0,.1); background: #fff; cursor: pointer; display: grid; place-items: center; }
-		.loom-charts button[aria-pressed="true"] { border: 2px solid #9a9a9a; }
-		.loom-charts i { width: 24px; height: 24px; border: 1.5px solid #1a1a1a; }
+		.loom-panel h6 { margin: 0 0 10px; font-size: 11px; font-weight: 600; color: var(--loom-muted); }
+		.loom-panel h6 + * { margin-bottom: 16px; }
+		.loom-papers { display: flex; flex-wrap: wrap; gap: 7px; }
+		.loom-papers button { width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); cursor: pointer; padding: 0; }
+		.loom-papers button[aria-pressed="true"] { outline: 2px solid var(--loom-accent); outline-offset: 2px; }
+		.loom-charts { display: flex; gap: 6px; }
+		.loom-charts button { width: 44px; height: 44px; border-radius: var(--loom-radius); border: 1px solid var(--loom-border); background: var(--loom-raised); color: var(--loom-text);
+			cursor: pointer; display: grid; place-items: center; }
+		.loom-charts button:hover { background: var(--loom-hover); }
+		.loom-charts button[aria-pressed="true"] { border-color: var(--loom-accent); }
+		.loom-charts i { width: 20px; height: 20px; border: 1.5px solid currentColor; }
 		.loom-types { display: grid; gap: 2px; margin-bottom: 0 !important; }
-		.loom-types button { display: flex; align-items: baseline; gap: 18px; padding: 6px 10px; border: 0; border-radius: 8px; background: none; cursor: pointer; text-align: left; color: #8a8a8a; font-size: 14px; }
-		.loom-types button span { font-size: 24px; color: #1a1a1a; width: 34px; }
-		.loom-types button[aria-pressed="true"] { background: #efefef; }
-		.loom-comment, .loom-tray { position: absolute; z-index: 2147482000; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; color: #1a1a1a; }
-		.loom-comment { width: 340px; display: flex; align-items: flex-end; gap: 10px; padding: 12px 12px 12px 16px; background: #fff; border-radius: 14px;
-			box-shadow: 0 10px 34px rgba(0,0,0,.16), 0 0 0 1px rgba(0,0,0,.05); }
-		.loom-comment[hidden], .loom-tray[hidden] { display: none; }
-		.loom-comment textarea { flex: 1; min-height: 22px; max-height: 160px; border: 0; outline: 0; resize: none; padding: 4px 0; font: inherit; color: inherit; background: none; }
-		.loom-comment button, .loom-tray button { flex: none; border: 0; cursor: pointer; display: grid; place-items: center; font: inherit; }
-		.loom-comment .send { width: 32px; height: 32px; border-radius: 50%; background: none; color: #555; font-size: 17px; }
-		.loom-comment .send:hover { background: #f0f0f0; }
-		.loom-comment .add { width: 34px; height: 34px; border-radius: 50%; background: #111; color: #fff; font-size: 15px; }
-		.loom-tray { position: fixed; right: 72px; bottom: 22px; display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; background: #fff;
-			border-radius: 999px; box-shadow: 0 6px 22px rgba(0,0,0,.14), 0 0 0 1px rgba(0,0,0,.05); font-size: 13px; }
-		.loom-tray button { height: 28px; padding: 0 14px; border-radius: 999px; background: #111; color: #fff; }
-		.loom-tray button:disabled { opacity: .5; cursor: default; }
-		.loom-tray .clear { background: none; color: #777; padding: 0 6px; }
+		.loom-types button { display: flex; align-items: baseline; gap: 14px; padding: 4px 8px; border: 0; border-radius: var(--loom-radius); background: none; cursor: pointer;
+			text-align: left; color: var(--loom-muted); font: inherit; }
+		.loom-types button:hover { background: var(--loom-hover); }
+		.loom-types button span { font-size: 20px; color: var(--loom-text); width: 30px; }
+		.loom-types button[aria-pressed="true"] { background: var(--loom-raised); color: var(--loom-text); }
+
+		.loom-comment { position: absolute; z-index: 2147482000; width: 360px; border-radius: calc(var(--loom-radius) * 2); overflow: hidden;
+			animation: loom-in .12s ease-out; }
+		@keyframes loom-in { from { opacity: 0; transform: translateY(-4px); } }
+		.loom-comment[hidden], .loom-tray[hidden], .loom-chip[hidden] { display: none; }
+		.loom-comment .about { margin: 12px 12px 0; padding-left: 9px; border-left: 2px solid var(--loom-accent); color: var(--loom-muted); font-size: 12px;
+			display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+		.loom-comment textarea { display: block; width: 100%; box-sizing: border-box; min-height: 52px; max-height: 180px; margin: 0; padding: 10px 12px; border: 0;
+			outline: 0; resize: none; font: inherit; font-size: 13.5px; color: var(--loom-text); background: none; }
+		.loom-comment textarea::placeholder { color: var(--loom-muted); }
+		.loom-comment footer { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 12px; border-top: 1px solid var(--loom-border); background: var(--loom-raised); }
+		.loom-comment footer small { flex: 1; color: var(--loom-muted); font-size: 11px; }
+		.loom-comment kbd { font: inherit; padding: 0 4px; border: 1px solid var(--loom-border); border-radius: 3px; }
+		.loom-comment button, .loom-tray button { height: 26px; padding: 0 11px; border-radius: var(--loom-radius); border: 1px solid var(--loom-border); background: var(--loom-raised);
+			color: var(--loom-text); font: inherit; cursor: pointer; }
+		.loom-comment button:hover, .loom-tray button:hover { background: var(--loom-hover); }
+		.loom-comment button.primary, .loom-tray button.primary { border-color: var(--loom-accent); background: var(--loom-accent); color: var(--loom-panel); font-weight: 600; }
+		.loom-comment button.primary:hover, .loom-tray button.primary:hover { filter: brightness(1.08); }
+		.loom-comment button:disabled, .loom-tray button:disabled { opacity: .45; cursor: default; filter: none; }
+		.loom-tray { right: 56px; bottom: 16px; display: flex; align-items: center; gap: 8px; padding: 4px 4px 4px 12px; border-radius: calc(var(--loom-radius) * 2); }
 		.loom-tray button[hidden] { display: none; }
-		::highlight(loom-comment) { background-color: rgba(246, 214, 90, .55); }
-		.loom-picked { outline: 2px solid rgba(232, 190, 50, .9); outline-offset: 6px; border-radius: 2px; }
-		.report :is(svg, table, .stats, .timeline, .bars, .pullquote, blockquote, figure, img, .callout, .legend) { cursor: pointer; }
-		@media print { .loom-comment, .loom-tray { display: none; } .loom-picked { outline: 0; } }
-		.loom-capturing .loom-comment, .loom-capturing .loom-tray { display: none; }
-		@media print { .loom-cog, .loom-panel { display: none; } }`;
+		.loom-tray .count { color: var(--loom-text); }
+		.loom-chip { position: absolute; z-index: 2147481000; padding: 2px 8px; border-radius: var(--loom-radius); background: var(--loom-accent); color: var(--loom-panel);
+			font-size: 11px; font-weight: 600; pointer-events: none; transform: translateY(-100%); }
+
+		/* Feedback: a selection, the text a comment is being written on, queued comments, figures under the pointer, and what a revision changed. */
+		.report ::selection { background: color-mix(in srgb, var(--loom-accent) 45%, transparent); }
+		::highlight(loom-pending) { background-color: color-mix(in srgb, var(--loom-accent) 45%, transparent); }
+		::highlight(loom-comment) { background-color: color-mix(in srgb, var(--loom-accent) 28%, transparent); text-decoration: underline 2px var(--loom-accent); text-underline-offset: 3px; }
+		.loom-hovered { outline: 1.5px dashed var(--loom-accent); outline-offset: 6px; cursor: pointer; }
+		.loom-picked { outline: 2px solid var(--loom-accent); outline-offset: 6px; }
+		.loom-changed { animation: loom-changed 2.4s ease-out; border-radius: 3px; }
+		@keyframes loom-changed { 0%, 35% { background-color: color-mix(in srgb, var(--loom-accent) 30%, transparent);
+			box-shadow: 0 0 0 5px color-mix(in srgb, var(--loom-accent) 30%, transparent); } 100% { background-color: transparent; box-shadow: 0 0 0 5px transparent; } }
+		.loom-capturing :is(.loom-cog, .loom-panel, .loom-comment, .loom-tray, .loom-chip) { display: none; }
+		.loom-capturing :is(.loom-hovered, .loom-picked) { outline: 0; }
+		@media print { :is(.loom-cog, .loom-panel, .loom-comment, .loom-tray, .loom-chip) { display: none; } :is(.loom-hovered, .loom-picked) { outline: 0; } }`;
 	document.head.append( style );
 
 	const cog = document.createElement( "button" );
@@ -297,18 +323,20 @@
 	cog.setAttribute( "aria-label", "Customize report" );
 	cog.setAttribute( "aria-expanded", "false" );
 	cog.textContent = "⚙";
+	cog.setAttribute( "data-loom-ui", "" );
 
 	const panel = document.createElement( "div" );
 	panel.className = "loom-panel";
 	panel.hidden = true;
 	panel.setAttribute( "role", "dialog" );
 	panel.setAttribute( "aria-label", "Customize report" );
-	const chartSwatch = { hatch: "background: repeating-linear-gradient(135deg,#1a1a1a 0 1.5px,transparent 1.5px 5px)", flat: "background:#a8a8a8",
-		sketch: "background: repeating-linear-gradient(135deg,#1a1a1a 0 2.6px,transparent 2.6px 6px); border-width: 2.4px; border-radius: 2px 4px 3px 5px" };
+	panel.setAttribute( "data-loom-ui", "" );
+	const chartSwatch = { hatch: "background: repeating-linear-gradient(135deg,currentColor 0 1.5px,transparent 1.5px 5px)", flat: "background: currentColor; opacity: .55",
+		sketch: "background: repeating-linear-gradient(135deg,currentColor 0 2.6px,transparent 2.6px 6px); border-width: 2.4px; border-radius: 2px 4px 3px 5px" };
 	panel.innerHTML = `
-		<h6>Customize report</h6>
+		<h6>Paper</h6>
 		<div class="loom-papers">${papers.map( ( [name, color] ) => `<button data-set="paper" data-value="${name}" title="${name}" style="background:${color}"></button>` ).join( "" )}</div>
-		<h6>Style</h6>
+		<h6>Charts and type</h6>
 		<div class="loom-charts">${charts.map( ( [name, label] ) => `<button data-set="chart" data-value="${name}" title="${label}"><i style="${chartSwatch[name]}"></i></button>` ).join( "" )}</div>
 		<div class="loom-types">${types.map( ( [name, label, glyph, font] ) => `<button data-set="type" data-value="${name}"><span style="${font}">${glyph}</span>${label}</button>` ).join( "" )}</div>`;
 
@@ -339,28 +367,153 @@
 			cog.click();
 	} );
 
-	// Comments, inside Loom only: select text, or click a chart, table or other figure, and a card opens under it. Its arrow sends the comment, with any
-	// queued before it, to the chat that made the report, which revises it; its check queues the comment, so several go together. Queued text stays
-	// marked in yellow and queued figures outlined until they are sent.
-	if ( window.chrome?.webview && window.CSS?.highlights )
+	// Inside Loom, the page talks to it: Loom sends its theme, which Loom's controls here wear, and a revised report, which replaces this one in place.
+	const webview = window.chrome?.webview;
+	webview?.addEventListener( "message", event => {
+		const theme = event.data?.loomTheme;
+		if ( theme )
+			for ( const [name, value] of Object.entries( theme ) )
+				document.documentElement.style.setProperty( `--loom-${name}`, value );
+		if ( typeof event.data?.loomReplace === "string" )
+		{
+			replace( event.data.loomReplace );
+			webview.postMessage( { loomReplaced: true } );
+		}
+	} );
+
+	// Updates the page to a revised report without loading it again: each element, attribute and text that differs is patched, Loom's own controls
+	// stay, the user's paper, chart style and type stay, and what changed glows for a moment, scrolled into view when the reader cannot see it.
+	const isKit = node => node.nodeType === 1 && node.hasAttribute( "data-loom-ui" );
+	const replace = html => {
+		const next = new DOMParser().parseFromString( html, "text/html" );
+		const chart = body.dataset.chart;
+		if ( chart === "sketch" )
+		{
+			delete body.dataset.chart;
+			sketch();
+		}
+		const changed = new Set();
+		const mark = node => {
+			const element = node?.nodeType === 1 ? node : node?.parentElement;
+			if ( element && element !== body && element.closest( ".report" ) )
+				changed.add( element );
+		};
+		const patch = ( old, fresh ) => {
+			if ( old !== body )
+			{
+				// Loom's own marker classes, such as a picked figure's, are not the report's: losing them is no change.
+				const own = value => value.replace( /(^|\s)loom-\S+/g, "" ).trim();
+				for ( const { name, value } of [...fresh.attributes] )
+				{
+					const before = old.getAttribute( name );
+					if ( before === value )
+						continue;
+					old.setAttribute( name, value );
+					if ( name !== "class" || own( before ?? "" ) !== own( value ) )
+						mark( old );
+				}
+				for ( const { name } of [...old.attributes] )
+					if ( !fresh.hasAttribute( name ) )
+					{
+						if ( name !== "class" || own( old.getAttribute( name ) ) )
+							mark( old );
+						old.removeAttribute( name );
+					}
+			}
+			// Whitespace between tags is not content: matching skips it, so a revision written with other line breaks patches the same elements.
+			const isBlank = node => node.nodeType === 3 && !node.nodeValue.trim();
+			const olds = [...old.childNodes].filter( node => !isKit( node ) && !isBlank( node ) );
+			const freshes = [...fresh.childNodes].filter( node => !isBlank( node ) );
+			freshes.forEach( ( node, index ) => {
+				const current = olds[index];
+				if ( current && current.nodeType === node.nodeType && current.nodeName === node.nodeName )
+				{
+					if ( node.nodeType === 1 )
+						patch( current, node );
+					else if ( current.nodeValue !== node.nodeValue )
+					{
+						const isSpace = current.nodeValue.trim() === node.nodeValue.trim();
+						current.nodeValue = node.nodeValue;
+						if ( !isSpace )
+							mark( current );
+					}
+					return;
+				}
+				const copy = document.importNode( node, true );
+				if ( current )
+					current.replaceWith( copy );
+				else
+					old.insertBefore( copy, old === body ? [...body.childNodes].find( child => isKit( child ) && child !== defs ) ?? null : null );
+				mark( copy );
+			} );
+			for ( const extra of olds.slice( freshes.length ) )
+			{
+				mark( extra.parentElement );
+				extra.remove();
+			}
+		};
+		patch( body, next.body );
+		document.title = next.title;
+		// The reader's own choices win over the revision's, as when the page opened.
+		const own = JSON.parse( localStorage.getItem( key ) || "{}" );
+		for ( const name of ["paper", "type"] )
+			if ( !own[name] && next.body.dataset[name] )
+				body.dataset[name] = next.body.dataset[name];
+		if ( chart )
+			body.dataset.chart = chart;
+		sketch();
+		// The innermost changes glow, not every section around them.
+		const glowing = [...changed].filter( element => ![...changed].some( other => other !== element && element.contains( other ) ) );
+		for ( const element of glowing )
+		{
+			element.classList.remove( "loom-changed" );
+			void element.offsetWidth;
+			element.classList.add( "loom-changed" );
+			element.addEventListener( "animationend", () => element.classList.remove( "loom-changed" ), { once: true } );
+		}
+		const first = glowing.find( element => element.getClientRects().length );
+		if ( first )
+		{
+			const box = first.getBoundingClientRect();
+			if ( box.bottom < 0 || box.top > innerHeight )
+				first.scrollIntoView( { behavior: "smooth", block: "center" } );
+		}
+	};
+
+	// Comments, inside Loom only. Pointing at a chart, table or other figure outlines it; selected text stays marked. Releasing the mouse on a
+	// selection, or clicking a figure, opens a card under it showing what the comment is about. Enter sends the comment, with any queued before it,
+	// to the chat that made the report, which revises it in place; Ctrl+Enter queues it, so several go together. Queued text stays underlined and
+	// queued figures outlined until they are sent.
+	if ( webview && window.CSS?.highlights )
 	{
 		const figures = ".report :is(svg, table, .stats, .timeline, .bars, .pullquote, blockquote, figure, img, .callout, .legend)";
-		const marks = new Highlight();
+		const marks = new Highlight(), pending = new Highlight();
 		CSS.highlights.set( "loom-comment", marks );
+		CSS.highlights.set( "loom-pending", pending );
 		const queue = [];
-		let target = null;
+		let target = null, hovered = null, isSelecting = false;
 
 		const card = document.createElement( "div" );
 		card.className = "loom-comment";
 		card.hidden = true;
-		card.innerHTML = `<textarea rows="1" placeholder="Comment" aria-label="Comment"></textarea>
-			<button class="send" title="Send now (Enter)" aria-label="Send now">\u27A4</button><button class="add" title="Add to the queue (Ctrl+Enter)" aria-label="Add to the queue">\u2713</button>`;
-		const field = card.querySelector( "textarea" );
+		card.setAttribute( "data-loom-ui", "" );
+		card.setAttribute( "role", "dialog" );
+		card.setAttribute( "aria-label", "Comment" );
+		card.innerHTML = `<div class="about"></div><textarea rows="2" placeholder="What should change here?" aria-label="Comment"></textarea>
+			<footer><small><kbd>Enter</kbd> send · <kbd>Ctrl+Enter</kbd> queue</small><button class="add">Queue</button><button class="primary send">Send</button></footer>`;
+		const aboutText = card.querySelector( ".about" ), field = card.querySelector( "textarea" );
+		const addButton = card.querySelector( ".add" ), cardSend = card.querySelector( ".send" );
 		const tray = document.createElement( "div" );
 		tray.className = "loom-tray";
 		tray.hidden = true;
-		tray.innerHTML = `<span></span><button class="clear" title="Remove the queued comments">Clear</button><button class="go">Send</button>`;
+		tray.setAttribute( "data-loom-ui", "" );
+		tray.innerHTML = `<span class="count"></span><button class="clear">Clear</button><button class="primary go">Send</button>`;
 		const [trayText, clearButton, sendButton] = tray.children;
+		const chip = document.createElement( "div" );
+		chip.className = "loom-chip";
+		chip.hidden = true;
+		chip.setAttribute( "data-loom-ui", "" );
+		chip.textContent = "Click to comment";
 		let trayTimer = 0;
 
 		const clip = ( text, length ) => ( text = text.replace( /\s+/g, " " ).trim() ).length > length ? text.slice( 0, length - 1 ) + "\u2026" : text;
@@ -372,34 +525,61 @@
 				: element.matches( ".timeline" ) ? "timeline" : element.matches( ".bars" ) ? "bar chart" : element.matches( "blockquote, .pullquote" ) ? "quote" : "block";
 			return `the ${kind} ${clip( caption?.textContent || element.textContent || "", 120 )}`.trim();
 		};
-		const place = rect => {
-			card.style.left = `${Math.max( 12, Math.min( rect.left + scrollX, document.documentElement.clientWidth - 352 + scrollX ) )}px`;
-			card.style.top = `${rect.bottom + scrollY + 10}px`;
+		const hover = element => {
+			if ( hovered === element )
+				return;
+			hovered?.classList.remove( "loom-hovered" );
+			hovered = element;
+			chip.hidden = !element;
+			if ( !element )
+				return;
+			element.classList.add( "loom-hovered" );
+			const box = element.getBoundingClientRect();
+			chip.style.left = `${box.left + scrollX - 6}px`;
+			chip.style.top = `${box.top + scrollY - 10}px`;
+		};
+		const updateButtons = () => {
+			const isEmpty = !field.value.trim();
+			addButton.disabled = isEmpty;
+			cardSend.disabled = isEmpty && !queue.length;
+			cardSend.textContent = queue.length && !isEmpty ? `Send ${queue.length + 1}` : queue.length ? `Send ${queue.length}` : "Send";
 		};
 		const close = () => {
 			if ( target?.element && !queue.some( item => item.element === target.element ) )
 				target.element.classList.remove( "loom-picked" );
+			pending.clear();
 			target = null;
 			card.hidden = true;
 		};
 		const open = ( next, rect ) => {
 			close();
+			hover( null );
 			target = next;
 			target.element?.classList.add( "loom-picked" );
-			place( rect );
+			if ( target.range )
+				pending.add( target.range );
+			aboutText.textContent = target.range ? `\u201C${target.about}\u201D` : target.about;
+			const left = Math.max( 12, Math.min( rect.left, document.documentElement.clientWidth - 372 ) );
+			card.style.left = `${left + scrollX}px`;
+			card.style.top = `${rect.bottom + scrollY + 10}px`;
 			card.hidden = false;
 			field.value = "";
 			field.style.height = "";
+			updateButtons();
+			getSelection().removeAllRanges();
 			field.focus( { preventScroll: true } );
+			const box = card.getBoundingClientRect();
+			if ( box.bottom > innerHeight )
+				scrollBy( { top: box.bottom - innerHeight + 16, behavior: "smooth" } );
 		};
 		const showTray = ( text, isFinal ) => {
 			clearTimeout( trayTimer );
-			trayText.textContent = text ?? `${queue.length} comment${queue.length === 1 ? "" : "s"}`;
-			clearButton.hidden = sendButton.hidden = isFinal || queue.length === 0;
+			trayText.textContent = text ?? `${queue.length} comment${queue.length === 1 ? "" : "s"} queued`;
+			clearButton.hidden = sendButton.hidden = isFinal || text !== undefined || queue.length === 0;
 			sendButton.disabled = false;
-			tray.hidden = !text && queue.length === 0;
+			tray.hidden = text === undefined && queue.length === 0;
 			if ( isFinal )
-				trayTimer = setTimeout( () => showTray(), 3500 );
+				trayTimer = setTimeout( () => showTray(), 4000 );
 		};
 		const add = () => {
 			const comment = field.value.trim();
@@ -408,9 +588,9 @@
 			queue.push( { ...target, comment } );
 			if ( target.range )
 				marks.add( target.range );
+			pending.clear();
 			target = null;
 			card.hidden = true;
-			getSelection().removeAllRanges();
 			showTray();
 			return true;
 		};
@@ -422,27 +602,31 @@
 		const send = () => {
 			if ( !queue.length )
 				return;
-			sendButton.disabled = true;
-			trayText.textContent = "Sending\u2026";
-			window.chrome.webview.postMessage( { loomComments: queue.map( ( { about, comment } ) => ( { about, comment } ) ) } );
+			showTray( "Sending\u2026" );
+			webview.postMessage( { loomComments: queue.map( ( { about, comment } ) => ( { about, comment } ) ) } );
 		};
-		window.chrome.webview.addEventListener( "message", event => {
+		webview.addEventListener( "message", event => {
+			if ( typeof event.data?.loomReplace === "string" )
+			{
+				close();
+				showTray( "Report revised \u2713", true );
+			}
 			if ( typeof event.data?.loomCommentsSent !== "boolean" )
 				return;
 			if ( event.data.loomCommentsSent )
 			{
 				clearQueue();
-				showTray( "Sent to the chat \u2713", true );
+				showTray( "Sent \u2014 the report updates here once the chat revises it", true );
 			}
 			else
 				showTray( event.data.error || "Could not send the comments", true );
 		} );
 
-		card.querySelector( ".add" ).addEventListener( "click", add );
-		card.querySelector( ".send" ).addEventListener( "click", () => ( add() || queue.length ) && send() );
+		addButton.addEventListener( "click", () => add() );
+		cardSend.addEventListener( "click", () => ( add() || queue.length ) && send() );
 		sendButton.addEventListener( "click", send );
 		clearButton.addEventListener( "click", () => { clearQueue(); showTray(); } );
-		field.addEventListener( "input", () => { field.style.height = "auto"; field.style.height = `${field.scrollHeight}px`; } );
+		field.addEventListener( "input", () => { field.style.height = "auto"; field.style.height = `${field.scrollHeight}px`; updateButtons(); } );
 		field.addEventListener( "keydown", event => {
 			if ( event.key === "Escape" )
 				close();
@@ -455,25 +639,39 @@
 					send();
 			}
 		} );
-		document.addEventListener( "mouseup", event => {
-			if ( card.contains( event.target ) || tray.contains( event.target ) || panel.contains( event.target ) || event.target === cog )
-				return;
-			setTimeout( () => {
-				const selection = getSelection();
-				if ( selection.rangeCount && !selection.isCollapsed && selection.anchorNode && document.querySelector( ".report" )?.contains( selection.anchorNode ) )
-				{
-					const range = selection.getRangeAt( 0 ).cloneRange();
-					open( { about: clip( selection.toString(), 300 ), range }, range.getBoundingClientRect() );
-					return;
-				}
-				const figure = event.target.closest?.( figures );
-				if ( figure && !event.target.closest( "a, .cite" ) )
-					open( { about: describe( figure ), element: figure }, figure.getBoundingClientRect() );
-				else if ( !field.value.trim() )
-					close();
-			} );
+		const isControl = node => card.contains( node ) || tray.contains( node ) || panel.contains( node ) || node === cog;
+		document.addEventListener( "pointermove", event => {
+			if ( isSelecting || event.buttons || isControl( event.target ) )
+				return hover( null );
+			const figure = event.target.closest?.( figures );
+			hover( figure && !figure.classList.contains( "loom-picked" ) && !event.target.closest( "a, .cite" ) ? figure : null );
 		} );
-		body.append( card, tray );
+		document.addEventListener( "pointerdown", event => {
+			if ( isControl( event.target ) )
+				return;
+			isSelecting = true;
+			hover( null );
+			if ( !card.hidden && !field.value.trim() )
+				close();
+		} );
+		document.addEventListener( "pointerup", event => {
+			if ( !isSelecting )
+				return;
+			isSelecting = false;
+			const selection = getSelection();
+			const report = document.querySelector( ".report" );
+			if ( selection.rangeCount && !selection.isCollapsed && report?.contains( selection.anchorNode ) && report.contains( selection.focusNode ) )
+			{
+				const range = selection.getRangeAt( 0 ).cloneRange();
+				const rects = [...range.getClientRects()];
+				open( { about: clip( selection.toString(), 300 ), range }, rects[rects.length - 1] ?? range.getBoundingClientRect() );
+				return;
+			}
+			const figure = event.target.closest?.( figures );
+			if ( figure && !event.target.closest( "a, .cite" ) )
+				open( { about: describe( figure ), element: figure }, figure.getBoundingClientRect() );
+		} );
+		body.append( card, tray, chip );
 	}
 	body.append( panel, cog );
 } )();

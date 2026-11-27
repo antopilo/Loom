@@ -288,6 +288,7 @@ internal sealed partial class BrowserTab
 			{
 				UpdateProgress( 80 );
 				_ = UpdateImmersiveAsync( web );
+				PostTheme( web );
 			} );
 			web.NavigationCompleted += ( _, e ) => context.Run( () => UpdateCompleted( web, e ) );
 			web.WebMessageReceived += ( _, e ) => context.Run( () => UpdateMessage( web, e.WebMessageAsJson ) );
@@ -419,6 +420,55 @@ internal sealed partial class BrowserTab
 			if ( Controller?.CoreWebView2 == web )
 				_isImmersive.Value = asked == "true";
 		} );
+	}
+
+	/// <summary>Sends the page Loom's theme, which the report kit's own controls on it wear: colors, corner radius and font.</summary>
+	private static void PostTheme( CoreWebView2 web )
+	{
+		var theme = Theme.Current;
+		static string Hex( Color color ) => $"#{(int)Math.Round( color.R * 255 ):x2}{(int)Math.Round( color.G * 255 ):x2}{(int)Math.Round( color.B * 255 ):x2}";
+		try
+		{
+			web.PostWebMessageAsJson( JsonSerializer.Serialize( new
+			{
+				loomTheme = new
+				{
+					panel = Hex( theme.Panel ),
+					raised = Hex( theme.Raised ),
+					hover = Hex( theme.Hover ),
+					text = Hex( theme.Text ),
+					muted = Hex( theme.Muted ),
+					border = Hex( theme.Border ),
+					accent = Hex( theme.Accent ),
+					radius = $"{theme.Radius}px",
+					font = $"\"{theme.FontFamily}\", \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif",
+				},
+			} ) );
+		}
+		catch ( Exception error ) when ( error is COMException or InvalidOperationException )
+		{
+			// The page closed or navigated away meanwhile.
+		}
+	}
+
+	/// <summary>Shows a revised report in place of the one on the page, without loading it again: the report kit on the page patches what changed and
+	/// marks it. A page without the kit loads again instead.</summary>
+	internal async Task ReplaceReportAsync( string html )
+	{
+		if ( Controller?.CoreWebView2 is not { } web )
+			return;
+
+		try
+		{
+			if ( await web.ExecuteScriptAsync( "window.loomReportKit === true" ) == "true" && Controller?.CoreWebView2 == web )
+				web.PostWebMessageAsJson( JsonSerializer.Serialize( new { loomReplace = html } ) );
+			else
+				web.Reload();
+		}
+		catch ( Exception error ) when ( error is COMException or InvalidOperationException )
+		{
+			// The page closed or navigated away meanwhile.
+		}
 	}
 
 	/// <summary>Takes a message a page sent Loom: the color it asks for around it (<see cref="BrowserScripts.ChromeColor"/>), or the comments a user wrote

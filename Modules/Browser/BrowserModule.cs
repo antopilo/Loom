@@ -107,7 +107,7 @@ public sealed partial class BrowserModule : ILoknModule
 			.ToolAsync( "show",
 				"""
 				Shows a web page in a browser panel beside your conversation, for the user to look at: an HTML report you write (benchmark results, a plan, charts, an interactive demo), a local .html file, or a web address. Prefer this over describing a visual result in text. Pass exactly one of html, path or url. Pages can run JavaScript and load scripts from CDNs. Later calls replace the page in the same browser tab.
-				An html report gets Loom's report kit, an editorial "paper and ink" look, so write plain semantic HTML with its classes and little or no CSS of your own. The user can switch its paper, chart style and font, export it, and select text or click a figure to comment; the comments come back to you as a message asking you to revise it, so show the revised report again with this tool.
+				An html report gets Loom's report kit, an editorial "paper and ink" look, so write plain semantic HTML with its classes and little or no CSS of your own. The user can switch its paper, chart style and font, export it, and select text or click a figure to comment; the comments come back to you as a message asking you to revise it. Show the whole revised report with this tool again: the open page updates in place and marks what changed, so keep everything you did not mean to change exactly as it was.
 				Kit: <main class="report"> around everything. <header class="report-head"><div class="top"><span class="kicker">Report</span><span class="dateline">Date</span></div><h1>Title</h1><p class="lead"><b>Key sentence.</b> Rest of the summary.</p></header>. Key numbers: <div class="stats"><div class="stat"><div class="value">986</div><div class="label">Confirmed kills</div><div class="sub">Detail</div></div>…</div>. Sections: <section><h2><span class="n">I.</span> Title</h2>…</section>. Note beside content: <div class="aside-grid"><aside><div class="note-title">1. Point</div><span class="tag">12 Oct 1932</span></aside><div>body, ul, table, figure</div></div>. Figure caption: <p class="fig">Fig. 1 — …</p>. Quotes: <blockquote><p>…</p><cite>Who</cite></blockquote>, <div class="pullquote"><p>"…"</p><cite>Who</cite></div>. Tables: th small caps, td.num right-aligned. Citation: <sup class="cite"><a href="url">1</a><span>Source shown on hover</span></sup>. Bars: <div class="bars"><div class="bar"><span>Label</span><span class="track"><i style="--value:.4"></i></span><span class="amount">986</span></div></div>. Timeline: <div class="timeline"><i class="span" style="--at:.3;--to:.5"></i><span class="event" style="--at:0"><b>12 Oct</b>Label</span></div> (class "event up" lifts a crowded label). SVG charts: paths with class fill-1 (solid ink) … fill-5 (dots), fill-6 (paper), .line, .area, .gridline, .axis; legend <div class="legend"><span><i data-fill="2"></i>Name</span></div>; drawings .shape and .stroke. Never pick colors yourself: charts use ink and patterns. Set a paper with <body data-paper="cream|paper|pink|sky|mint|lavender|peach|gray|sand|ink">.
 				""",
 				"""
@@ -252,9 +252,19 @@ public sealed partial class BrowserModule : ILoknModule
 		if ( host.BrowserTabs.IsRemote && (html is not null || path is not null) )
 			throw new ArgumentException( "This browser runs on a paired PC, which cannot open files from the host. Serve the page over http on the host instead, such as with a local server on localhost, and pass its url: the paired PC reaches the host's localhost through Loom." );
 
+		var caller = context.Caller is { } id ? context.App.Panels.ResolvePanelId( id ) : Guid.Empty;
 		string address;
 		if ( html is not null )
 		{
+			// A revision of the report this chat has open is saved over it and patched into the page, without loading it again.
+			if ( _reportTabs.GetValueOrDefault( caller ) is { IsClosed: false, Controller: not null } open && FindOpenReport( open, context ) is { } revised )
+			{
+				WriteReport( revised, html );
+				RecordReport( revised, Read( "title" ), context );
+				_ = open.ReplaceReportAsync( html );
+				return new( $"Updated {revised} in place in browser panel {open.Owner.Id}; the page marks what changed for the user." );
+			}
+
 			path = SaveReport( html, Read( "title" ) );
 			RecordReport( path, Read( "title" ), context );
 			address = new Uri( path ).AbsoluteUri;
@@ -276,7 +286,6 @@ public sealed partial class BrowserModule : ILoknModule
 			throw new ArgumentException( $"{url} is not an http or https address." );
 		}
 
-		var caller = context.Caller is { } id ? context.App.Panels.ResolvePanelId( id ) : Guid.Empty;
 		var tab = ShowBeside( context.App, host, address, context.Caller, _reportTabs.GetValueOrDefault( caller ) );
 		_reportTabs[caller] = tab;
 		var shown = path is null ? address : path;
@@ -420,6 +429,13 @@ public sealed partial class BrowserModule : ILoknModule
 		for ( var copy = 2; File.Exists( path ); copy++ )
 			path = Path.Combine( ReportsPath, $"{DateTime.Now:yyyyMMdd-HHmmss}-{name}-{copy}.html" );
 
+		WriteReport( path, html );
+		return path;
+	}
+
+	/// <summary>Writes an html report to a file, with the report kit linked (<see cref="AddKit"/>) when the kit can be written beside it.</summary>
+	private void WriteReport( string path, string html )
+	{
 		try
 		{
 			EnsureKit();
@@ -431,7 +447,21 @@ public sealed partial class BrowserModule : ILoknModule
 		}
 
 		File.WriteAllText( path, html );
-		return path;
+	}
+
+	/// <summary>Returns the html report a tab shows when the calling chat made it with this tool, or null: only that report may be revised in place.</summary>
+	private string? FindOpenReport( BrowserTab tab, AgentToolContext context )
+	{
+		if ( context.Conversation is not { } chat || !Uri.TryCreate( tab.Source, UriKind.Absolute, out var uri ) || !uri.IsFile )
+			return null;
+
+		var path = Path.GetFullPath( uri.LocalPath );
+		if ( !string.Equals( Path.GetDirectoryName( path ), Path.GetFullPath( ReportsPath ), StringComparison.OrdinalIgnoreCase ) )
+			return null;
+
+		return ReadReports().Any( report => report.Conversation == chat && string.Equals( Path.GetFullPath( report.Path ), path, StringComparison.OrdinalIgnoreCase ) )
+			? path
+			: null;
 	}
 
 	/// <summary>Creates a host's WebView2 environment once, on the UI thread, and shares it between that host's panels; a paired host's pages connect through
