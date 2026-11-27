@@ -3,6 +3,16 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.31
+
+- **A morning brief for each project.** A project's overview now opens like Dia's brief: the day's painting under
+  **The Friday Brief**, the date and time along the margins, and one line on what matters in the project, written by your
+  small model. Below it, the prompt bar, then **Top to-dos** to check off, numbered **New updates**, and **Your day**: today's
+  chats on a timeline with a sticker that picks one up. It uses the paper and ink of Loom's reports.
+- **Your pull requests in the brief.** With GitHub on, a project on GitHub lists review requests, failing checks and
+  requested changes under Top to-dos, and merged pull requests under New updates. Modules can add their own items the
+  same way, such as tickets.
+
 ## 0.4.30
 
 - **Tab between panels.** With no text field focused, Tab and Shift+Tab move to the next and previous panel.

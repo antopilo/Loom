@@ -5,7 +5,8 @@ using Lokn.Modules.Workspaces;
 
 namespace Lokn.Modules.Overview;
 
-/// <summary>Contributes a project's overview: one page with its chats and tasks and their state, its activity, and the designs and reports its agents made.</summary>
+/// <summary>Contributes a project's overview: one page, set as a daily brief, with its chats and tasks and their state, its designs and reports, and
+/// the cards other modules add to <see cref="BriefSection.Point"/>, such as the project's pull requests.</summary>
 /// <remarks>The sidebar opens it with the overview button on a project's heading, through its <c>lokn://overview/project/…</c> link, so Conversations
 /// does not reference this module.</remarks>
 public sealed class OverviewModule : ILoknModule
@@ -16,6 +17,14 @@ public sealed class OverviewModule : ILoknModule
 	/// <summary>Stores the open overview panels, so opening a project's overview again shows the one already on screen.</summary>
 	private readonly List<ProjectOverviewContent> _panels = [];
 
+	/// <summary>Gets each project's last written brief line by <see cref="ProjectOverviewContent.BriefKey"/>, shared by its pages so reopening one
+	/// does not ask the model again.</summary>
+	internal Dictionary<string, BriefLine> Briefs { get; } = [];
+
+	/// <summary>Gets the brief's to-dos the user checked off, by brief, day and item, so a checked one stays checked on every page of the project that
+	/// day; a new day's keys start empty.</summary>
+	internal HashSet<string> Done { get; } = [];
+
 	/// <summary>Gets the module identifier.</summary>
 	public string Id => "overview";
 
@@ -25,11 +34,13 @@ public sealed class OverviewModule : ILoknModule
 	/// <summary>Gets the modules whose chats, projects and reports the page lists.</summary>
 	public IReadOnlyList<string> Dependencies => ["conversations", "browser"];
 
-	/// <summary>Registers the overview panel, its palette command, and the <c>lokn://overview/project/&lt;project&gt;[@host]</c> link the sidebar opens it with.</summary>
+	/// <summary>Registers the overview panel, its palette command, the <c>lokn://overview/project/&lt;project&gt;[@host]</c> link the sidebar opens it with,
+	/// and the point other modules add brief sections to.</summary>
 	public void Register( ModuleBuilder builder ) => builder
 		.Panel( "project", "Project overview", Create, "\uE8A9", onHost: true )
 		.Command( "open", "Project overview", context => Open( context.App ) )
-		.Route( "project", request => OpenLink( request.App, request.Path ) );
+		.Route( "project", request => OpenLink( request.App, request.Path ) )
+		.ExtensionPoint<BriefSection>( "sections" );
 
 	/// <summary>Opens the overview a link names: <c>&lt;project&gt;</c> for This PC's project, <c>&lt;project&gt;@&lt;host&gt;</c> for a paired host's.</summary>
 	private void OpenLink( LoknApplication app, string path )
@@ -89,7 +100,7 @@ public sealed class OverviewModule : ILoknModule
 	/// <summary>Creates an overview panel and tracks it.</summary>
 	private ProjectOverviewContent Create( PanelContext context )
 	{
-		var content = new ProjectOverviewContent( context, context.App.GetModule<ConversationsModule>(), context.App.GetModule<Browser.BrowserModule>() );
+		var content = new ProjectOverviewContent( context, this, context.App.GetModule<ConversationsModule>(), context.App.GetModule<Browser.BrowserModule>() );
 		_panels.Add( content );
 		return content;
 	}
@@ -118,3 +129,9 @@ public sealed class OverviewModule : ILoknModule
 			: null;
 	}
 }
+
+/// <summary>Holds a project's brief line as the model last wrote it.</summary>
+/// <param name="Text">The line, or empty when the model could not write one.</param>
+/// <param name="Written">When it was asked for.</param>
+/// <param name="Fingerprint">Which of the project's chats waited or worked then, so a change can ask again.</param>
+internal sealed record BriefLine( string Text, DateTimeOffset Written, string Fingerprint );

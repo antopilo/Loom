@@ -56,18 +56,43 @@ Hover a project's heading in the sidebar and click its overview button (four squ
 choose **Overview** in its **…** menu, to open one page for the whole project. The page is
 its own session, like a chat's: it fills the window, and the layout you leave it in comes back
 next time. The palette's **Project overview** opens the page of the project you are in, or a
-list of projects to choose from. Under the project's name, folder and branch:
+list of projects to choose from.
 
+The page reads like Dia's morning brief, printed in the paper and ink of Loom's report kit
+(dark paper under a dark theme, white under a light one):
+
+- **Top**: the project's name, folder and branch, then the day's painting under **The
+  &lt;day&gt; Brief**, with the date and the time along the side margins when the window is wide.
+  Each weekday has its own painting, a public domain landscape from the National Gallery of
+  Denmark (SMK); its credit is under it. The fonts are Fraunces, roman and italic.
+- **The line under the painting**: one or two sentences on what matters in the project now,
+  written by the profile's small model from the project's chats, designs, reports and the cards
+  modules add. Loom asks again after an hour, or after 10 minutes when what waits on you changed.
+  Until it comes, or without a model, the line states the plain facts.
 - **Prompt bar**: type and press Enter to start a chat in the project with what you typed, or
   Ctrl+Enter to make a task named after it.
-- **Needs you**: the chats that wait for you, then those whose agent works.
-- **Recent**: the three chats or tasks used last; **All N chats and tasks** shows the rest.
-- **Designs and reports**, on the right: the designs in the project's `.lokn\design` folder,
+
+Under them, as in Dia's Morning Brief, each section has its title in italic on the left. Items
+from every source mix: the project's chats, designs and reports, and what other modules add, such
+as **Pull requests** from GitHub when the project's `origin` remote is on GitHub. Each item shows a
+bold headline, its source's icon, its source and state in italic, and a line under it (a chat's
+last answer, a pull request's failing checks). Click an item to open it.
+
+- **Top to-dos**: what waits on you: chats that wait for your answer, and module items that need
+  you, such as a review request, failing checks, requested changes or an approval to merge. Click
+  the circle to check one off for today.
+- **New updates**, numbered: what changed in the last day, newest first (3 to 5 items): chats that
+  finished, designs, reports, and module items such as merged pull requests. Module notes (such as a
+  GitHub sign-in hint) and links (such as **Open pull requests**) follow.
+- **Your day**: today's chats in time order on the left, the one at work or the latest picked. The
+  right side shows what its agent said last and a yellow sticker, **Pick it up** or **Look in**, that
+  opens it.
+- **Designs and reports**: the designs in the project's `.lokn\design` folder,
   which open in the Design studio, and the html reports its agents showed with `browser_show`,
   which open in the browser. Reports show from Loom 0.4.13 on; earlier ones do not.
-- **GitHub**, under them, when the project's `origin` remote is on GitHub: the newest comments,
-  reviews, checks and merges of that repository from the notification feed, unread ones in
-  blue, and **Open pull requests**. GitHub posts only what changes while Loom runs.
+
+A module of your own can add tickets or anything else the same way
+([modules](modules.md#extending-the-window-and-other-modules)).
 
 A paired host's project shows its chats, tasks and designs. Its designs do not open, and its
 reports stay on that PC.

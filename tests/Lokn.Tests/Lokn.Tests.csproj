@@ -21,6 +21,7 @@
 		<ProjectReference Include="..\..\Modules\Design\Lokn.Modules.Design.csproj" />
 		<ProjectReference Include="..\..\Modules\Overview\Lokn.Modules.Overview.csproj" />
 		<ProjectReference Include="..\..\Modules\Git\Lokn.Modules.Git.csproj" />
+		<ProjectReference Include="..\..\Modules\GitHub\Lokn.Modules.GitHub.csproj" />
 		<ProjectReference Include="..\..\Modules\Notifications\Lokn.Modules.Notifications.csproj" />
 		<ProjectReference Include="..\..\Modules\Markdown\Lokn.Modules.Markdown.csproj" />
 		<ProjectReference Include="..\..\Modules\Setup\Lokn.Modules.Setup.csproj" />

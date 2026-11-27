@@ -285,6 +285,31 @@ draw the groups for all three modules. With Conversations loaded only its strip 
 otherwise Projects draws the task strip, with a button that adds a project, and without
 Projects, Workspaces draws only the Tasks group.
 
+A project's brief (the Overview module's page) takes items from other modules: contribute a
+`BriefSection` (Core) to `BriefSection.Point` (`overview.sections`). Its `Read` gets a
+`BriefProject` (the project's id, name, folder, host, profile, branch, `origin` remote, and the
+brief's panel) and returns a `BriefContent` with `BriefItem`s (headline, short state, `Description`,
+`Time`, icon, an `Open` action, and `NeedsYou`), an `Empty` note and `BriefLink`s, or null to add
+nothing. The brief mixes every source as Dia's Morning Brief does: items that need the user go under
+**Top to-dos**, the others under **New updates** by `Time` (an item with no time and no need shows
+nowhere), each with the section's `Title` and the item's state as its source line; notes and links
+follow New updates. The page calls `Read` on the UI thread on every build, so return what the module
+holds and fetch in the background into a Goo `State` that `Read` reads: the page builds again when
+it changes. Items also go to the model that writes the brief's line, and an exception shows as a
+note. GitHub adds the project's pull requests this way; a source module can add tickets the same way:
+
+```csharp
+builder.Contribute( BriefSection.Point, new BriefSection( "tickets.mine", "Tickets", 20, project =>
+	project.Name != "Atlas" ? null : new BriefContent( [.. _tickets.Value.Select( ticket =>
+		new BriefItem( ticket.Key, $"{ticket.Key} {ticket.Summary}", ticket.Status )
+		{
+			Description = ticket.LastComment,
+			Time = ticket.Updated,
+			NeedsYou = ticket.Status == "In review",
+		} )] )
+	{ Empty = "No tickets assigned to you." } ) );
+```
+
 Types shared by a point or a service live in a project both modules reference. Source
 modules see only Core, so they can use slots and routes, and points or services whose
 types are Core or .NET types.

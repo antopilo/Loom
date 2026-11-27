@@ -2,6 +2,7 @@ using Goo;
 using Lokn.Core;
 using Lokn.Modules.Browser;
 using Lokn.Modules.Conversations;
+using Lokn.Modules.GitHub;
 using Lokn.Modules.Overview;
 using Lokn.Modules.Projects;
 using Lokn.Modules.Workspaces;
@@ -38,6 +39,7 @@ internal static class OverviewChecks
 			CoreChecks.Check( app.Load( conversations ), "Conversations loads for the overview." );
 			var browser = new BrowserModule( root );
 			CoreChecks.Check( app.Load( browser ) && app.Load( new OverviewModule() ), "The overview loads after Conversations and Browser." );
+			CoreChecks.Check( app.Load( new SectionsFixture() ), "A module that adds brief sections loads beside the overview." );
 
 			var idle = store.CreateConversation( profile, project.Id, "Idle chat" );
 			var busy = store.CreateConversation( profile, project.Id, "Busy chat" );
@@ -103,17 +105,40 @@ internal static class OverviewChecks
 			}
 
 			var texts = Texts( page.Build() );
-			var order = texts.IndexOf( "Busy chat" );
-			CoreChecks.Check( order >= 0 && order < texts.IndexOf( "Idle chat" ) && texts.Contains( "Working" ) && texts.Contains( "Plan the launch" ),
-				"The overview lists the project's chats and tasks, the working chat first." );
+			var (todos, updates, day) = (texts.IndexOf( "Top to-dos" ), texts.IndexOf( "New updates" ), texts.IndexOf( "Your day" ));
+			CoreChecks.Check( todos >= 0 && todos < updates && updates < day
+				&& texts.IndexOf( "Idle chat" ) is var idleAt && idleAt > updates && idleAt < day
+				&& texts.IndexOf( "Plan the launch" ) is var taskAt && taskAt > updates && taskAt < day
+				&& texts.IndexOf( "Busy chat" ) > day && texts.Contains( "Busy chat — working now" ),
+				"The brief lists the project's finished chats and tasks under New updates, and today's chats under Your day with the working one picked." );
 			CoreChecks.Check( !texts.Contains( "Other project's chat" ) && !texts.Contains( "Elsewhere finished" ) && !texts.Contains( "Stray report" ),
 				"Chats, notifications and reports of other projects stay off the overview." );
 			CoreChecks.Check( texts.Contains( "Benchmark" ), "The overview's reports list the ones its chats showed." );
-			CoreChecks.Check( ProjectOverviewContent.ParseGitHubRepository( "git@github.com:antopilo/loom.git" ) == "antopilo/loom"
-				&& ProjectOverviewContent.ParseGitHubRepository( "https://github.com/antopilo/loom/" ) == "antopilo/loom"
-				&& ProjectOverviewContent.ParseGitHubRepository( "https://gitlab.com/antopilo/loom.git" ) is null
-				&& ProjectOverviewContent.ParseGitHubRepository( "" ) is null,
-				"The overview reads owner/name from a GitHub remote over https or ssh, and nothing from other hosts." );
+			CoreChecks.Check( texts.IndexOf( "LOKN-12 Fix login in App" ) is var ticketAt && ticketAt > todos && ticketAt < updates
+				&& texts.Contains( "Tickets · In review" ) && texts.Contains( "Open the board" ) && !texts.Contains( "Hidden" ) && texts.Contains( "Could not read Broken: boom" ),
+				"Items other modules add for the page's project that need the user go under Top to-dos; one with nothing to show adds nothing, and one that throws shows why." );
+			CoreChecks.Check( texts.Any( text => text.Contains( "Tickets: 1 needs you.", StringComparison.Ordinal ) ),
+				"The line under the painting counts the added items that need the user." );
+			var check = Descendants( page.Build() ).OfType<Button>().Single( button => button.AccessibilityName == "Mark LOKN-12 Fix login in App as done for today" );
+			check.OnClick!();
+			CoreChecks.Check( Descendants( page.Build() ).OfType<Button>().Any( button => button.AccessibilityName == "Mark LOKN-12 Fix login in App as not done" ),
+				"Clicking a to-do's circle checks it off." );
+			CoreChecks.Check( GitHubBrief.ParseRepository( "git@github.com:antopilo/loom.git" ) == "antopilo/loom"
+				&& GitHubBrief.ParseRepository( "https://github.com/antopilo/loom/" ) == "antopilo/loom"
+				&& GitHubBrief.ParseRepository( "https://gitlab.com/antopilo/loom.git" ) is null
+				&& GitHubBrief.ParseRepository( "" ) is null,
+				"GitHub's card reads owner/name from a GitHub remote over https or ssh, and nothing from other hosts." );
+			PullRequestInfo Pull( string repository, int number, string state = "OPEN", string decision = "", CheckState checks = CheckState.Success ) =>
+				new( repository, number, $"Pull {number}", $"https://github.com/{repository}/pull/{number}", "ana", "branch", false, state, decision,
+					DateTimeOffset.UtcNow, 0, checks, [] );
+			var pulls = GitHubBrief.ComputeItems(
+				new GitHubSnapshot( "me", [Pull( "antopilo/loom", 1, decision: "CHANGES_REQUESTED" ), Pull( "antopilo/loom", 2, checks: CheckState.Pending ), Pull( "other/repo", 3 )],
+					[Pull( "antopilo/loom", 4 )], [Pull( "antopilo/loom", 5, "MERGED" )], [] ),
+				"antopilo/loom", _ => null );
+			CoreChecks.Check( pulls.Select( item => item.Title ).SequenceEqual( ["#4 Pull 4", "#1 Pull 1", "#2 Pull 2", "#5 Pull 5"] )
+				&& pulls[0].NeedsYou && pulls[1] is { NeedsYou: true, Detail: "Changes requested" } && pulls[2] is { NeedsYou: false, Detail: "Checks running" }
+				&& pulls[3].Detail == "Merged",
+				"GitHub's card lists the repository's review requests, then the user's pull requests with their state, then merged ones; other repositories stay off." );
 			CoreChecks.Check( texts.Contains( "landing" ) && texts.Contains( "Design  ·  1 variant" ), "The overview lists the project's designs with their variants." );
 		}
 		finally
@@ -133,7 +158,7 @@ internal static class OverviewChecks
 				}
 			}
 		}
-		Console.WriteLine( "PASS project overview: chats that need the user first then the recent ones, reports of the project's own chats, its designs, and its GitHub repository from its remote." );
+		Console.WriteLine( "PASS project overview: Top to-dos with module items that need the user, New updates, Your day, reports of the project's own chats, its designs, and GitHub's pull requests of the project's repository." );
 	}
 
 	/// <summary>Lists the text of a declaration and every blob below it.</summary>
@@ -166,5 +191,22 @@ internal static class OverviewChecks
 	{
 		/// <summary>Builds nothing.</summary>
 		public override Blob Build() => new Text( "" );
+	}
+
+	/// <summary>Adds brief sections as a tickets module would: one with a row about the project, one with nothing to show, and one that fails.</summary>
+	private sealed class SectionsFixture : ILoknModule
+	{
+		/// <summary>Gets the module identifier.</summary>
+		public string Id => "sections-fixture";
+
+		/// <summary>Gets the module title.</summary>
+		public string Title => "Sections fixture";
+
+		/// <summary>Contributes the three sections.</summary>
+		public void Register( ModuleBuilder builder ) => builder
+			.Contribute( BriefSection.Point, new BriefSection( "fixture.tickets", "Tickets", 0, project =>
+				new( [new( "LOKN-12", $"LOKN-12 Fix login in {project.Name}", "In review" ) { NeedsYou = true }] ) { Links = [new( "Open the board", () => { } )] } ) )
+			.Contribute( BriefSection.Point, new BriefSection( "fixture.hidden", "Hidden", 1, _ => null ) )
+			.Contribute( BriefSection.Point, new BriefSection( "fixture.broken", "Broken", 2, _ => throw new InvalidOperationException( "boom" ) ) );
 	}
 }

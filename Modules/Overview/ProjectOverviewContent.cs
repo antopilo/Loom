@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Goo;
 using Lokn.Core;
@@ -8,25 +9,18 @@ using Lokn.Modules.Workspaces;
 
 namespace Lokn.Modules.Overview;
 
-/// <summary>Shows one project's overview: its chats and tasks with what each is doing, a timeline of its activity, and its designs and reports.</summary>
+/// <summary>Shows one project's brief, after Dia's morning brief: the day's painting and a line on what matters, a prompt bar, then cards with its
+/// chats and tasks by what they are doing, its designs and reports, and the sections other modules add (<see cref="BriefSection"/>), such as pull requests.</summary>
 /// <remarks>
 /// The lists follow the stores live: reading chats, working state, questions, notifications and reports during the build rebuilds the page when they change.
 /// Designs are read from the project's <c>.lokn\design</c> folder on its host when the page opens, when the folder changes, and when one of the
-/// project's agents stops working. Without a project the page lists the projects of the host to choose one.
+/// project's agents stops working. Without a project the page lists the projects of the host to choose one. The page is printed in the paper and ink of
+/// Loom's report kit (<see cref="BriefPaper"/>).
 /// </remarks>
-internal sealed class ProjectOverviewContent : PanelContent
+internal sealed partial class ProjectOverviewContent : PanelContent
 {
 	/// <summary>Defines the widest the page's column grows, in logical pixels.</summary>
 	private const int ColumnWidth = 1040;
-
-	/// <summary>Defines how many recent chats and tasks show under those that need the user, before Show all.</summary>
-	private const int RecentLimit = 3;
-
-	/// <summary>Defines how many GitHub updates show.</summary>
-	private const int GitHubLimit = 6;
-
-	/// <summary>Defines the GitHub module's pull request panel, opened by id so the page needs no reference to that module.</summary>
-	private const string PullRequestsPanel = "github.dashboard";
 
 	/// <summary>Defines an artifact card's width in logical pixels.</summary>
 	private const int CardWidth = 150;
@@ -34,8 +28,20 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Defines small detail text's size in logical pixels.</summary>
 	private const int DetailSize = 11;
 
-	/// <summary>Defines the width each of the page's two columns starts from before it grows, in logical pixels; narrower than both, the lists stack in one.</summary>
-	private const int ColumnBasis = 320;
+	/// <summary>Defines the width of a section's title beside its content, in logical pixels.</summary>
+	private const int AsideWidth = 250;
+
+	/// <summary>Defines the column width under which a section's title goes above its content and the credit under the line, in logical pixels.</summary>
+	private const int WideWidth = 640;
+
+	/// <summary>Defines the width of each margin that holds the date or the time, in logical pixels.</summary>
+	private const int RailWidth = 72;
+
+	/// <summary>Defines the page width under which the margins with the date and time are left out, in logical pixels.</summary>
+	private const int RailsMinWidth = 860;
+
+	/// <summary>Defines the page's padding, in logical pixels.</summary>
+	private const int PagePadding = 24;
 
 	/// <summary>Defines the height assumed for a page row until layout measures it, in logical pixels.</summary>
 	private const double EstimatedRowHeight = 34;
@@ -46,6 +52,9 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Stores the panel's dispatch and host.</summary>
 	private readonly PanelContext _context;
 
+	/// <summary>Stores the module that keeps each project's brief line across pages.</summary>
+	private readonly OverviewModule _module;
+
 	/// <summary>Stores the module whose chats, tasks and projects the page lists and opens.</summary>
 	private readonly ConversationsModule _conversations;
 
@@ -55,23 +64,17 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Stores the project shown, or null while the page lists projects to choose from.</summary>
 	private readonly State<Guid?> _projectId;
 
-	/// <summary>Stores whether every chat and task shows rather than the first <see cref="ChatLimit"/>.</summary>
-	private readonly State<bool> _isShowingAll = new( false );
-
 	/// <summary>Stores the project's designs as last read, newest first.</summary>
 	private readonly State<IReadOnlyList<DesignEntry>> _designs = new( [] );
 
 	/// <summary>Stores a failure to read or open something, or empty.</summary>
 	private readonly State<string> _status = new( "" );
 
-	/// <summary>Targets the page to measure whether its columns fit side by side and how many artifact cards fit in a row.</summary>
+	/// <summary>Targets the page to measure its width.</summary>
 	private readonly ElementHandle _page = new();
 
-	/// <summary>Stores whether the chats and the designs, reports and GitHub updates fit side by side.</summary>
-	private readonly State<bool> _isWide = new( true );
-
-	/// <summary>Stores how many artifact cards fit in a row.</summary>
-	private readonly State<int> _cardColumns = new( 2 );
+	/// <summary>Stores how the page fits its width.</summary>
+	private readonly State<PageLayout> _layout = new( new( true, 3, 400, true ) );
 
 	/// <summary>Stores the watch on the project's design folder, or null.</summary>
 	private IDisposable? _designWatch;
@@ -88,16 +91,17 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Stores the project's checked-out branch, or empty when it is no git repository.</summary>
 	private readonly State<string> _branch = new( "" );
 
-	/// <summary>Stores the project's GitHub repository as <c>owner/name</c>, read from its <c>origin</c> remote, or empty for none.</summary>
-	private readonly State<string> _repository = new( "" );
+	/// <summary>Stores the address of the project's <c>origin</c> remote, or empty for none, for the sections other modules add.</summary>
+	private readonly State<string> _remote = new( "" );
 
 	/// <summary>Stores the chat host whose working changes the page follows.</summary>
 	private ChatHost? _followed;
 
 	/// <summary>Creates the page for the project its input or restored state names, on its panel's host.</summary>
-	public ProjectOverviewContent( PanelContext context, ConversationsModule conversations, BrowserModule browser )
+	public ProjectOverviewContent( PanelContext context, OverviewModule module, ConversationsModule conversations, BrowserModule browser )
 	{
 		_context = context;
+		_module = module;
 		_conversations = conversations;
 		_browser = browser;
 		Guid? project = context.Input as Guid?;
@@ -107,27 +111,15 @@ internal sealed class ProjectOverviewContent : PanelContent
 		Follow();
 		ScanDesigns();
 		_ = ReadGitAsync();
+		StartBrief();
 		context.Lifetime.Register( Release );
 		_page.MetricsChanged += metrics =>
 		{
 			if ( !metrics.IsMounted )
 				return;
-
-			var theme = Theme.Current;
-			var width = Math.Min( metrics.ContentBox.Width, ColumnWidth );
-			var gap = theme.Spacing * 4;
-			var isWide = width >= ColumnBasis * 2 + gap;
-			var side = isWide ? ColumnBasis + (width - ColumnBasis * 2 - gap) * 2 / 5 : width;
-			var cardGap = theme.Spacing * 1.5;
-			var columns = Math.Max( 1, (int)((side + cardGap) / (CardWidth + cardGap)) );
-			if ( isWide != _isWide.Value || columns != _cardColumns.Value )
-			{
-				_context.Post( () =>
-				{
-					_isWide.Value = isWide;
-					_cardColumns.Value = columns;
-				} );
-			}
+			var layout = ComputeLayout( metrics.ContentBox.Width, Theme.Current.Spacing * 1.5 );
+			if ( layout != _layout.Value )
+				_context.Post( () => _layout.Value = layout );
 		};
 	}
 
@@ -149,158 +141,157 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <summary>Remembers the project shown.</summary>
 	public override JsonElement? CaptureState() => _projectId.Value is { } id ? JsonSerializer.SerializeToElement( id.ToString( "N" ) ) : null;
 
-	/// <summary>Builds the page: the project's header, then its prompt bar and chats beside its designs, reports and GitHub updates, each list building only
-	/// the rows in view; narrower than both columns, the lists stack in one.</summary>
+	/// <summary>Fits the page to its width: the margins with the date and time when there is room for them, the column beside them, the painting's
+	/// height from the column's width, whether section titles sit beside their content, and how many artifact cards fit in a row.</summary>
+	/// <param name="width">The page's width inside its padding.</param>
+	/// <param name="cardGap">The gap between artifact cards.</param>
+	internal static PageLayout ComputeLayout( double width, double cardGap )
+	{
+		var hasRails = width >= RailsMinWidth;
+		var column = Math.Min( width - (hasRails ? RailWidth * 2 : 0) - ViewStyle.TrackWidth, ColumnWidth );
+		var isWide = column >= WideWidth;
+		var content = column - (isWide ? AsideWidth : 0);
+		var cards = Math.Max( 1, (int)((content + cardGap) / (CardWidth + cardGap)) );
+		return new( isWide, cards, Math.Round( Math.Clamp( column * 0.42, 220, 440 ) ), hasRails );
+	}
+
+	/// <summary>Builds the page on its paper: the date and time in the margins when they fit, and between them one column that builds only the rows in
+	/// view, with its own scrollbar.</summary>
 	public override Blob Build()
 	{
-		var theme = Theme.Current;
+		var paper = BriefPaper.Current;
+		var layout = _layout.Value;
 		var host = ChatHost;
 		var project = host is not null && _projectId.Value is { } id ? host.Projects.Find( id ) : null;
-		Blob? header = null;
-		List<BuiltRow> main, side = [];
-		if ( host is null )
-		{
-			main = [new( "waiting", () => BuildNote( "waiting", $"Waiting for {_context.Host.Name}'s chats…" ) )];
-		}
-		else if ( project is null )
-		{
-			header = new Text { Key = "title", Content = "Project overview", FontSize = 22, FontWeight = 600 };
-			main = BuildChooser( host );
-		}
-		else
-		{
-			header = BuildHeader( host, project );
-			(main, side) = BuildProject( host, project );
-		}
+		List<BuiltRow> rows = host is null ? [new( "waiting", () => BuildNote( "waiting", $"Waiting for {_context.Host.Name}'s chats…" ) )]
+			: project is null ? BuildChooser( host, layout )
+			: BuildProject( host, project, layout );
 		if ( _status.Value is { Length: > 0 } status )
-			main.Add( new( "status", () => BuildNote( "status", status ) ) );
+			rows.Add( new( "status", () => BuildNote( "status", status ) ) );
 
-		Blob lists = _isWide.Value && side.Count > 0
-			? new Row
-			{
-				Key = "lists",
-				FlexGrow = 1,
-				MinHeight = 0,
-				Gap = theme.Spacing * 4,
-				Children = [BuildList( "main", main, 3, ColumnBasis ), BuildList( "side", side, 2, ColumnBasis )],
-			}
-			: BuildList( "rows", [.. main, .. side], 1, 0 );
-		return new Container
+		var list = new Virtual
+		{
+			Key = "rows",
+			Source = new MeasuredRowsSource<BuiltRow>( rows, BuildPageRow, static _ => EstimatedRowHeight, FollowEnd: false ),
+			FlexGrow = 1,
+			FlexShrink = 1,
+			MaxWidth = ColumnWidth + ViewStyle.TrackWidth,
+			MinWidth = 0,
+			MinHeight = 0,
+			Padding = new Edges( 0, ViewStyle.TrackWidth, 48, 0 ),
+			OverflowX = Overflow.Hidden,
+			ScrollbarY = ViewStyle.GetScrollbar(),
+		};
+		var now = _now.Value;
+		return new Row
 		{
 			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = project is null ? "Project overview" : $"{project.Name} overview",
+			AccessibilityName = project is null ? "Project overview" : $"{project.Name} brief",
 			Handle = _page,
 			FlexGrow = 1,
 			MinWidth = 0,
 			MinHeight = 0,
-			AlignItems = AlignItems.Center,
-			Padding = new Edges( 28, 32, 0, 32 ),
-			Color = theme.Text,
-			Children =
-			[
-				new Column
-				{
-					Key = "column",
-					Width = Length.Percent( 100 ),
-					MaxWidth = ColumnWidth,
-					FlexGrow = 1,
-					MinHeight = 0,
-					Gap = theme.Spacing * 3,
-					Children = header is null ? [lists] : [header, lists],
-				},
-			],
+			JustifyContent = JustifyContent.Center,
+			Padding = new Edges( PagePadding, PagePadding, 0, PagePadding ),
+			BackgroundColor = paper.Paper,
+			Color = paper.Ink,
+			Children = layout.HasRails && project is not null
+				?
+				[
+					BuildRail( "date", now.ToString( "d MMM yyyy", CultureInfo.CurrentCulture ).ToUpper( CultureInfo.CurrentCulture ), -90, layout ),
+					list,
+					BuildRail( "time", now.ToString( "t", CultureInfo.CurrentCulture ).ToUpper( CultureInfo.CurrentCulture ), 90, layout ),
+				]
+				: [list],
 		};
 	}
 
-	/// <summary>Builds a list of the page that builds only the rows in view, with its own scrollbar.</summary>
-	private static Virtual BuildList( string key, List<BuiltRow> rows, double flexGrow, double flexBasis ) => new()
-	{
-		Key = key,
-		Source = new MeasuredRowsSource<BuiltRow>( rows, BuildPageRow, static _ => EstimatedRowHeight, FollowEnd: false ),
-		FlexGrow = flexGrow,
-		FlexBasis = flexBasis,
-		MinWidth = 0,
-		MinHeight = 0,
-		Padding = new Edges( 0, ViewStyle.TrackWidth, 28, 0 ),
-		OverflowX = Overflow.Hidden,
-		ScrollbarY = ViewStyle.GetScrollbar(),
-	};
+	/// <summary>Builds one row of the page in a container without a key, since a virtual list's row may carry only its own key.</summary>
+	private static Container BuildPageRow( BuiltRow row ) => new() { Children = [row.Build()] };
 
-	/// <summary>Builds one row of a list with the gap below it.</summary>
-	private static Container BuildPageRow( BuiltRow row ) => new() { Padding = new Edges( 0, 0, 2, 0 ), Children = [row.Build()] };
-
-	/// <summary>Lists the rows of a project's overview: its prompt bar and chats, and beside them its designs and reports, then its GitHub updates.</summary>
-	private (List<BuiltRow> Main, List<BuiltRow> Side) BuildProject( ChatHost host, ProjectInfo project )
+	/// <summary>Lists the rows of a project's brief: its name, the painting, the line under it, the prompt bar, then Top to-dos, New updates, Your day,
+	/// and the designs and reports.</summary>
+	private List<BuiltRow> BuildProject( ChatHost host, ProjectInfo project, PageLayout layout )
 	{
-		var theme = Theme.Current;
 		var chats = ComputeChats( host, project );
 		var reports = ComputeReports( host, chats );
-		var designs = _designs.Value;
-		var now = DateTimeOffset.UtcNow;
-		List<BuiltRow> main = [new( "prompt", () => BuildPrompt( host, project ) ), .. BuildChats( host, project, chats, now )];
-		List<BuiltRow> side = [BuildSection( "artifacts", "Designs and reports", _isWide.Value ? 0 : theme.Spacing * 4 ), .. BuildArtifacts( host, project, chats, designs, reports, now )];
-		if ( _repository.Value.Length > 0 )
-			side.AddRange( [BuildSection( "github", "GitHub", theme.Spacing * 3 ), .. BuildGitHub( now )] );
-		return (main, side);
+		var added = ReadSections( project );
+		List<BuiltRow> rows =
+		[
+			new( "kicker", () => BuildKicker( host, project ) ),
+			new( "hero", () => BuildHero( layout ) ),
+			new( "lede", () => BuildLede( chats, added, layout ) ),
+			new( "prompt", () => BuildPrompt( host, project ) ),
+		];
+		AddBrief( rows, host, chats, reports, added, DateTimeOffset.UtcNow, layout );
+		return rows;
 	}
 
-	/// <summary>Builds the project's icon, name, folder and branch.</summary>
-	private Blob BuildHeader( ChatHost host, ProjectInfo project )
+	/// <summary>Describes the page's project to the sections other modules add.</summary>
+	private BriefProject ComputeBriefProject( ProjectInfo project ) =>
+		new( _context.App, project.Id, project.Name, project.Directory, _context.Host.Id, project.Profile, _branch.Value, _remote.Value, _context.Id );
+
+	/// <summary>Reads the sections other modules add for the project, by their order, leaving out those with nothing to show.</summary>
+	/// <remarks>Each section reads its module's state while the page builds, so the page builds again when that state changes; reading the module list
+	/// does the same when a module that adds a section loads or unloads.</remarks>
+	private List<(BriefSection Section, BriefContent Content)> ReadSections( ProjectInfo project )
 	{
-		var theme = Theme.Current;
-		var icon = _context.App.GetModule<ProjectsModule>().BuildProjectIcon( project, host.Id, 34 );
-		var folder = host.IsLocal ? FormatDirectory( project.Directory ) : $"{project.Directory}  ·  {host.Name}";
-		if ( _branch.Value.Length > 0 )
-			folder += $"  ·  \u2387 {_branch.Value}";
-		return new Row
+		_ = _context.App.Modules;
+		var brief = ComputeBriefProject( project );
+		var sections = new List<(BriefSection, BriefContent)>();
+		foreach ( var section in _context.App.Extensions.Get<BriefSection>( BriefSection.Point ).OrderBy( section => section.Order ) )
 		{
-			Key = "header",
-			AlignItems = AlignItems.Center,
-			Gap = theme.Spacing * 1.5,
-			MinWidth = 0,
-			Children =
-			[
-				.. icon is null ? Array.Empty<Blob>() : [icon],
-				new Column
-				{
-					MinWidth = 0,
-					FlexShrink = 1,
-					Gap = 2,
-					Children =
-					[
-						new Text { Key = "name", Content = project.Name, FontFamily = ViewStyle.FontFamily, FontSize = 22, FontWeight = 600, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
-						new Text { Key = "folder", Content = folder, FontSize = DetailSize + 1, Color = theme.Muted, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
-					],
-				},
-			],
-		};
+			BriefContent? content;
+			try
+			{
+				content = section.Read( brief );
+			}
+			catch ( Exception error ) when ( error is not OutOfMemoryException )
+			{
+				// Another module's code: its failure shows on its card rather than breaking the page.
+				content = new( [] ) { Empty = $"Could not read {section.Title}: {error.Message}" };
+			}
+			if ( content is not null && (content.Items.Count > 0 || content.Empty.Length > 0) )
+				sections.Add( (section, content) );
+		}
+		return sections;
 	}
 
-	/// <summary>Builds the prompt bar: Enter starts a chat in the project with what was typed, Ctrl+Enter a task named after it.</summary>
-	private Blob BuildPrompt( ChatHost host, ProjectInfo project )
+	/// <summary>Builds the prompt bar on the paper: Enter starts a chat in the project with what was typed, Ctrl+Enter a task named after it.</summary>
+	private Container BuildPrompt( ChatHost host, ProjectInfo project )
 	{
 		var theme = Theme.Current;
-		const int height = 44;
-		return new TextEntry
+		var paper = BriefPaper.Current;
+		return new Container
 		{
 			Key = "prompt",
-			Value = _prompt.Value,
-			Controlled = true,
-			Placeholder = "Ask anything…   Enter: chat   Ctrl+Enter: task",
-			AccessibilityName = $"Start a chat in {project.Name}",
-			Width = Length.Percent( 100 ),
-			Height = height,
-			FlexShrink = 0,
-			Padding = new Edges( 0, 14 ),
-			FontSize = theme.FontSize + 1,
-			BackgroundColor = theme.Raised,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = 12,
-			FocusStyle = new Style { BorderColor = theme.Accent },
-			OnChange = value => _context.Run( () => _prompt.Value = value ),
-			OnSubmit = value => _context.Run( () => UpdateStart( host, project, value, isTask: false ) ),
-			KeyBindings = [new( Key.Enter, KeyModifiers.Primary, () => _context.Run( () => UpdateStart( host, project, _prompt.Value, isTask: true ) ) )],
+			Padding = new Edges( 28, 0, 4, 0 ),
+			Children =
+			[
+				new TextEntry
+				{
+					Key = "entry",
+					Value = _prompt.Value,
+					Controlled = true,
+					Placeholder = "Ask anything…   Enter: chat   Ctrl+Enter: task",
+					PlaceholderColor = paper.Ink3,
+					AccessibilityName = $"Start a chat in {project.Name}",
+					Width = Length.Percent( 100 ),
+					Height = 46,
+					FlexShrink = 0,
+					Padding = new Edges( 0, 16 ),
+					FontSize = theme.FontSize + 1,
+					Color = paper.Ink,
+					BackgroundColor = paper.Paper,
+					BorderColor = paper.Rule,
+					BorderWidth = 1,
+					BorderRadius = 12,
+					FocusStyle = new Style { BorderColor = paper.Ink2 },
+					OnChange = value => _context.Run( () => _prompt.Value = value ),
+					OnSubmit = value => _context.Run( () => UpdateStart( host, project, value, isTask: false ) ),
+					KeyBindings = [new( Key.Enter, KeyModifiers.Primary, () => _context.Run( () => UpdateStart( host, project, _prompt.Value, isTask: true ) ) )],
+				},
+			],
 		};
 	}
 
@@ -317,75 +308,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 			_conversations.StartConversation( _context.App, host, text, project.Id );
 	}
 
-	/// <summary>Lists the rows of the project's chats and tasks: those waiting for the user or working under Needs you, then the few most recent, and a link to all of them.</summary>
-	private List<BuiltRow> BuildChats( ChatHost host, ProjectInfo project, IReadOnlyList<ChatEntry> chats, DateTimeOffset now )
-	{
-		if ( chats.Count == 0 )
-			return [new( "chats-none", () => BuildNote( "none", "No chats or tasks yet. Type above to start one." ) )];
-
-		BuiltRow Row( ChatEntry chat ) => new( "chat:" + chat.Conversation.Id.ToString( "N" ), () => BuildRow(
-			chat.Conversation.Id.ToString( "N" ),
-			chat.Conversation.HasChat ? "\uE8BD" : "\uE9D5",
-			chat.Conversation.Title,
-			chat.State switch
-			{
-				ChatState.Waiting => "Waiting for you",
-				ChatState.Working => "Working",
-				_ => FormatAge( chat.Conversation.UpdatedAt, now ),
-			},
-			chat.State switch
-			{
-				ChatState.Waiting => Theme.Current.Attention,
-				ChatState.Working => Theme.Current.Accent,
-				_ => Theme.Current.Inactive,
-			},
-			$"Open {chat.Conversation.Title}",
-			() => OpenChat( host.Ref( chat.Conversation.Id ) ) ) );
-
-		var active = chats.Where( chat => chat.State != ChatState.Idle ).ToList();
-		var idle = chats.Where( chat => chat.State == ChatState.Idle ).ToList();
-		var gap = Theme.Current.Spacing * 2;
-		var rows = new List<BuiltRow>();
-		if ( active.Count > 0 )
-			rows.AddRange( [BuildSection( "needs-you", "Needs you", gap ), .. active.Select( Row )] );
-		if ( idle.Count > 0 )
-		{
-			rows.AddRange( [BuildSection( "recent", "Recent", gap ), .. (_isShowingAll.Value ? idle : idle.Take( RecentLimit )).Select( Row )] );
-			if ( idle.Count > RecentLimit )
-			{
-				var label = _isShowingAll.Value ? "Show less" : $"All {chats.Count} chats and tasks";
-				rows.Add( new( "more", () => BuildLink( "more", label, () => _isShowingAll.Value = !_isShowingAll.Value ) ) );
-			}
-		}
-		return rows;
-	}
-
-	/// <summary>Lists the rows of the GitHub updates of the project's repository from the notification feed, newest first, and a link to the pull requests.</summary>
-	/// <remarks>The GitHub module posts what changed on pull requests and runs to the feed with their page; the repository's are those whose page is under it.</remarks>
-	private List<BuiltRow> BuildGitHub( DateTimeOffset now )
-	{
-		var theme = Theme.Current;
-		var repository = _repository.Value;
-		var prefix = $"https://github.com/{repository}/";
-		var items = _context.App.Notifications.Items
-			.Where( item => item.Source == "github" && item.Url is { } url && url.StartsWith( prefix, StringComparison.OrdinalIgnoreCase ) )
-			.Take( GitHubLimit )
-			.ToList();
-		var rows = new List<BuiltRow>();
-		if ( items.Count == 0 )
-			rows.Add( new( "github-none", () => BuildNote( "none", $"No pull request comments, reviews or checks on {repository} yet." ) ) );
-		foreach ( var item in items )
-		{
-			var link = new Uri( item.Url! );
-			rows.Add( new( $"github-{item.Id:N}", () => BuildRow( $"github-{item.Id:N}", item.IsRead ? "\uE8BD" : "\uE91F", item.Message, FormatAge( item.Time, now ),
-				item.IsRead ? theme.Inactive : theme.Attention, item.Message, () => _context.App.OpenLink( link, _context.Id ) ) ) );
-		}
-		if ( _context.App.Panels.Types.Any( type => type.Id == PullRequestsPanel ) )
-			rows.Add( new( "pulls", () => BuildLink( "pulls", "Open pull requests", () => _context.App.Panels.OpenBeside( PullRequestsPanel, _context.Id ) ) ) );
-		return rows;
-	}
-
-	/// <summary>Reads the project's branch and GitHub repository with git on its host; a folder that is no repository leaves both empty.</summary>
+	/// <summary>Reads the project's branch and <c>origin</c> remote with git on its host; a folder that is no repository leaves both empty.</summary>
 	private async Task ReadGitAsync()
 	{
 		var host = ChatHost;
@@ -409,28 +332,12 @@ internal sealed class ProjectOverviewContent : PanelContent
 		_context.Post( () =>
 		{
 			_branch.Value = branch == "HEAD" ? "detached" : branch;
-			_repository.Value = ParseGitHubRepository( remote ) ?? "";
+			_remote.Value = remote;
 		} );
 	}
 
-	/// <summary>Reads <c>owner/name</c> from a GitHub remote address, https or ssh, or null for another host.</summary>
-	internal static string? ParseGitHubRepository( string remote )
-	{
-		var text = remote.Trim();
-		foreach ( var start in (string[])["https://github.com/", "http://github.com/", "git@github.com:", "ssh://git@github.com/"] )
-		{
-			if ( !text.StartsWith( start, StringComparison.OrdinalIgnoreCase ) )
-				continue;
-			var path = text[start.Length..].TrimEnd( '/' );
-			if ( path.EndsWith( ".git", StringComparison.OrdinalIgnoreCase ) )
-				path = path[..^4];
-			return path.Split( '/' ) is [{ Length: > 0 } owner, { Length: > 0 } name] ? $"{owner}/{name}" : null;
-		}
-		return null;
-	}
-
 	/// <summary>Lists the rows of cards of the project's designs, newest first, then its reports, newest first, as many cards to a row as fit.</summary>
-	private List<BuiltRow> BuildArtifacts( ChatHost host, ProjectInfo project, IReadOnlyList<ChatEntry> chats, IReadOnlyList<DesignEntry> designs, IReadOnlyList<BrowserReport> reports, DateTimeOffset now )
+	private List<BuiltRow> BuildArtifacts( ChatHost host, IReadOnlyList<ChatEntry> chats, IReadOnlyList<DesignEntry> designs, IReadOnlyList<BrowserReport> reports, DateTimeOffset now, PageLayout layout )
 	{
 		var titles = chats.ToDictionary( chat => chat.Conversation.Id, chat => chat.Conversation.Title );
 		var cards = new List<(string Key, Func<Blob> Build)>();
@@ -451,29 +358,34 @@ internal sealed class ProjectOverviewContent : PanelContent
 		}
 		if ( cards.Count == 0 )
 		{
-			return [new( "artifacts-none", () => BuildNote( "none", host.IsLocal
+			return [new( "none", () => BuildNote( "none", host.IsLocal
 				? "No designs or reports yet. Agents add them with the design tools and browser_show."
 				: $"No designs yet. Reports of {host.Name}'s chats show on that PC." ) )];
 		}
 
 		var gap = Theme.Current.Spacing * 1.5;
-		return [.. cards.Chunk( _cardColumns.Value ).Select( row => new BuiltRow( "cards:" + row[0].Key,
-			() => new Row { Gap = gap, Padding = new Edges( 0, 0, gap, 0 ), Children = [.. row.Select( card => card.Build() )] } ) )];
+		var chunks = cards.Chunk( layout.CardColumns ).ToList();
+		return [.. chunks.Select( ( row, index ) => new BuiltRow( row[0].Key, () => new Row
+		{
+			Gap = gap,
+			Padding = new Edges( 0, 0, index < chunks.Count - 1 ? gap : 0, 0 ),
+			Children = [.. row.Select( card => card.Build() ), .. Enumerable.Range( 0, layout.CardColumns - row.Length ).Select( _ => new Container { FlexGrow = 1, FlexBasis = CardWidth, MinWidth = 0 } )],
+		} ) )];
 	}
 
 	/// <summary>Lists the rows of the host's projects to choose one, for a page opened outside a project.</summary>
-	private List<BuiltRow> BuildChooser( ChatHost host )
+	private List<BuiltRow> BuildChooser( ChatHost host, PageLayout layout )
 	{
-		var theme = Theme.Current;
-		List<BuiltRow> rows =
+		List<BuiltRow> projects =
 		[
-			BuildSection( "projects", "Choose a project", 0 ),
-			.. host.Projects.Projects( _context.App.Settings.ActiveProfile ).Select( project => new BuiltRow( "project:" + project.Id.ToString( "N" ),
-				() => BuildRow( project.Id.ToString( "N" ), "\uE8B7", project.Name, host.IsLocal ? FormatDirectory( project.Directory ) : project.Directory, theme.Inactive,
+			.. host.Projects.Projects( _context.App.Settings.ActiveProfile ).Select( project => new BuiltRow( project.Id.ToString( "N" ),
+				() => BuildRow( project.Id.ToString( "N" ), "\uE8B7", project.Name, host.IsLocal ? FormatDirectory( project.Directory ) : project.Directory, BriefPaper.Current.Ink3,
 					$"Show the overview of {project.Name}", () => UpdateProject( project.Id ) ) ) ),
 		];
-		if ( rows.Count == 1 )
-			rows.Add( new( "projects-none", () => BuildNote( "none", "Add a project in the sidebar first." ) ) );
+		if ( projects.Count == 0 )
+			projects.Add( new( "none", () => BuildNote( "none", "Add a project in the sidebar first." ) ) );
+		List<BuiltRow> rows = [new( "title", () => new Text { Key = "title", Content = "Choose a project", FontFamily = BriefArt.DisplayFontFamily, FontSize = 40, Padding = new Edges( 8, 0, 0, 0 ) } )];
+		AddSection( rows, "projects", "Projects", projects, layout );
 		return rows;
 	}
 
@@ -627,7 +539,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 			_context.Post( ScheduleScan );
 	}
 
-	/// <summary>Stops following the host and the design folder once the panel closes.</summary>
+	/// <summary>Stops following the host and the design folder, and releases the painting, once the panel closes.</summary>
 	private void Release()
 	{
 		if ( _followed is not null )
@@ -636,59 +548,120 @@ internal sealed class ProjectOverviewContent : PanelContent
 		_designWatch?.Dispose();
 		_designWatch = null;
 		_rescan?.Cancel();
+		_painting.Value?.Dispose();
 	}
 
-	/// <summary>Builds the title row of a section of the page, set apart from what comes before by <paramref name="top"/> logical pixels.</summary>
-	private static BuiltRow BuildSection( string key, string title, double top ) => new( key, () => new Text
+	/// <summary>Adds a section's rows to the page, each item its own row, so a long section still builds only the rows in view: its title in an italic
+	/// serif beside the first item, or, for <see cref="SectionStyle.Numbered"/> and <see cref="SectionStyle.Full"/>, on a line above them; narrow, the
+	/// title always goes above.</summary>
+	/// <param name="rows">The page's rows.</param>
+	/// <param name="key">Keys the section's rows.</param>
+	/// <param name="title">The section's title.</param>
+	/// <param name="items">The section's items.</param>
+	/// <param name="layout">How the page fits its width.</param>
+	/// <param name="style">Where the title goes and what the column beside the items holds.</param>
+	/// <param name="numbered">How many items, from the first, get a number beside them under <see cref="SectionStyle.Numbered"/>.</param>
+	private static void AddSection( List<BuiltRow> rows, string key, string title, IReadOnlyList<BuiltRow> items, PageLayout layout,
+		SectionStyle style = SectionStyle.Beside, int numbered = 0 )
+	{
+		var isAbove = style != SectionStyle.Beside || !layout.IsWide;
+		if ( isAbove )
+			rows.Add( new( key + ":title", () => new Container { Padding = new Edges( 44, 0, 16, 0 ), Children = [BuildSectionTitle( title )] } ) );
+		for ( var i = 0; i < items.Count; i++ )
+		{
+			var item = items[i];
+			var (isFirst, number) = (i == 0, i < numbered ? (i + 1).ToString( "00", CultureInfo.InvariantCulture ) : null);
+			rows.Add( new( $"{key}:{item.Key}", () => BuildSectionRow( isFirst && !isAbove ? title : null, isFirst && !isAbove, number, style, item.Build(), layout ) ) );
+		}
+	}
+
+	/// <summary>Builds a section's title in an italic serif.</summary>
+	private static Text BuildSectionTitle( string title ) => new()
 	{
 		Key = "title",
 		Content = title,
-		FontSize = DetailSize + 1,
-		FontWeight = 600,
-		Color = Theme.Current.Muted,
-		Margin = new Edges( top, 0, 6, 0 ),
-	} );
+		FontFamily = BriefArt.SerifFontFamily,
+		FontStyle = FontStyle.Italic,
+		FontSize = 24,
+		LineHeight = 1.2,
+		Color = BriefPaper.Current.Ink,
+		MinWidth = 0,
+		TextWrap = TextWrap.Wrap,
+	};
 
-	/// <summary>Builds a clickable row: an icon, a title and a muted detail on the right.</summary>
-	private Button BuildRow( string key, string glyph, string title, string detail, Color detailColor, string name, Action open )
+	/// <summary>Builds one item row of a section on the paper: wide, a left column with the section's title on the first row, or the item's number,
+	/// beside the item, unless the item takes the full width; narrow, the number before the item.</summary>
+	private static Container BuildSectionRow( string? title, bool isTop, string? number, SectionStyle style, Blob content, PageLayout layout )
+	{
+		var body = new Container { Key = "body", FlexGrow = 1, MinWidth = 0, Children = [content] };
+		Blob? aside = title is not null ? BuildSectionTitle( title )
+			: number is not null ? new Text { Key = "number", Content = number, FontFamily = ViewStyle.CodeFontFamily, FontSize = 10, Color = BriefPaper.Current.Ink3, Padding = new Edges( 5, 0, 0, 0 ) }
+			: null;
+		Blob[] children = style == SectionStyle.Full ? [body]
+			: layout.IsWide ? [new Container { Key = "aside", Width = AsideWidth, FlexShrink = 0, Children = aside is null ? [] : [aside] }, body]
+			: aside is null ? [body]
+			: [new Container { Key = "aside", Width = 30, FlexShrink = 0, Children = [aside] }, body];
+		return new Container
+		{
+			Key = "section-row",
+			FlexDirection = FlexDirection.Row,
+			AlignItems = AlignItems.FlexStart,
+			Padding = new Edges( isTop ? 44 : 0, 0, 0, 0 ),
+			Children = children,
+		};
+	}
+
+	/// <summary>Builds a row: an icon, a title and a quieter detail on the right; a row with an action opens it when clicked, one without only informs.</summary>
+	private Button BuildRow( string key, string glyph, string title, string detail, Color detailColor, string name, Action? open )
 	{
 		var theme = Theme.Current;
-		void Run() => _context.Run( open );
+		var paper = BriefPaper.Current;
+		void Run()
+		{
+			if ( open is not null )
+				_context.Run( open );
+		}
+		var icon = SidebarRows.BuildIcon( glyph );
+		icon.Color = paper.Ink3;
 		return new Button
 		{
 			Key = key,
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing,
-			MinHeight = 32,
+			MinHeight = 34,
 			Padding = new Edges( 0, 10 ),
-			BorderRadius = theme.Radius + 1,
+			BorderRadius = theme.Radius + 2,
 			BackgroundColor = Color.Transparent,
-			HoverStyle = new Style { BackgroundColor = theme.Hover },
-			FocusStyle = new Style { BackgroundColor = theme.Hover },
-			Cursor = Cursor.Pointer,
+			HoverStyle = open is null ? null : new Style { BackgroundColor = paper.Hover },
+			FocusStyle = new Style { BackgroundColor = paper.Hover },
+			Cursor = open is null ? Cursor.Default : Cursor.Pointer,
 			Focusable = true,
 			AccessibilityName = name,
 			OnClick = Run,
 			KeyBindings = [new( Key.Enter, KeyModifiers.None, Run ), new( Key.Space, KeyModifiers.None, Run )],
 			Children =
 			[
-				SidebarRows.BuildIcon( glyph ),
-				new Text { Content = title, MinWidth = 0, FlexShrink = 1, FlexGrow = 1, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
+				icon,
+				new Text { Content = title, Color = paper.Ink, MinWidth = 0, FlexShrink = 1, FlexGrow = 1, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
 				new Text { Content = detail, FontSize = DetailSize, Color = detailColor, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
 			],
 		};
 	}
 
-	/// <summary>Builds a quiet card for a design or report, which opens it when clicked; a card that cannot open is drawn muted.</summary>
+	/// <summary>Builds a card for a design or report on the paper, outlined with a hairline, which opens it when clicked; a card that cannot open is
+	/// drawn faint.</summary>
 	private Button BuildCard( string key, string glyph, string title, string detail, string footnote, string name, Action? open )
 	{
 		var theme = Theme.Current;
+		var paper = BriefPaper.Current;
 		void Run()
 		{
 			if ( open is not null )
 				_context.Run( open );
 		}
+		var icon = SidebarRows.BuildIcon( glyph );
+		icon.Color = paper.Ink3;
 		return new Button
 		{
 			Key = key,
@@ -701,11 +674,11 @@ internal sealed class ProjectOverviewContent : PanelContent
 			FlexDirection = FlexDirection.Column,
 			AlignItems = AlignItems.Stretch,
 			BorderRadius = theme.Radius + 3,
-			BackgroundColor = theme.Raised,
-			HoverStyle = open is null ? null : new Style { BackgroundColor = theme.Hover },
-			FocusStyle = new Style { BorderColor = theme.Accent },
-			BorderWidth = theme.BorderWidth,
-			BorderColor = Color.Transparent,
+			BackgroundColor = paper.Paper,
+			HoverStyle = open is null ? null : new Style { BorderColor = paper.Ink3 },
+			FocusStyle = new Style { BorderColor = paper.Ink2 },
+			BorderWidth = 1,
+			BorderColor = paper.Rule,
 			Cursor = open is null ? Cursor.Default : Cursor.Pointer,
 			Focusable = true,
 			AccessibilityName = name,
@@ -720,13 +693,13 @@ internal sealed class ProjectOverviewContent : PanelContent
 					MinWidth = 0,
 					Children =
 					[
-						SidebarRows.BuildIcon( glyph ),
-						new Text { Content = title, FontWeight = 600, MinWidth = 0, FlexShrink = 1, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis, Color = open is null ? theme.Muted : theme.Text },
+						icon,
+						new Text { Content = title, FontWeight = 600, MinWidth = 0, FlexShrink = 1, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis, Color = open is null ? paper.Ink2 : paper.Ink },
 					],
 				},
-				new Text { Content = detail, FontSize = DetailSize, Color = theme.Muted, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
+				new Text { Content = detail, FontSize = DetailSize, Color = paper.Ink2, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
 				new Spacer(),
-				new Text { Content = footnote, FontSize = DetailSize, Color = theme.Inactive, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
+				new Text { Content = footnote, FontSize = DetailSize, Color = paper.Ink3, MinWidth = 0, TextMaxLines = 1, TextTrimming = TextTrimming.Ellipsis },
 			],
 		};
 	}
@@ -735,6 +708,7 @@ internal sealed class ProjectOverviewContent : PanelContent
 	private Button BuildLink( string key, string label, Action action )
 	{
 		var theme = Theme.Current;
+		var paper = BriefPaper.Current;
 		void Run() => _context.Run( action );
 		return new Button
 		{
@@ -743,24 +717,24 @@ internal sealed class ProjectOverviewContent : PanelContent
 			Padding = new Edges( 4, 10 ),
 			BorderRadius = theme.Radius,
 			BackgroundColor = Color.Transparent,
-			HoverStyle = new Style { BackgroundColor = theme.Hover },
+			HoverStyle = new Style { BackgroundColor = paper.Hover },
 			Cursor = Cursor.Pointer,
 			Focusable = true,
 			AccessibilityName = label,
 			OnClick = Run,
 			KeyBindings = [new( Key.Enter, KeyModifiers.None, Run )],
-			Children = [new Text { Content = label, FontSize = DetailSize + 1, Color = theme.Accent }],
+			Children = [new Text { Content = label, FontSize = DetailSize + 1, FontWeight = 600, Color = paper.Ink2 }],
 		};
 	}
 
-	/// <summary>Builds a muted line of explanation.</summary>
+	/// <summary>Builds a quiet line of explanation.</summary>
 	private static Text BuildNote( string key, string text ) => new()
 	{
 		Key = key,
 		Content = text,
-		Color = Theme.Current.Muted,
+		Color = BriefPaper.Current.Ink2,
 		TextWrap = TextWrap.Wrap,
-		Padding = new Edges( 6, 10 ),
+		Padding = new Edges( 4, 0 ),
 	};
 
 	/// <summary>Formats how long ago something happened, in the largest whole unit.</summary>
@@ -804,4 +778,24 @@ internal sealed class ProjectOverviewContent : PanelContent
 	/// <param name="Variants">How many variant folders it has; 0 for a single page.</param>
 	/// <param name="Modified">When its folder or a file at its top last changed.</param>
 	private sealed record DesignEntry( string Name, string Project, int Variants, DateTimeOffset Modified );
+
+	/// <summary>Holds how the page fits its width.</summary>
+	/// <param name="IsWide">Whether section titles sit beside their content and the painting's credit beside the line under it.</param>
+	/// <param name="CardColumns">How many design and report cards fit in a row.</param>
+	/// <param name="HeroHeight">The painting's height in logical pixels.</param>
+	/// <param name="HasRails">Whether the margins with the date and the time show.</param>
+	internal sealed record PageLayout( bool IsWide, int CardColumns, double HeroHeight, bool HasRails );
+
+	/// <summary>Names where a section's title goes and what the column beside its items holds.</summary>
+	private enum SectionStyle
+	{
+		/// <summary>The title beside the first item, the column empty beside the rest.</summary>
+		Beside,
+
+		/// <summary>The title on a line above, each item's number beside it.</summary>
+		Numbered,
+
+		/// <summary>The title on a line above, the items across the full width.</summary>
+		Full,
+	}
 }
