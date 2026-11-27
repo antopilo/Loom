@@ -3,6 +3,10 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.31
+
+- **Fold the theme.** Click the header of Settings › Shell › **Theme** to fold or unfold its settings. A folded header shows the current theme and any fonts you set, and Loom remembers the state after a restart.
+
 ## 0.4.30
 
 - **Tab between panels.** With no text field focused, Tab and Shift+Tab move to the next and previous panel.
