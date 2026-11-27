@@ -1,8 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<!-- This module's release version; raise it to publish the module as an update (scripts/release.ps1). -->
-		<Version>1.14.5</Version>
+		<Version>1.14.6</Version>
 	</PropertyGroup>
+	<ItemGroup>
+		<!-- The working line's shimmer and the prompt's edge glow while the agent works. The programs are compiled from the .slang beside them by
+		     scripts/shaders.ps1 and committed, so a build needs no Slang toolchain; ChatEffects loads them. -->
+		<EmbeddedResource Include="Chat\Shaders\*.goo-effect" LogicalName="Lokn.Chat.%(Filename).goo-effect" />
+	</ItemGroup>
 	<ItemGroup>
 		<!-- The chat streams and parses Markdown with the Markdown module's renderer, so Conversations declares it as a dependency. -->
 		<ProjectReference Include="..\Markdown\Lokn.Modules.Markdown.csproj" Private="false" />

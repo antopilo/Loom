@@ -208,6 +208,8 @@ public sealed partial class ChatContent
 				Children = frame,
 			},
 		};
+		// While the agent works, a light runs around the frame's edge.
+		frameBox.Add( Cell.Mount<PromptGlowInput, PromptGlow>( "conversation-prompt-glow", new( session.IsBusy, ChatStyle.BubbleRadius ) ) );
 		// The context meter is the frame's top border: it lies over that edge, placed against this unpadded box, and draws last.
 		if ( BuildContextMeter() is { } meter )
 			frameBox.Add( meter );

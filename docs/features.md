@@ -544,6 +544,9 @@ and JSON from the theme's ANSI colors, with a language badge. A floating ↓ ret
 the newest message after you scroll up. The line under the prompt shows the project,
 model and profile; the model opens Omp setup. A ring beside the model fills with the
 thinking effort; pointing at it names the effort, and clicking steps to the next one.
+While the agent works, a soft light sweeps across the "Working…" label and a light runs around the prompt's edge. Both are Goo shader
+effects (`Modules/Conversations/Chat/Shaders`, compiled by `scripts/shaders.ps1`), play only while the chat is seen, and stay still with
+reduced motion.
 Code and tool commands remain monospace.
 Process pipes explicitly use UTF-8, including emoji and non-ASCII punctuation; terminal
 color/link escapes are removed from tool output before native rendering.

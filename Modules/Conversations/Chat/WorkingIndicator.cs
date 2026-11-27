@@ -27,8 +27,16 @@ internal sealed class WorkingIndicator : GuardedCell<WorkingInput>
 	/// <summary>Stores the elapsed time the last build showed.</summary>
 	private string _elapsed = "";
 
+	/// <summary>Sweeps a soft light across the label while the agent works and the indicator is seen; one effect, so one layer.</summary>
+	private readonly ShaderEffect _shimmer = new( ChatEffects.Shimmer, false, 0, 0 );
+
 	/// <summary>Creates the indicator; its first build starts the clock once it is seen.</summary>
-	public WorkingIndicator() => _motion = new( UpdateClock );
+	public WorkingIndicator()
+	{
+		_motion = new( UpdateClock );
+		// Half-width of the band, as a share of the label's width; seconds per sweep and rest; how far the band lights toward white.
+		_shimmer.SetParameter( 0, new System.Numerics.Vector4( 0.22f, 2.4f, 0.55f, 0 ) );
+	}
 
 	/// <summary>Builds the stitches, the phase and the elapsed time.</summary>
 	protected override Blob BuildView( WorkingInput input )
@@ -47,7 +55,12 @@ internal sealed class WorkingIndicator : GuardedCell<WorkingInput>
 			Children =
 			[
 				Cell.Mount( "working-stitches", () => new StitchMark() ),
-				Cell.Mount<RollingTextInput, RollingText>( "working-label", new( $"{input.Label}…", ViewStyle.SmallSize, Theme.Current.Accent ) { FontFamily = ViewStyle.FontFamily } ),
+				new Container
+				{
+					Key = "working-label-light",
+					ShaderEffect = _shimmer,
+					Children = [Cell.Mount<RollingTextInput, RollingText>( "working-label", new( $"{input.Label}…", ViewStyle.SmallSize, Theme.Current.Accent ) { FontFamily = ViewStyle.FontFamily } )],
+				},
 				// The clock only counts up, so even 59s to 1m 00s rolls up.
 				Cell.Mount<RollingTextInput, RollingText>( "working-elapsed", new( _elapsed, ViewStyle.SmallSize, Theme.Current.Muted )
 				{
@@ -59,11 +72,12 @@ internal sealed class WorkingIndicator : GuardedCell<WorkingInput>
 		};
 	}
 
-	/// <summary>Runs the clock while the indicator is seen and stops it otherwise.</summary>
+	/// <summary>Runs the clock and the shimmer while the indicator is seen and stops them otherwise; the shimmer stays still with reduced motion.</summary>
 	private void UpdateClock( bool isSeen )
 	{
 		_clock?.Dispose();
 		_clock = isSeen ? Every( ClockMs, UpdateElapsed ) : null;
+		_shimmer.Playing = isSeen && Motion.TimeScale > 0 && Host.Preferences.ReducedMotion != true;
 	}
 
 	/// <summary>Rebuilds the indicator once the elapsed time it shows is out of date.</summary>
