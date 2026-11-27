@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Usage metrics</title>
+<link rel="stylesheet" href="loom-report.css">
+<script src="loom-report.js" defer></script>
+</head>
+<body data-paper="lavender">
+<main class="report">
+
+<header class="report-head">
+	<div class="top"><span class="kicker">Usage metrics</span><span class="dateline">November 2026</span></div>
+	<h1>How Loom is used</h1>
+</header>
+
+<section>
+	<h2 class="serif"><span class="n">I.</span> Daily sessions</h2>
+	<svg viewBox="0 0 760 220" width="100%">
+		<g class="axis">
+			<line class="gridline" x1="0" x2="760" y1="20" y2="20"/><line class="gridline" x1="0" x2="760" y1="65" y2="65"/>
+			<line class="gridline" x1="0" x2="760" y1="110" y2="110"/><line class="gridline" x1="0" x2="760" y1="155" y2="155"/>
+			<text x="0" y="205">Nov 1</text><text x="190" y="205">Nov 8</text><text x="380" y="205">Nov 15</text><text x="570" y="205">Nov 22</text><text x="728" y="205">Nov 27</text>
+		</g>
+		<path class="area" d="M0 180 L0 120 C30 110 50 60 80 62 C110 64 120 150 150 152 C175 154 185 70 215 66 C245 62 255 58 285 60 C315 62 325 150 355 152 C380 154 390 56 420 52 C450 48 460 46 490 50 C520 54 530 150 560 150 C585 150 595 40 625 36 C655 32 665 30 695 34 C725 38 740 30 760 26 L760 180Z"/>
+		<path class="line" d="M0 120 C30 110 50 60 80 62 C110 64 120 150 150 152 C175 154 185 70 215 66 C245 62 255 58 285 60 C315 62 325 150 355 152 C380 154 390 56 420 52 C450 48 460 46 490 50 C520 54 530 150 560 150 C585 150 595 40 625 36 C655 32 665 30 695 34 C725 38 740 30 760 26"/>
+	</svg>
+	<div class="fig">Fig. 1 — Sessions per day; the dips are weekends.</div>
+</section>
+
+<section>
+	<h2 class="serif"><span class="n">II.</span> Panels opened</h2>
+	<table>
+		<thead><tr><th>Panel</th><th class="num">Opens</th><th class="num">% of total</th><th class="num">Δ MoM</th></tr></thead>
+		<tbody>
+			<tr><td>Chat</td><td class="num">4,812</td><td class="num">28%</td><td class="num">+12%</td></tr>
+			<tr><td>Editor</td><td class="num">3,951</td><td class="num">23%</td><td class="num">+24%</td></tr>
+			<tr><td>Git</td><td class="num">3,264</td><td class="num">19%</td><td class="num">+31%</td></tr>
+			<tr><td>Terminal</td><td class="num">2,233</td><td class="num">13%</td><td class="num">+9%</td></tr>
+			<tr><td>Browser</td><td class="num">1,718</td><td class="num">10%</td><td class="num">+6%</td></tr>
+			<tr><td>Design</td><td class="num">1,202</td><td class="num">7%</td><td class="num">−2%</td></tr>
+		</tbody>
+	</table>
+	<p class="faint" style="margin-top:12px">Illustrative numbers.</p>
+</section>
+
+</main>
+</body>
+</html>

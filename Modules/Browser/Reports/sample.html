@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scrolling performance</title>
+<link rel="stylesheet" href="loom-report.css">
+<script src="loom-report.js" defer></script>
+</head>
+<body data-paper="peach">
+
+<main class="report">
+
+<header class="report-head">
+	<div class="top"><span class="kicker">Performance report</span><span class="dateline">Thursday, Nov 26 2026</span></div>
+	<h1>Scrolling a 954-message chat</h1>
+	<p class="lede">Fast flicks through a copy of a real chat, before and after splitting tool runs into rows and removing effect layers.</p>
+</header>
+
+<section>
+	<h2><span class="n">I.</span> Results</h2>
+	<div class="stats">
+		<div class="stat"><div class="value">145</div><div class="label">Frames per flick</div><div class="sub">up from 44</div></div>
+		<div class="stat"><div class="value">5.6 ms</div><div class="label">Typical frame</div><div class="sub">180 fps</div></div>
+		<div class="stat"><div class="value">33 ms</div><div class="label">Worst hitch</div><div class="sub">down from 450 ms</div></div>
+	</div>
+	<table>
+		<thead><tr><th>Change</th><th>Status</th><th class="num">Worst gap</th><th class="num">Δ Frames</th></tr></thead>
+		<tbody>
+			<tr><td>Baseline</td><td class="muted">—</td><td class="num">450 ms</td><td class="num">44</td></tr>
+			<tr><td>No rounded clips on short code</td><td><span class="tag">Shipped</span></td><td class="num">83 ms</td><td class="num">+37</td></tr>
+			<tr><td>One row per tool message</td><td><span class="tag">Shipped</span></td><td class="num">33 ms</td><td class="num">+64</td></tr>
+			<tr><td>Spread new rows over frames</td><td><span class="tag">Dropped</span></td><td class="num">115 ms</td><td class="num">−74</td></tr>
+		</tbody>
+	</table>
+</section>
+
+<section>
+	<h2 class="serif"><span class="n">II.</span> Where the time went</h2>
+
+	<div class="aside-grid">
+		<aside>
+			<div class="note-title">1. UI thread, before</div>
+			<p>Two thirds of each frame went to Goo walking its effect layers; text shaping was most of the rest.</p>
+			<div class="fig">Fig. 1 — Share of the UI thread over a 25 s trace</div>
+		</aside>
+		<div style="display:flex; align-items:center; gap:40px">
+			<svg viewBox="-110 -110 220 220" width="260" height="260">
+				<!-- 66% / 21% / 9% / 4% of a ring, drawn from the top clockwise -->
+				<path class="fill-1" d="M0-100A100 100 0 1 1-86.8 49.6L-43.4 24.8A50 50 0 1 0 0-50Z"/>
+				<path class="fill-2" d="M-86.8 49.6A100 100 0 0 1-48.2-87.6L-24.1-43.8A50 50 0 0 0-43.4 24.8Z"/>
+				<path class="fill-3" d="M-48.2-87.6A100 100 0 0 1-24.9-96.9L-12.5-48.4A50 50 0 0 0-24.1-43.8Z"/>
+				<path class="fill-5 outlined" d="M-24.9-96.9A100 100 0 0 1 0-100L0-50A50 50 0 0 0-12.5-48.4Z"/>
+			</svg>
+			<div class="legend">
+				<span><i data-fill="1"></i>Effect layers</span>
+				<span><i data-fill="2"></i>Text shaping</span>
+				<span><i data-fill="3"></i>Layout</span>
+				<span><i data-fill="5"></i>Loom code</span>
+			</div>
+		</div>
+	</div>
+
+	<div class="aside-grid">
+		<aside>
+			<div class="note-title">2. Frame gaps</div>
+			<span class="tag">Needs attention</span>
+			<p>Jumps of the scrollbar still stall, in Goo's text shaping.</p>
+		</aside>
+		<div>
+			<p class="lead"><b>The worst hitch fell from 450 ms to 33 ms.</b> Normal wheel scrolling now holds 180 fps; jumps and opening a chat cold still reach 90 ms, while Goo shapes a whole screen of new rows at once.</p>
+			<svg viewBox="0 0 560 170" width="100%">
+				<g class="axis"><line class="gridline" x1="0" x2="560" y1="20" y2="20"/><line class="gridline" x1="0" x2="560" y1="70" y2="70"/><line class="gridline" x1="0" x2="560" y1="120" y2="120"/>
+				<text x="0" y="160">Flick 1</text><text x="180" y="160">Flick 4</text><text x="360" y="160">Flick 7</text><text x="520" y="160">10</text></g>
+				<path class="area" d="M0 140 L0 118 C40 116 60 30 90 34 C120 38 130 116 170 118 C220 120 240 112 280 114 C320 116 340 40 370 44 C400 48 410 114 450 116 C500 118 530 110 560 112 L560 140Z"/>
+				<path class="line" d="M0 118 C40 116 60 30 90 34 C120 38 130 116 170 118 C220 120 240 112 280 114 C320 116 340 40 370 44 C400 48 410 114 450 116 C500 118 530 110 560 112"/>
+			</svg>
+			<div class="fig">Fig. 2 — Longest frame per scrollbar jump, ms</div>
+		</div>
+	</div>
+</section>
+
+<section>
+	<h2><span class="n">III.</span> Plan</h2>
+	<div class="bars">
+		<div class="bar"><span>Remove layers</span><div class="track"><i style="--value:1"></i></div><span class="amount">done</span></div>
+		<div class="bar"><span>Split tool rows</span><div class="track"><i style="--value:1"></i></div><span class="amount">done</span></div>
+		<div class="bar"><span>Goo shaping cache</span><div class="track"><i data-fill="2" style="--value:.3"></i></div><span class="amount">30%</span></div>
+	</div>
+	<div class="callout"><span class="label-caps">Next</span>Ask Goo to share layouts of texts with handles, and to cache long paragraphs.</div>
+</section>
+
+</main>
+</body>
+</html>

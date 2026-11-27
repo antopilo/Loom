@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<!-- This module's release version; raise it to publish the module as an update (scripts/release.ps1). -->
-		<Version>1.2.1</Version>
+		<Version>1.3.0</Version>
 		<!-- The window and keyboard interop uses source-generated LibraryImport stubs. -->
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 	</PropertyGroup>
@@ -9,5 +9,10 @@
 		<!-- Compile against WebView2's core API only; the application ships it and its native loader. The package's own build targets would also pull in its WPF and WinForms controls. -->
 		<PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" ExcludeAssets="all" GeneratePathProperty="true" PrivateAssets="all" />
 		<Reference Include="$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll" Private="false" />
+	</ItemGroup>
+	<ItemGroup>
+		<!-- The report kit html reports get (BrowserModule.ReportKit): its stylesheet, script and fonts, written beside the reports. -->
+		<EmbeddedResource Include="Reports\loom-report.css;Reports\loom-report.js" LogicalName="Kit/%(Filename)%(Extension)" />
+		<EmbeddedResource Include="Reports\fonts\*" LogicalName="Kit/fonts/%(Filename)%(Extension)" />
 	</ItemGroup>
 </Project>

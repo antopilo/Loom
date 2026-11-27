@@ -3,6 +3,42 @@ namespace Lokn.Modules.Browser;
 /// <summary>Holds the scripts the browser tools run in pages, each a function called with one JSON argument.</summary>
 internal static class BrowserScripts
 {
+	/// <summary>Runs in every page as it is created and tells Loom the color the page wants around it, as <c>{ "loomChrome": "#rrggbb" }</c>, or an empty
+	/// string for none: the first <c>&lt;meta name="theme-color"&gt;</c> whose media matches, else the page's own opaque background. It tells again whenever
+	/// that changes, such as when a report switches its paper.</summary>
+	internal const string ChromeColor = """
+		(() => {
+			if (!window.chrome || !window.chrome.webview)
+				return;
+			const context = new OffscreenCanvas(1, 1).getContext('2d');
+			const opaque = value => {
+				if (!value)
+					return '';
+				context.fillStyle = '#000000';
+				context.fillStyle = value;
+				return /^#[0-9a-f]{6}$/.test(context.fillStyle) ? context.fillStyle : '';
+			};
+			const read = () => {
+				const meta = [...document.querySelectorAll('meta[name="theme-color"]')].find(meta => !meta.media || matchMedia(meta.media).matches);
+				if (meta)
+					return opaque(meta.content.trim());
+				return (document.body && opaque(getComputedStyle(document.body).backgroundColor)) || opaque(getComputedStyle(document.documentElement).backgroundColor);
+			};
+			let last = null, pending = 0;
+			const update = () => {
+				pending = 0;
+				const color = read();
+				if (color !== last)
+					window.chrome.webview.postMessage({ loomChrome: last = color });
+			};
+			const schedule = () => pending || (pending = setTimeout(update, 50));
+			new MutationObserver(schedule).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['content', 'media', 'style', 'class', 'data-paper', 'data-theme'] });
+			matchMedia('(prefers-color-scheme: dark)').addEventListener('change', schedule);
+			addEventListener('DOMContentLoaded', schedule);
+			addEventListener('load', schedule);
+		})();
+		""";
+
 	/// <summary>Lists the page's title, address, scroll position, a slice of its text, and its visible interactive elements, numbering each with a <c>data-lokn-ref</c> attribute for later actions.</summary>
 	/// <remarks>Takes <c>{ offset, max, limit }</c>: where the text slice starts, its length, and how many elements to number.</remarks>
 	internal const string Read = """

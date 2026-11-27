@@ -1,0 +1,258 @@
+/*
+  Loom report kit: the default look of HTML reports agents show with browser_show.
+
+  Paper and ink: a report is a printed page on one soft tint, set in dark ink. Charts tell series apart by pattern, not color: solid ink,
+  hatching, a grid, dots, a light tone, or empty. Headings are editorial, labels are small caps, rules are hairlines.
+
+  Tokens: --paper, --ink, --ink-2 (secondary), --ink-3 (faint), --rule, --serif, --sans, --mono. Three choices on <body>, which the report's
+  ⚙ panel (loom-report.js) also sets and remembers per report:
+    data-paper  "paper" | "cream" | "pink" | "sky" | "mint" | "lavender" | "peach" | "gray" | "sand" | "ink" (dark)
+    data-chart  "hatch" (patterns in ink, default) | "flat" (gray tones) | "sketch" (hand-drawn, rough edges)
+    data-type   "serif" (editorial serif titles, default) | "sans" (plain, Arial-like) | "bold" (heavy sans titles)
+  A user's reports\style.css and a project's .lokn\report.css load after this sheet and can set any token.
+
+  Components, by class:
+    header.report-head      .kicker (small caps), h1, .dateline, .lede
+    h2                      numbered section title with a hairline under it: <h2><span class="n">II.</span> Acquisition</h2>
+    .aside-grid             margin note left, figure right: <div class="aside-grid"><aside>…</aside><div>…</div></div>
+    .note-title, .fig       numbered sub-title and "Fig. 2 — …" caption in the margin
+    .lead                   paragraph whose first <b> is dark ink and the rest muted
+    .tag                    small caps in a thin box (.tag.solid for filled)
+    .stats > .stat          hairline grid of big numbers: .value, .label, .sub
+    table                   hairline rows; th small caps; .num right-aligned
+    .legend > span[data-fill]   legend swatch with a pattern
+    .bars > .bar            horizontal bars (--value 0..1, data-fill for a pattern)
+    svg .fill-1 … .fill-6   chart fills; needs the pattern <defs> Loom adds to the page
+    svg .line, .area, .axis, .gridline   line and area charts
+    .callout                boxed note
+    ul                      muted list with small bullets
+    blockquote > p + cite   quote in the text, with a serif quote mark
+    .pullquote > p + cite   large centered quote between hairlines
+    sup.cite > a + span     citation number; the span is the source card shown on hover
+    .timeline               events (.event, --at 0..1, <b> date) and shaded spans (.span, --at, --to) on one line
+    svg .shape, .stroke     simple illustrations in ink
+*/
+
+/* Bundled fonts (SIL Open Font License, see fonts\OFL-*.txt): Fraunces stands in for Dia's Exposure, set soft and without its wonky letters as in
+   Loom's sidebar headings; Inter stands in for SF Pro, Geist for Arial. */
+@font-face { font-family: "Loom Serif"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("fonts/fraunces.woff2") format("woff2"); }
+@font-face { font-family: "Loom Serif"; font-style: italic; font-weight: 100 900; font-display: swap; src: url("fonts/fraunces-italic.woff2") format("woff2"); }
+@font-face { font-family: "Loom Sans"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("fonts/inter.woff2") format("woff2"); }
+@font-face { font-family: "Loom Grotesk"; font-style: normal; font-weight: 100 900; font-display: swap; src: url("fonts/geist.woff2") format("woff2"); }
+
+:root {
+	--paper: #fde6d8;
+	--ink: #2b2620;
+	--ink-2: #6f655a;
+	--ink-3: #a99d90;
+	--rule: color-mix(in srgb, var(--ink) 22%, transparent);
+	--rule-strong: color-mix(in srgb, var(--ink) 55%, transparent);
+	--serif: "Loom Serif", "Iowan Old Style", Georgia, serif;
+	--sans: "Loom Sans", "Segoe UI", system-ui, sans-serif;
+	--mono: "Berkeley Mono", "Cascadia Code", Consolas, monospace;
+	--measure: 960px;
+}
+body[data-paper="paper"] { --paper: #f8f7f4; --ink: #222222; }
+body[data-paper="cream"] { --paper: #fbf4d8; --ink: #2d2a1c; }
+body[data-paper="pink"] { --paper: #f9e2e6; --ink: #33232a; }
+body[data-paper="sky"] { --paper: #dde9f3; --ink: #1f2a33; }
+body[data-paper="mint"] { --paper: #dfeedd; --ink: #24302a; }
+body[data-paper="lavender"] { --paper: #efe1f2; --ink: #2c2433; }
+body[data-paper="peach"] { --paper: #fde6d8; --ink: #2b2620; }
+body[data-paper="gray"] { --paper: #e8e9eb; --ink: #23262a; }
+body[data-paper="sand"] { --paper: #f1e9d6; --ink: #2d281d; }
+body[data-paper="ink"] { --paper: #1f1d1a; --ink: #efe8dc; --ink-2: #b3a99b; --ink-3: #7d7468; color-scheme: dark; }
+body[data-paper]:not([data-paper="ink"]) { --ink-2: color-mix(in srgb, var(--ink) 68%, var(--paper)); --ink-3: color-mix(in srgb, var(--ink) 42%, var(--paper)); }
+
+/* Page */
+* { box-sizing: border-box; }
+html, body { background: var(--paper); }
+body { margin: 0; min-height: 100vh; padding: 56px 32px 96px; color: var(--ink); font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+.report { max-width: var(--measure); margin: 0 auto; }
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--rule-strong); text-underline-offset: 3px; }
+p { margin: 0 0 12px; }
+.muted { color: var(--ink-2); }
+.faint { color: var(--ink-3); }
+.mono { font-family: var(--mono); font-size: 0.9em; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 40px 0; }
+
+/* Small caps: kickers, datelines, table heads, tags, axis labels */
+.kicker, .dateline, th, .tag, .axis text, .label-caps {
+	font-family: var(--sans);
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ink-2);
+}
+
+/* Header */
+.report-head { margin-bottom: 56px; }
+.report-head .top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 28px; }
+h1 { font-family: var(--serif); font-style: italic; font-weight: 600; font-size: 60px; line-height: 1.05; letter-spacing: -0.015em; margin: 0 0 24px; }
+h1, h2, .stat .value, .pullquote, blockquote::before { font-variation-settings: "SOFT" 100, "WONK" 0; }
+.lede { font-size: 18px; line-height: 1.55; color: var(--ink-2); max-width: 62ch; margin: 0; }
+
+/* Sections */
+section { margin: 0 0 64px; }
+h2 {
+	display: inline-block;
+	margin: 0 0 32px;
+	padding-bottom: 4px;
+	border-bottom: 1px solid var(--rule-strong);
+	font-family: var(--serif); font-style: italic; font-weight: 500; font-size: 22px; line-height: 1.3;
+}
+h2 .n { margin-right: 4px; }
+h3 { font-size: 16px; font-weight: 500; margin: 0 0 10px; }
+
+/* Type, from the ⚙ panel: "serif" (default) sets titles in an italic display serif, like Dia's Exposure. "sans" sets everything in Geist
+   with bold section titles. "bold" sets everything in Inter with heavy titles, like Dia's SF Pro. */
+body[data-type="sans"] { --sans: "Loom Grotesk", "Segoe UI", system-ui, sans-serif; --serif: var(--sans); }
+body[data-type="sans"] h1 { font-style: normal; font-weight: 500; font-size: 40px; line-height: 1.15; letter-spacing: -0.025em; }
+body[data-type="sans"] h2 { font-style: normal; font-weight: 600; font-size: 20px; letter-spacing: -0.01em; }
+body[data-type="bold"] { --serif: var(--sans); }
+body[data-type="bold"] h1 { font-style: normal; font-weight: 800; font-size: 44px; line-height: 1.1; letter-spacing: -0.03em; }
+body[data-type="bold"] h2 { font-style: normal; font-weight: 800; font-size: 24px; letter-spacing: -0.02em; }
+
+/* Margin note beside a figure */
+.aside-grid { display: grid; grid-template-columns: minmax(200px, 1fr) 2.4fr; gap: 40px; align-items: start; margin-bottom: 48px; }
+.aside-grid aside { font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+.note-title { color: var(--ink); font-size: 16px; font-weight: 500; margin-bottom: 10px; }
+.note-title + .tag { margin: -2px 0 12px; }
+.fig { font-style: italic; font-size: 12px; color: var(--ink-3); margin-top: 12px; }
+@media (max-width: 720px) { .aside-grid { grid-template-columns: 1fr; gap: 16px; } }
+
+/* Lead sentence: dark first words, muted rest */
+.lead { font-size: 16px; color: var(--ink-2); }
+.lead b, .lead strong { color: var(--ink); font-weight: 500; }
+
+/* Tags */
+.tag { display: inline-block; padding: 1px 7px; border: 1px solid var(--rule-strong); font-size: 9.5px; color: var(--ink-2); transform: rotate(-1.5deg); }
+.tag.solid { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+
+/* Stats: a hairline grid */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border: 1px solid var(--rule-strong); margin: 24px 0; padding: 14px 0; }
+.stat { padding: 4px 20px; border-left: 1px solid var(--rule); }
+.stat:first-child { border-left: 0; }
+.stat .value { font-family: var(--serif); font-weight: 600; font-size: 30px; line-height: 1.1; letter-spacing: -0.01em; font-variant-numeric: lining-nums tabular-nums; }
+.stat .label { font-size: 15px; margin-top: 6px; }
+.stat .sub { color: var(--ink-3); font-size: 14px; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 15px; }
+th { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule-strong); }
+td { padding: 12px; border-bottom: 1px solid var(--rule); }
+.num { text-align: right; }
+td.num.up::before { content: "+"; }
+
+/* Callout */
+.callout { border: 1px solid var(--rule-strong); padding: 16px 20px; margin: 24px 0; }
+.callout > .label-caps:first-child { display: block; margin-bottom: 6px; }
+
+/* Lists: small muted bullets, body text in secondary ink */
+.report ul { margin: 14px 0; padding-left: 18px; color: var(--ink-2); }
+.report ul li { margin: 0 0 6px; padding-left: 4px; }
+.report ul li::marker { content: "•  "; font-size: 0.8em; color: var(--ink-3); }
+
+/* Quote in the text: a serif quote mark in the margin, muted text, small source under it */
+blockquote { position: relative; margin: 18px 0; padding-left: 28px; color: var(--ink-2); }
+blockquote::before { content: "\201C"; position: absolute; left: 0; top: -6px; font: italic 32px/1 var(--serif); color: var(--ink-2); }
+blockquote p { margin: 0 0 6px; }
+cite { display: block; font-style: normal; font-size: 11px; color: var(--ink-3); }
+
+/* Pull quote: a large centered serif quote between hairlines */
+.pullquote { margin: 56px 0; padding: 32px 24px; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); text-align: center; }
+.pullquote::before { content: "\201C"; display: block; height: 30px; font: italic 56px/1 var(--serif); color: var(--ink-2); }
+.pullquote p { margin: 0 auto 8px; max-width: 30em; font: italic 500 24px/1.35 var(--serif); color: var(--ink-2); }
+
+/* Citation: a small faint number; hovering it shows the source in a card. <sup class="cite"><a href="…">1</a><span>Daily News, 12 Oct 1932</span></sup> */
+.cite { position: relative; font-size: 0.68em; line-height: 0; color: var(--ink-3); }
+.cite a { text-decoration: none; color: inherit; }
+.cite a::before { content: "["; }
+.cite a::after { content: "]"; }
+.cite > span { position: absolute; left: 50%; bottom: 1.6em; z-index: 10; width: max-content; max-width: 280px; transform: translateX(-50%); padding: 8px 12px;
+	background: var(--paper); border: 1px solid var(--rule-strong); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12); font-size: 12px; line-height: 1.4;
+	color: var(--ink); opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+.cite:hover > span, .cite:focus-within > span { opacity: 1; pointer-events: auto; }
+
+/* Timeline: events and shaded spans on one line. Each item sets --at (0..1); a span also sets --to.
+   <div class="timeline"><i class="span" style="--at:.3;--to:.4"></i><span class="event" style="--at:0"><b>12 Oct</b>'War' named</span></div>
+   .event.up puts an event's date higher and its label lower, for events close to a neighbour. */
+.timeline { position: relative; height: 92px; margin: 28px 9% 8px; font-size: 10.5px; color: var(--ink-2); }
+.timeline::before { content: ""; position: absolute; left: 0; right: 0; top: 46px; border-top: 1px solid var(--rule-strong); }
+.timeline .span { position: absolute; top: 42px; height: 9px; left: calc(var(--at) * 100%); width: calc((var(--to) - var(--at)) * 100%);
+	background: color-mix(in srgb, var(--ink) 14%, var(--paper)); border: 1px solid var(--rule-strong); }
+.timeline .event { position: absolute; left: calc(var(--at) * 100%); top: 0; height: 100%; transform: translateX(-50%); white-space: nowrap; text-align: center; }
+.timeline .event::before { content: ""; position: absolute; left: 50%; top: 43px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: var(--ink); }
+.timeline .event b { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); font-weight: 400; }
+.timeline .event { padding-top: 62px; }
+.timeline .event.up b { top: 10px; }
+.timeline .event.up { padding-top: 74px; }
+
+/* Illustration beside text: simple ink drawings; .shape is filled with a light tone and outlined in ink */
+svg .shape { fill: color-mix(in srgb, var(--ink) 12%, var(--paper)); stroke: var(--ink-2); stroke-width: 1.5; }
+svg .stroke { fill: none; stroke: var(--ink-2); stroke-width: 1.5; stroke-linecap: round; }
+
+/* Pattern fills for HTML swatches and bars: data-fill 1..6 */
+[data-fill="1"] { background: var(--ink); }
+[data-fill="2"] { background: repeating-linear-gradient(135deg, var(--ink) 0 1.2px, transparent 1.2px 4px), color-mix(in srgb, var(--ink) 30%, var(--paper)); }
+[data-fill="3"] { background: linear-gradient(var(--ink) 1px, transparent 1px) 0 0 / 4px 4px, linear-gradient(90deg, var(--ink) 1px, transparent 1px) 0 0 / 4px 4px, color-mix(in srgb, var(--ink) 30%, var(--paper)); }
+[data-fill="4"] { background: color-mix(in srgb, var(--ink) 25%, var(--paper)); }
+[data-fill="5"] { background: radial-gradient(var(--ink) 0.8px, transparent 1px) 0 0 / 4px 4px; }
+[data-fill="6"] { background: var(--paper); }
+
+.legend { display: grid; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.legend span { display: flex; align-items: center; gap: 8px; }
+.legend i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--ink); flex: none; }
+
+.bars { display: grid; gap: 12px; }
+.bar { display: grid; grid-template-columns: minmax(120px, 180px) 1fr 56px; align-items: center; gap: 16px; font-size: 14px; }
+.bar .track { height: 14px; border: 1px solid var(--ink); }
+.bar .track i { display: block; height: 100%; width: calc(var(--value, 0) * 100%); }
+.bar .track i:not([data-fill]) { background: var(--ink); }
+.bar .amount { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+/* SVG charts: fills use the pattern defs Loom adds; strokes are ink */
+svg { overflow: visible; }
+svg .fill-1 { fill: var(--ink); }
+svg .fill-2 { fill: url(#loom-hatch); }
+svg .fill-3 { fill: url(#loom-grid); }
+svg .fill-4 { fill: color-mix(in srgb, var(--ink) 25%, var(--paper)); }
+svg .fill-5 { fill: url(#loom-dots); }
+svg .fill-6 { fill: var(--paper); }
+svg [class^="fill-"] { stroke: var(--ink); stroke-width: 0.9; stroke-linejoin: round; shape-rendering: geometricPrecision; }
+svg .outlined { stroke: var(--ink); stroke-width: 0.9; }
+svg .line { fill: none; stroke: var(--ink); stroke-width: 1; }
+svg .area { fill: url(#loom-dots); stroke: none; }
+svg .gridline { stroke: var(--rule); stroke-width: 1; }
+svg .axis text { fill: var(--ink-2); font-size: 11px; letter-spacing: 0; text-transform: none; }
+
+/* Chart style "flat": gray tones instead of patterns, no outlines */
+body[data-chart="flat"] { --tone-1: var(--ink); --tone-2: color-mix(in srgb, var(--ink) 62%, var(--paper)); --tone-3: color-mix(in srgb, var(--ink) 42%, var(--paper));
+	--tone-4: color-mix(in srgb, var(--ink) 26%, var(--paper)); --tone-5: color-mix(in srgb, var(--ink) 14%, var(--paper)); }
+body[data-chart="flat"] [data-fill="2"] { background: var(--tone-2); }
+body[data-chart="flat"] [data-fill="3"] { background: var(--tone-3); }
+body[data-chart="flat"] [data-fill="4"] { background: var(--tone-4); }
+body[data-chart="flat"] [data-fill="5"] { background: var(--tone-5); }
+body[data-chart="flat"] .bar .track { border-color: transparent; background: var(--tone-5); }
+body[data-chart="flat"] .legend i { border-color: transparent; }
+body[data-chart="flat"] svg .fill-2 { fill: var(--tone-2); }
+body[data-chart="flat"] svg .fill-3 { fill: var(--tone-3); }
+body[data-chart="flat"] svg .fill-4 { fill: var(--tone-4); }
+body[data-chart="flat"] svg .fill-5 { fill: var(--tone-5); }
+body[data-chart="flat"] svg [class^="fill-"], body[data-chart="flat"] svg .outlined { stroke: var(--paper); stroke-width: 1.5; }
+body[data-chart="flat"] svg .area { fill: var(--tone-5); }
+
+/* Chart style "sketch": bolder hatching and outlines redrawn by loom-report.js as wobbly hand-drawn paths */
+body[data-chart="sketch"] svg .fill-2 { fill: url(#loom-hatch-bold); }
+body[data-chart="sketch"] svg [class^="fill-"] { stroke: var(--ink); stroke-width: 1.6; }
+body[data-chart="sketch"] svg .line { stroke-width: 1.8; }
+body[data-chart="sketch"] [data-fill="2"] { background: repeating-linear-gradient(135deg, var(--ink) 0 2.2px, transparent 2.2px 5px); }
+body[data-chart="sketch"] .bar .track, body[data-chart="sketch"] .legend i { border-width: 1.6px; }
+body[data-chart="sketch"] .bar .track { border-radius: 3px 8px 4px 7px / 7px 3px 8px 4px; }
+
+/* Code */
+code { font-family: var(--mono); font-size: 0.88em; }
+pre { font-family: var(--mono); font-size: 13px; line-height: 1.55; border-left: 2px solid var(--rule-strong); padding: 4px 0 4px 16px; overflow-x: auto; }
+
+@media print { body { padding: 0; } section { break-inside: avoid; } }

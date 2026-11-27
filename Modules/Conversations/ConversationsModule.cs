@@ -98,6 +98,8 @@ public sealed partial class ConversationsModule(
 			.Contribute( TaskStarter.Point, new TaskStarter( "Chat", ChatGlyph, 0, StartTaskChat ) )
 			// A task's workspace works in its chat's folder, so the file tree, Git and new terminals open there.
 			.Contribute( SessionFolder.Point, new SessionFolder( ComputeSessionFolder ) )
+			// Another module, such as the browser for a report's comments, sends a message to the chat that made something (ChatMessage.Point).
+			.Contribute( ChatMessage.Point, new Func<string, Guid, string, string?>( SendMessage ) )
 			// Questions agents wait on show and are answered in the notification feed and banners.
 			.Contribute( NotificationPromptSource.Point, new NotificationPromptSource( ComputePrompts ) )
 			.Command( "new", "New chat", context => NewConversation( context.App ) )

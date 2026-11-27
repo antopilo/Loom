@@ -150,6 +150,11 @@ internal sealed partial class BrowserContent : PanelContent
 			: Cell.Mount<BrowserViewInput, BrowserView>( "page", new( this, _context.Id ) );
 		page.FlexGrow = 1;
 		page.MinHeight = 0;
+		// The tab strip and the address bar take the color the page asks for, with ink dark or light enough to read on it.
+		var chrome = tab?.ChromeColor is { Length: > 0 } color && notice is null ? ComputeChromeTheme( theme, color ) : theme;
+		Blob[] bars = tab?.IsImmersive == true && notice is null
+			? _tabs.Value.Count > 1 ? [BuildTabs( chrome )] : []
+			: [BuildTabs( chrome ), BuildBar( chrome, tab )];
 		return new Container
 		{
 			AccessibilityRole = AccessibilityRole.Group,
@@ -158,9 +163,9 @@ internal sealed partial class BrowserContent : PanelContent
 			MinHeight = 0,
 			MinWidth = 0,
 			// A page that brings its own toolbar, such as the design studio, shows without the address bar; the tab strip stays while there is a tab to switch to.
-			Children = tab?.IsImmersive == true && notice is null
-				? _tabs.Value.Count > 1 ? [BuildTabs( theme ), page] : [page]
-				: [BuildTabs( theme ), BuildBar( theme, tab ), page],
+			Children = bars.Length == 0 ? [page]
+				: ReferenceEquals( chrome, theme ) ? [.. bars, page]
+				: [new Container { Key = "chrome", FlexShrink = 0, BackgroundColor = chrome.Panel, Children = bars }, page],
 		};
 	}
 
@@ -178,16 +183,17 @@ internal sealed partial class BrowserContent : PanelContent
 			Padding = new Edges( theme.Spacing / 2, theme.Spacing ),
 			Children =
 			[
-				BuildButton( "\uE72B", "Back", navigation.Back, () => tab?.Controller?.CoreWebView2.GoBack() ),
-				BuildButton( "\uE72A", "Forward", navigation.Forward, () => tab?.Controller?.CoreWebView2.GoForward() ),
+				BuildButton( theme, "\uE72B", "Back", navigation.Back, () => tab?.Controller?.CoreWebView2.GoBack() ),
+				BuildButton( theme, "\uE72A", "Forward", navigation.Forward, () => tab?.Controller?.CoreWebView2.GoForward() ),
 				navigation.Loading
-					? BuildButton( "\uE711", "Stop", true, () => tab?.Controller?.CoreWebView2.Stop() )
-					: BuildButton( "\uE72C", "Reload", tab?.Controller is not null, () => tab?.Controller?.CoreWebView2.Reload() ),
+					? BuildButton( theme, "\uE711", "Stop", true, () => tab?.Controller?.CoreWebView2.Stop() )
+					: BuildButton( theme, "\uE72C", "Reload", tab?.Controller is not null, () => tab?.Controller?.CoreWebView2.Reload() ),
 				new TextEntry
 				{
 					Key = "address",
 					Handle = _addressBar,
-					Value = tab?.Address ?? "",
+					// A page Loom made shows its name, not its file address, until the user edits the address.
+					Value = tab is { IsEditing: false, LoomName: { } loom } ? $"Made with Loom / {loom}" : tab?.Address ?? "",
 					Controlled = true,
 					AutoFocus = tab?.IsEditing == true,
 					Placeholder = "Search or enter an address",
@@ -197,6 +203,7 @@ internal sealed partial class BrowserContent : PanelContent
 					FlexGrow = 1,
 					MinWidth = 0,
 					Padding = new Edges( 0, theme.Spacing ),
+					Color = theme.Text,
 					BackgroundColor = theme.Raised,
 					BorderColor = theme.Border,
 					BorderWidth = theme.BorderWidth,
@@ -207,8 +214,28 @@ internal sealed partial class BrowserContent : PanelContent
 					OnChange = text => _context.Run( () => _selected.Value?.SetAddress( text ) ),
 					OnSubmit = text => _context.Run( () => UpdateNavigate( text ) ),
 				},
-				BuildButton( "\uE8A7", "Open in default browser", tab is not null, () => _context.Run( UpdateOpenExternal ) ),
+				.. (Blob[])(tab?.LoomName is not null ? [BuildShare( theme, tab )] : []),
+				BuildButton( theme, "\uE8A7", "Open in default browser", tab is not null, () => _context.Run( UpdateOpenExternal ) ),
 			],
+		};
+	}
+
+	/// <summary>Derives the theme of the tab strip and the address bar from the color a page asks for, given as <c>#rrggbb</c>: that color as the
+	/// background, with dark ink on a light color and light ink on a dark one, and controls, hovers and borders mixed between the two.</summary>
+	private static Theme ComputeChromeTheme( Theme theme, string color )
+	{
+		var page = (R: Convert.ToInt32( color[1..3], 16 ), G: Convert.ToInt32( color[3..5], 16 ), B: Convert.ToInt32( color[5..7], 16 ));
+		var isLight = (0.2126 * page.R + 0.7152 * page.G + 0.0722 * page.B) / 255 > 0.55;
+		var ink = isLight ? (R: 0x1d, G: 0x1b, B: 0x18) : (R: 0xf2, G: 0xf0, B: 0xea);
+		Color Mix( double amount ) => Color.Parse( $"#{(int)Math.Round( page.R + (ink.R - page.R) * amount ):x2}{(int)Math.Round( page.G + (ink.G - page.G) * amount ):x2}{(int)Math.Round( page.B + (ink.B - page.B) * amount ):x2}" );
+		return theme with
+		{
+			Panel = Mix( 0 ),
+			Raised = Mix( 0.07 ),
+			Hover = Mix( 0.12 ),
+			Border = Mix( 0.2 ),
+			Text = Mix( 1 ),
+			Muted = Mix( 0.6 ),
 		};
 	}
 
@@ -542,8 +569,8 @@ internal sealed partial class BrowserContent : PanelContent
 		var children = new Blob[tabs.Count + 2];
 		for ( var index = 0; index < tabs.Count; index++ )
 			children[index] = BuildTab( theme, tabs[index], tabs[index] == selected );
-		children[tabs.Count] = BuildButton( "\uE710", "New tab", true, UpdateNewTab );
-		children[tabs.Count + 1] = BuildSessionTabs();
+		children[tabs.Count] = BuildButton( theme, "\uE710", "New tab", true, UpdateNewTab );
+		children[tabs.Count + 1] = BuildSessionTabs( theme );
 		return new Row
 		{
 			Key = "tabs",
@@ -561,9 +588,9 @@ internal sealed partial class BrowserContent : PanelContent
 
 	/// <summary>Builds the button whose menu lists the session's tabs this panel does not show, such as those another window opened or a closed panel
 	/// left, to show one here or close it in every window.</summary>
-	private Button BuildSessionTabs()
+	private Button BuildSessionTabs( Theme theme )
 	{
-		var button = BuildButton( "\uE8FD", "Session tabs", true, () => UpdateMenu( !_isMenuOpen.Value ) );
+		var button = BuildButton( theme, "\uE8FD", "Session tabs", true, () => UpdateMenu( !_isMenuOpen.Value ) );
 		button.Handle = _sessionButton;
 		if ( !_isMenuOpen.Value )
 			return button;
@@ -618,7 +645,7 @@ internal sealed partial class BrowserContent : PanelContent
 				TextTrimming = TextTrimming.Ellipsis,
 			},
 		];
-		var close = BuildButton( "\uE711", $"Close {name}", true, () => UpdateCloseTab( tab ) );
+		var close = BuildButton( theme, "\uE711", $"Close {name}", true, () => UpdateCloseTab( tab ) );
 		close.Width = BarHeight - 8;
 		close.Height = BarHeight - 8;
 		return new Row
@@ -654,10 +681,10 @@ internal sealed partial class BrowserContent : PanelContent
 		return Uri.TryCreate( source, UriKind.Absolute, out var uri ) && uri.Host.Length > 0 ? uri.Host : source;
 	}
 
-	/// <summary>Builds a compact toolbar button showing a Segoe Fluent Icons glyph.</summary>
-	private Button BuildButton( string glyph, string name, bool isEnabled, Action action )
+	/// <summary>Builds a compact toolbar button showing a Segoe Fluent Icons glyph, in the given theme.</summary>
+	private Button BuildButton( Theme theme, string glyph, string name, bool isEnabled, Action action )
 	{
-		var button = Theme.Current.BuildButton( name, () => _context.Run( action ), isEnabled );
+		var button = theme.BuildButton( name, () => _context.Run( action ), isEnabled );
 		button.Width = BarHeight;
 		button.Height = BarHeight - 4;
 		button.Padding = 0;

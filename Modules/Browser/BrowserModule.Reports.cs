@@ -72,6 +72,27 @@ public sealed partial class BrowserModule
 		_reportsVersion.Value++;
 	}
 
+	/// <summary>Sends the comments a user wrote on a report to the chat whose agent made it, as one message asking for a revision. Each comment is the
+	/// text or part of the page it is about, and what to change there.</summary>
+	/// <returns>Why the comments were not sent, or null when they were.</returns>
+	internal string? SendComments( LoknApplication app, string path, IReadOnlyList<(string About, string Comment)> comments )
+	{
+		var full = Path.GetFullPath( path );
+		if ( ReadReports().LastOrDefault( report => string.Equals( Path.GetFullPath( report.Path ), full, StringComparison.OrdinalIgnoreCase ) ) is not { Conversation: { } chat } shown )
+			return "Only a report a chat made can take comments.";
+
+		// The Conversations module offers this without the browser referencing it (its ChatMessage.Point).
+		if ( app.Extensions.Get<Func<string, Guid, string, string?>>( "conversations.message" ).FirstOrDefault() is not { } send )
+			return "Chats are not running.";
+
+		var message = new System.Text.StringBuilder();
+		message.AppendLine( $"I commented on your report \"{shown.Title}\" ({shown.Path}). Revise the report with these comments, then show it again with browser_show:" );
+		message.AppendLine();
+		for ( var index = 0; index < comments.Count; index++ )
+			message.AppendLine( $"{index + 1}. On \u201C{comments[index].About}\u201D: {comments[index].Comment}" );
+		return send( shown.Host, chat, message.ToString().TrimEnd() );
+	}
+
 	/// <summary>Reads the list once; an empty list when the file is missing or does not parse.</summary>
 	private List<BrowserReport> ReadReports()
 	{

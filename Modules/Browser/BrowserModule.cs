@@ -105,7 +105,11 @@ public sealed partial class BrowserModule : ILoknModule
 			} )
 			.LinkHandler( OpenLink )
 			.ToolAsync( "show",
-				"Shows a web page in a browser panel beside your conversation, for the user to look at: an HTML report you write (benchmark results, a plan, charts, an interactive demo), a local .html file, or a web address. Prefer this over describing a visual result in text. Pass exactly one of html, path or url. Pages can run JavaScript and load scripts from CDNs. Later calls replace the page in the same browser tab.",
+				"""
+				Shows a web page in a browser panel beside your conversation, for the user to look at: an HTML report you write (benchmark results, a plan, charts, an interactive demo), a local .html file, or a web address. Prefer this over describing a visual result in text. Pass exactly one of html, path or url. Pages can run JavaScript and load scripts from CDNs. Later calls replace the page in the same browser tab.
+				An html report gets Loom's report kit, an editorial "paper and ink" look, so write plain semantic HTML with its classes and little or no CSS of your own. The user can switch its paper, chart style and font, export it, and select text or click a figure to comment; the comments come back to you as a message asking you to revise it, so show the revised report again with this tool.
+				Kit: <main class="report"> around everything. <header class="report-head"><div class="top"><span class="kicker">Report</span><span class="dateline">Date</span></div><h1>Title</h1><p class="lead"><b>Key sentence.</b> Rest of the summary.</p></header>. Key numbers: <div class="stats"><div class="stat"><div class="value">986</div><div class="label">Confirmed kills</div><div class="sub">Detail</div></div>…</div>. Sections: <section><h2><span class="n">I.</span> Title</h2>…</section>. Note beside content: <div class="aside-grid"><aside><div class="note-title">1. Point</div><span class="tag">12 Oct 1932</span></aside><div>body, ul, table, figure</div></div>. Figure caption: <p class="fig">Fig. 1 — …</p>. Quotes: <blockquote><p>…</p><cite>Who</cite></blockquote>, <div class="pullquote"><p>"…"</p><cite>Who</cite></div>. Tables: th small caps, td.num right-aligned. Citation: <sup class="cite"><a href="url">1</a><span>Source shown on hover</span></sup>. Bars: <div class="bars"><div class="bar"><span>Label</span><span class="track"><i style="--value:.4"></i></span><span class="amount">986</span></div></div>. Timeline: <div class="timeline"><i class="span" style="--at:.3;--to:.5"></i><span class="event" style="--at:0"><b>12 Oct</b>Label</span></div> (class "event up" lifts a crowded label). SVG charts: paths with class fill-1 (solid ink) … fill-5 (dots), fill-6 (paper), .line, .area, .gridline, .axis; legend <div class="legend"><span><i data-fill="2"></i>Name</span></div>; drawings .shape and .stroke. Never pick colors yourself: charts use ink and patterns. Set a paper with <body data-paper="cream|paper|pink|sky|mint|lavender|peach|gray|sand|ink">.
+				""",
 				"""
 				{
 					"type": "object",
@@ -402,7 +406,7 @@ public sealed partial class BrowserModule : ILoknModule
 	/// <summary>Reports whether a browser panel is open and the current layout shows it.</summary>
 	private static bool IsShown( LoknApplication app, BrowserContent panel ) => panel.IsOpen && app.Panels.IsShown( panel.Id );
 
-	/// <summary>Saves an html report under a unique, readable file name and returns its path.</summary>
+	/// <summary>Saves an html report under a unique, readable file name, with the report kit linked (<see cref="AddKit"/>), and returns its path.</summary>
 	internal string SaveReport( string html, string? title )
 	{
 		var name = new string( (title ?? "report").Select( character => char.IsAsciiLetterOrDigit( character ) ? char.ToLowerInvariant( character ) : '-' ).ToArray() ).Trim( '-' );
@@ -415,6 +419,16 @@ public sealed partial class BrowserModule : ILoknModule
 		var path = Path.Combine( ReportsPath, $"{DateTime.Now:yyyyMMdd-HHmmss}-{name}.html" );
 		for ( var copy = 2; File.Exists( path ); copy++ )
 			path = Path.Combine( ReportsPath, $"{DateTime.Now:yyyyMMdd-HHmmss}-{name}-{copy}.html" );
+
+		try
+		{
+			EnsureKit();
+			html = AddKit( html );
+		}
+		catch ( Exception error ) when ( error is IOException or UnauthorizedAccessException )
+		{
+			// The report still shows, in its own styles only.
+		}
 
 		File.WriteAllText( path, html );
 		return path;

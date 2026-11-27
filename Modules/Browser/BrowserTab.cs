@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Goo;
 using Lokn.Core;
 using Microsoft.Web.WebView2.Core;
@@ -32,6 +33,9 @@ internal sealed partial class BrowserTab
 
 	/// <summary>Tracks whether the page asks to show without the panel's address bar, with <c>&lt;meta name="loom-chrome" content="none"&gt;</c>.</summary>
 	private readonly State<bool> _isImmersive = new( false );
+
+	/// <summary>Tracks the color the page wants around it, as <c>#rrggbb</c>: its <c>theme-color</c>, else its background; empty for none.</summary>
+	private readonly State<string> _chromeColor = new( "" );
 
 	/// <summary>Tracks whether creating the page has started.</summary>
 	private bool _isStarting;
@@ -92,6 +96,44 @@ internal sealed partial class BrowserTab
 
 	/// <summary>Gets whether the page asks to show without the panel's address bar, such as a tool's own page that brings its own toolbar.</summary>
 	internal bool IsImmersive => _isImmersive.Value;
+
+	/// <summary>Gets the color the page wants around it, as <c>#rrggbb</c>, or an empty string for the panel's own.</summary>
+	internal string ChromeColor => _chromeColor.Value;
+
+	/// <summary>Gets the name a page made by or kept for Loom shows in the address bar instead of its address, or null for any other page: a file in
+	/// Loom's data or temporary folder, such as a report an agent showed, a file in a project's <c>.lokn</c> folder, or a page served on this PC
+	/// (<c>localhost</c>). The name is the page's title, else its file name without the date a report's file starts with, else the server's address.</summary>
+	internal string? LoomName
+	{
+		get
+		{
+			if ( !Uri.TryCreate( Source, UriKind.Absolute, out var uri ) )
+				return null;
+
+			if ( uri.IsFile )
+			{
+				var path = uri.LocalPath;
+				if ( !IsInside( path, LoknPaths.DataRoot ) && !IsInside( path, LoknPaths.TempRoot ) && !path.Contains( $"{Path.DirectorySeparatorChar}.lokn{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase ) )
+					return null;
+
+				if ( Title.Length > 0 && !Title.Equals( Path.GetFileName( path ), StringComparison.OrdinalIgnoreCase ) )
+					return Title;
+
+				var name = Path.GetFileNameWithoutExtension( path );
+				// Reports are saved as yyyyMMdd-HHmmss-name.html.
+				return name.Length > 16 && name[8] == '-' && name[15] == '-' && long.TryParse( name.AsSpan( 0, 8 ), out _ ) ? name[16..] : name;
+			}
+
+			if ( uri.Scheme is "http" or "https" && (uri.IsLoopback || uri.Host.Equals( "localhost", StringComparison.OrdinalIgnoreCase )) )
+				return Title.Length > 0 ? Title : uri.Authority;
+
+			return null;
+		}
+	}
+
+	/// <summary>Returns whether a path is inside a folder.</summary>
+	private static bool IsInside( string path, string folder ) =>
+		path.StartsWith( Path.TrimEndingDirectorySeparator( folder ) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase );
 
 	/// <summary>Gets why this PC does not show the tab's address, such as a file on the paired host, or an empty string when it does.</summary>
 	internal string Blocked => Info is { } info && !Tabs.CanShow( info.Url )
@@ -181,8 +223,12 @@ internal sealed partial class BrowserTab
 		Controller?.MoveFocus( CoreWebView2MoveFocusReason.Programmatic );
 	}
 
-	/// <summary>Stops editing the address bar, which shows the session's address again.</summary>
-	internal void EndEditing() => IsEditing = false;
+	/// <summary>Stops editing the address bar, which shows the session's address, or a Loom page's name, again; clearing the typed text redraws the bar.</summary>
+	internal void EndEditing()
+	{
+		IsEditing = false;
+		_address.Value = "";
+	}
 
 	/// <summary>Loads the session's address when another window set it and this page shows another; called after the session tab changed.</summary>
 	internal void Follow()
@@ -244,6 +290,15 @@ internal sealed partial class BrowserTab
 				_ = UpdateImmersiveAsync( web );
 			} );
 			web.NavigationCompleted += ( _, e ) => context.Run( () => UpdateCompleted( web, e ) );
+			web.WebMessageReceived += ( _, e ) => context.Run( () => UpdateMessage( web, e.WebMessageAsJson ) );
+			await web.AddScriptToExecuteOnDocumentCreatedAsync( BrowserScripts.ChromeColor );
+			if ( context.Lifetime.IsCancellationRequested || IsClosed )
+			{
+				_started.TrySetResult();
+				_firstLoad.TrySetResult();
+				return;
+			}
+
 			web.NewWindowRequested += ( _, e ) => context.Run( () =>
 			{
 				// Links that open a new window open a new tab in this panel instead.
@@ -365,6 +420,55 @@ internal sealed partial class BrowserTab
 				_isImmersive.Value = asked == "true";
 		} );
 	}
+
+	/// <summary>Takes a message a page sent Loom: the color it asks for around it (<see cref="BrowserScripts.ChromeColor"/>), or the comments a user wrote
+	/// on a report, which go to the chat that made it, with the outcome sent back to the page as <c>{ "loomCommentsSent": true }</c> or
+	/// <c>{ "loomCommentsSent": false, "error": "…" }</c>. Any other message is ignored.</summary>
+	private void UpdateMessage( CoreWebView2 web, string json )
+	{
+		if ( Controller?.CoreWebView2 != web )
+			return;
+
+		try
+		{
+			using var message = JsonDocument.Parse( json );
+			var root = message.RootElement;
+			if ( root.ValueKind != JsonValueKind.Object )
+				return;
+
+			if ( root.TryGetProperty( "loomChrome", out var color ) && color.ValueKind == JsonValueKind.String && color.GetString() is { } value
+				&& (value.Length == 0 || IsHexColor( value )) )
+				_chromeColor.Value = value;
+
+			if ( root.TryGetProperty( "loomComments", out var list ) && list.ValueKind == JsonValueKind.Array )
+				UpdateComments( web, list );
+		}
+		catch ( JsonException )
+		{
+			// Not a message of Loom's.
+		}
+	}
+
+	/// <summary>Sends the comments a report page sent, each <c>{ "about": "…", "comment": "…" }</c>, to the chat that made the report, and tells the page how it went.</summary>
+	private void UpdateComments( CoreWebView2 web, JsonElement list )
+	{
+		const int MaxComments = 50, MaxLength = 2000;
+		static string Clip( string text ) => text.Length > MaxLength ? text[..MaxLength] + "\u2026" : text;
+		var comments = list.EnumerateArray()
+			.Where( item => item.ValueKind == JsonValueKind.Object && item.TryGetProperty( "comment", out var comment ) && comment.ValueKind == JsonValueKind.String )
+			.Select( item => (About: Clip( item.TryGetProperty( "about", out var about ) && about.ValueKind == JsonValueKind.String ? about.GetString()!.Trim() : "the report" ),
+				Comment: Clip( item.GetProperty( "comment" ).GetString()!.Trim() )) )
+			.Where( item => item.Comment.Length > 0 )
+			.Take( MaxComments )
+			.ToArray();
+		var error = comments.Length == 0 ? "Write a comment first."
+			: !Uri.TryCreate( web.Source, UriKind.Absolute, out var uri ) || !uri.IsFile ? "Only a report a chat made can take comments."
+			: _owner.Module.SendComments( _owner.Context.App, uri.LocalPath, comments );
+		web.PostWebMessageAsJson( JsonSerializer.Serialize( new { loomCommentsSent = error is null, error } ) );
+	}
+
+	/// <summary>Returns whether a value is a color as <c>#rrggbb</c>.</summary>
+	private static bool IsHexColor( string value ) => value.Length == 7 && value[0] == '#' && !value.AsSpan( 1 ).ContainsAnyExcept( "0123456789abcdefABCDEF" );
 
 	/// <summary>Reads history and loading state from the page and reports it.</summary>
 	private void UpdateNavigation( BrowserPageEvent happened )

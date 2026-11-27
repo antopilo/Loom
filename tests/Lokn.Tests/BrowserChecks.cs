@@ -312,7 +312,11 @@ internal static class BrowserChecks
 		var arguments = JsonDocument.Parse( """{ "html": "<h1>Bench</h1>", "title": "Bench: Results v2!" }""" ).RootElement;
 		var result = app.Tools.InvokeAsync( "browser_show", arguments, source, CancellationToken.None ).GetAwaiter().GetResult();
 		var report = Directory.GetFiles( module.ReportsPath, "*-bench-results-v2.html" ).OrderBy( file => file ).LastOrDefault();
-		CoreChecks.Check( !result.IsError && report is not null && File.ReadAllText( report ) == "<h1>Bench</h1>" && result.Text.Contains( report ), $"An html report is saved under a readable name ({result.Text})." );
+		var savedReport = report is null ? "" : File.ReadAllText( report );
+		CoreChecks.Check( !result.IsError && report is not null && savedReport.EndsWith( "<h1>Bench</h1>", StringComparison.Ordinal ) && result.Text.Contains( report ), $"An html report is saved under a readable name ({result.Text})." );
+		CoreChecks.Check( savedReport.StartsWith( """<link rel="stylesheet" href="kit/loom-report.css">""", StringComparison.Ordinal )
+			&& File.Exists( Path.Combine( module.KitPath, "loom-report.js" ) ) && File.Exists( Path.Combine( module.KitPath, "fonts", "fraunces.woff2" ) ),
+			"An html report links the report kit, which is written beside the reports with its fonts." );
 		var state = Capture( app, side );
 		CoreChecks.Check( state.GetProperty( "Address" ).GetString() == new Uri( report! ).AbsoluteUri && ReadTabs( state ).Length == 3 && app.Panels.Panels.Count( panel => panel.TypeId == "browser.page" ) == 1, "The report loads in a new tab of the existing browser panel." );
 		var again = JsonDocument.Parse( """{ "url": "https://example.com/v3" }""" ).RootElement;
