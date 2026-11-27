@@ -39,8 +39,8 @@ float4 gooEffect(float2 uv, float4 source, float4 backdrop)
     // The head runs clockwise; points behind it light up less the further back they are.
     float head = frac(gooElapsedSeconds() / max(motion.x, 0.1));
     float behind = frac(head - angle);
-    // A short fade ahead of the head, so the light has no hard front edge.
-    float tail = exp(-behind / max(motion.y, 0.01)) * smoothstep(0.0, 0.015, behind) + exp(-(1.0 - behind) / 0.008);
+    // A short fade ahead of the head softens its front; the head itself stays at full light, so the light shows no notch where it starts.
+    float tail = max(exp(-behind / max(motion.y, 0.01)), exp(-(1.0 - behind) / 0.008));
 
     float alpha = edge * lerp(saturate(motion.z), 1.0, tail) * saturate(motion.w) * color.a;
     return float4(color.rgb * alpha, alpha);
