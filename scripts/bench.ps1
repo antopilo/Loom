@@ -1085,7 +1085,16 @@ try
 				try
 				{
 					Set-Focused $run
-					Start-Sleep -Seconds $Seconds
+					if ( $CpuTrace )
+					{
+						$nettrace = Join-Path $Root 'switch.nettrace'
+						& dotnet-trace collect -p $run.Process.Id --profile dotnet-sampled-thread-time --duration ( [TimeSpan]::FromSeconds( $Seconds ).ToString( 'hh\:mm\:ss' ) ) -o $nettrace | Out-Null
+						Write-Host "switch     cpu trace: $nettrace"
+					}
+					else
+					{
+						Start-Sleep -Seconds $Seconds
+					}
 					$index = 0
 					$switches = @( Read-Trace $run | Where-Object { $_.Event -like 'switch *' } | ForEach-Object {
 						$fields = $_.Event.Split( ' ' )
