@@ -14,9 +14,13 @@ public sealed partial class BrowserModule
 	/// <summary>Defines the tags a report gets to load the kit, relative to the reports folder.</summary>
 	private const string KitTags = """<link rel="stylesheet" href="kit/loom-report.css"><script src="kit/loom-report.js" defer></script>""";
 
-	/// <summary>Finds the start of a document's head, or of its html element when it has no head.</summary>
-	[GeneratedRegex( @"<head\b[^>]*>|<html\b[^>]*>", RegexOptions.IgnoreCase )]
-	private static partial Regex DocumentStart();
+	/// <summary>Finds the start of a document's head.</summary>
+	[GeneratedRegex( @"<head\b[^>]*>", RegexOptions.IgnoreCase )]
+	private static partial Regex HeadStart();
+
+	/// <summary>Finds the start of a document's html element, for a document without a head.</summary>
+	[GeneratedRegex( @"<html\b[^>]*>", RegexOptions.IgnoreCase )]
+	private static partial Regex HtmlStart();
 
 	/// <summary>Gets the folder the kit is written to, beside the reports.</summary>
 	internal string KitPath => Path.Combine( ReportsPath, "kit" );
@@ -45,7 +49,7 @@ public sealed partial class BrowserModule
 		if ( html.Contains( "loom-report.css", StringComparison.OrdinalIgnoreCase ) )
 			return html;
 
-		var start = DocumentStart().Match( html );
+		var start = HeadStart().Match( html ) is { Success: true } head ? head : HtmlStart().Match( html );
 		return start.Success ? html.Insert( start.Index + start.Length, KitTags ) : KitTags + html;
 	}
 }
