@@ -214,8 +214,11 @@ internal sealed partial class BrowserContent : PanelContent
 					OnChange = text => _context.Run( () => _selected.Value?.SetAddress( text ) ),
 					OnSubmit = text => _context.Run( () => UpdateNavigate( text ) ),
 				},
-				.. (Blob[])(tab?.LoomName is not null ? [BuildShare( theme, tab )] : []),
-				BuildButton( theme, "\uE8A7", "Open in default browser", tab is not null, () => _context.Run( UpdateOpenExternal ) ),
+				// A page Loom made gets Share; any other web page can open in the default browser. Never both: their icons look alike.
+				.. (Blob[])(tab?.LoomName is not null ? [BuildShare( theme, tab )]
+					: Uri.TryCreate( tab?.Source, UriKind.Absolute, out var page ) && page.Scheme is "http" or "https"
+						? [BuildButton( theme, "\uE8A7", "Open in default browser", true, () => _context.Run( UpdateOpenExternal ) )]
+						: []),
 			],
 		};
 	}
