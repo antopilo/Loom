@@ -190,8 +190,14 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 				children.AddRange( BuildCommunity() );
 			}
 
+			// The Updates tab's Loom row leads its category card, so it sits inside the Updates section.
+			Blob? leading = context.App.AvailableModules.OfType<UpdatesModule>().FirstOrDefault() is { } updates && shown?.Id == updates.Id ? BuildUpdateRow( updates ) : null;
+
 			foreach ( var category in categories )
-				children.AddRange( BuildCategory( category.Key, [.. category], scope ) );
+			{
+				children.AddRange( BuildCategory( category.Key, [.. category], scope, leading ) );
+				leading = null;
+			}
 		}
 
 		// The highlighted row mounts its handle with this build, so it scrolls into view after it.
@@ -255,10 +261,13 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 		|| definition.Category.Contains( query, StringComparison.CurrentCultureIgnoreCase );
 
 	/// <summary>Builds a category's heading and its card of rows.</summary>
-	private IEnumerable<Blob> BuildCategory( string title, IReadOnlyList<SettingDefinition> items, SettingsScope scope )
+	/// <param name="leading">A row that opens the card before its settings, or null.</param>
+	private IEnumerable<Blob> BuildCategory( string title, IReadOnlyList<SettingDefinition> items, SettingsScope scope, Blob? leading = null )
 	{
 		yield return BuildHeading( title );
 		var rows = new List<Blob>();
+		if ( leading is not null )
+			rows.Add( leading );
 		foreach ( var definition in items )
 			rows.Add( BuildSetting( definition, scope, isFirst: rows.Count == 0 ) );
 		yield return BuildCard( "category:" + title, title, rows );
@@ -679,6 +688,37 @@ internal sealed class SettingsContent( PanelContext context ) : PanelContent
 			rows.Add( BuildMessage( query.Length > 0 ? "No community module matches." : "The hub has no modules yet.", theme.Muted ) );
 
 		yield return BuildCard( "community", "Community modules", rows );
+	}
+
+	/// <summary>Builds the Updates tab's Loom row, which leads the Updates card: what the last check found, and the buttons that check for updates or apply them.</summary>
+	private Container BuildUpdateRow( UpdatesModule updates )
+	{
+		var theme = Theme.Current;
+		var app = context.App;
+		var status = updates.Status;
+
+		var detail = status switch
+		{
+			{ IsChecking: true } => "Checking for updates…",
+			{ Error: { } error } => error,
+			{ AppVersion: { } version } => UpdatesModule.AppReadyMessage( version ),
+			{ Modules.Count: > 0 } => UpdatesModule.ModulesReadyMessage( status.Modules ),
+			{ CheckedAt: null } => "Check for updates to see whether a new version is available.",
+			_ => $"{UpdatesModule.UpToDateMessage} Checked at {status.CheckedAt:HH:mm}.",
+		};
+
+		var buttons = new List<Blob> { theme.BuildButton( status.IsChecking ? "Checking…" : "Check for updates", () => updates.Check(), !status.IsChecking ) };
+		if ( status.AppVersion is not null )
+			buttons.Add( theme.BuildButton( "Restart to update", () => updates.RestartLoom( app ), !status.IsChecking ) );
+		if ( status.Modules.Count > 0 )
+			buttons.Add( theme.BuildButton( "Apply module updates", () => updates.ApplyModuleUpdates( app ), !status.IsChecking ) );
+
+		List<Blob> lines =
+		[
+			new Text { Content = $"Loom {UpdatesModule.CurrentVersion}", FontWeight = TitleWeight },
+			new Text { Content = detail, Color = status.Error is null ? theme.Muted : theme.Accent, FontSize = theme.FontSize - 1 },
+		];
+		return BuildRow( "updates:loom", "Loom", lines, new Row { Gap = theme.Spacing, Children = buttons }, isFirst: true );
 	}
 
 	/// <summary>Builds one community module's row: its name, version and author, what it does, its state, and its buttons.</summary>

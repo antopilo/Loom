@@ -355,8 +355,13 @@ feed (Update source setting; default: the GitHub repository)
 
 `UpdatesModule` (`Shell/Updates/`) checks 30 seconds after startup and then every 6 hours while
 **Check for updates automatically** (`updates.automatic`) is on; **Updates: check for updates**
-checks now and always says what it found. **Update source** (`updates.source`) takes a GitHub
+checks now and always posts what it found. **Update source** (`updates.source`) takes a GitHub
 repository, a web address or a folder (`UpdateFeed`); blank turns updates off.
+
+The **Check for updates** button on Settings › Updates runs the same check. It shows the result inline, in the same
+words as the notice, and offers **Restart to update** or **Apply module updates** when an update is ready. A
+ready update also posts the notice with its chime, so it can start from the Notifications menu. A background
+check posts only when the ready set changes; a command always posts.
 
 - **App.** `AppUpdater` downloads a new release with Velopack and posts **Restart now**, which
   closes the window normally, so state is saved, and lets Velopack replace the files and start
