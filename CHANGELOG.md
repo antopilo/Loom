@@ -8,6 +8,9 @@ version being packed. Write for users: what changed for them, not how.
 - **Unsplitting works.** Dragging a chat out of a split row in the sidebar takes it out of the split; the row no longer stays stuck
   showing one chat in a split frame. The chat you drag follows the pointer while you drag it.
 - **Smoother row drags.** A dragged row stays under the pointer where you grabbed it, and fades into the row it joins.
+- **The brief follows your theme.** A project's brief takes its colors from the theme you use.
+- **A clearer agent pointer.** When an agent uses this PC's windows, its pointer glides to each click with a halo and a ripple, and
+  the control bar with Stop shows again after a module reload.
 
 ## 0.4.34
 
