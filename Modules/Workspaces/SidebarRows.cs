@@ -330,6 +330,8 @@ public sealed partial class SidebarRows( PanelContext context )
 			},
 			OnPointerDown = pointer => context.Run( () =>
 			{
+				if ( pointer.Button == PointerButton.Primary )
+					_pressY = pointer.WindowPosition.Y;
 				if ( pointer.Button != PointerButton.Secondary )
 					return;
 

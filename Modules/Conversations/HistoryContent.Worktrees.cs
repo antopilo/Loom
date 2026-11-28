@@ -210,6 +210,9 @@ internal sealed partial class HistoryContent
 		}
 	}
 
+	/// <summary>Defines how long a split row's halves take to slide as one leaves or returns, in milliseconds.</summary>
+	private const double SplitSlideMs = 160;
+
 	/// <summary>Defines the inset of a split row's halves from its edge, in logical pixels.</summary>
 	private const int SplitInset = 3;
 
@@ -221,7 +224,37 @@ internal sealed partial class HistoryContent
 
 	/// <summary>Identifies a split half being dragged out of its row.</summary>
 	/// <param name="PanelId">The half's panel.</param>
-	private sealed record SplitHalfDrag( Guid PanelId );
+	/// <param name="Title">The half's chat title, which its ghost shows while it follows the pointer.</param>
+	private sealed record SplitHalfDrag( Guid PanelId, string Title );
+
+	/// <summary>Targets the sidebar's list, so the dragged half's ghost is placed in its coordinates.</summary>
+	private readonly ElementHandle _historyRoot = new();
+
+	/// <summary>Holds where the pointer is in the window while a split half is dragged over the sidebar but out of its row, or null.</summary>
+	private readonly State<Point?> _halfPointer = new( null );
+
+	/// <summary>Stores the dragged half's title for its ghost.</summary>
+	private string _halfTitle = "";
+
+	/// <summary>Follows a dragged split half: over its row it is back in the split; elsewhere over the sidebar its ghost follows the pointer.</summary>
+	private void UpdateHalfPointer( DragEvent drop, bool isOverRow )
+	{
+		if ( drop.Data.Value is not SplitHalfDrag dragged )
+			return;
+		_halfTitle = dragged.Title;
+		if ( isOverRow )
+		{
+			// The row's own target sees the pointer first; leaving it hands over to the list's target, which follows on.
+			if ( drop.Kind != DragEventKind.Leave )
+				_halfPointer.Value = null;
+			if ( _isHalfInside.Value != (drop.Kind != DragEventKind.Leave) )
+				_isHalfInside.Value = drop.Kind != DragEventKind.Leave;
+			return;
+		}
+		Point? at = drop.Kind is DragEventKind.Leave or DragEventKind.Drop ? null : drop.WindowPosition;
+		if ( _halfPointer.Value != at )
+			_halfPointer.Value = at;
+	}
 
 	/// <summary>Ends a split half's drag: the row shows both halves again and the ghost goes.</summary>
 	private void EndHalfDrag() => (_draggedHalf.Value, _isHalfInside.Value, _halfPointer.Value) = (Guid.Empty, true, null);
@@ -233,6 +266,34 @@ internal sealed partial class HistoryContent
 			context.Run( EndHalfDrag );
 	}
 
+	/// <summary>Builds the dragged half's ghost at the pointer while it is out of its row: its tile lifted over the list, held level, so nothing overlaps it.</summary>
+	private Blob? BuildHalfGhost()
+	{
+		if ( _halfPointer.Value is not { } at || _draggedHalf.Value == Guid.Empty || _historyRoot.BorderBox is not { Width: > 0 } box )
+			return null;
+		var theme = Theme.Current;
+		var width = Math.Max( 80, box.Width - SidebarRows.ChildIndent - SidebarRows.ContentPadding );
+		var height = theme.ControlHeight;
+		var tile = BuildSplitTile( "ghost", _halfTitle, true, () => { } );
+		tile.FlexGrow = 0;
+		return new Container
+		{
+			Key = "half-ghost",
+			Position = PositionType.Absolute,
+			// Held level in the list's column, as a row being dragged is; only its height follows the pointer.
+			Left = SidebarRows.ChildIndent,
+			Top = at.Y - box.Y - height / 2,
+			Width = width,
+			Height = height,
+			HitTestSelf = false,
+			BorderRadius = theme.Radius,
+			BackgroundColor = theme.Hover,
+			BoxShadow = new BoxShadow { OffsetY = 4, Blur = 12, Color = Color.Black.WithAlpha( 0.35 ) },
+			Transform = new PanelTransform { Scale = 1.02 },
+			Children = [Cell.Mount<RevealInput, Reveal>( "ghost-in", new( tile, true ) )],
+		};
+	}
+
 	/// <summary>Builds one row split into a half per chat shown side by side; clicking a half focuses its chat, and dragging a half out of the row takes
 	/// its chat out of the split, the row showing it gone while the pointer is outside and back while it returns.</summary>
 	private Blob BuildSplitRow( IReadOnlyList<(ConversationInfo Conversation, Guid PanelId)> chats, int indent )
@@ -241,17 +302,21 @@ internal sealed partial class HistoryContent
 		var active = context.App.Panels.ActivePanelId;
 		var leaving = _isHalfInside.Value ? Guid.Empty : _draggedHalf.Value;
 		var halves = new List<Blob>();
-		foreach ( var (conversation, panelId) in chats.Where( item => item.PanelId != leaving ) )
+		// The dragged half stays mounted while it is out of the row, only shrunk to nothing: removing it ended the drag Goo runs from it, so a half
+		// could never be dragged out. The halves slide as it leaves and comes back.
+		var motion = new LayoutTransition( SplitSlideMs, Easing.EaseOut );
+		foreach ( var (conversation, panelId) in chats )
 		{
+			var isLeaving = panelId == leaving;
 			if ( halves.Count > 0 )
-				halves.Add( new Container { Width = 4, FlexShrink = 0 } );
+				halves.Add( new Container { Key = "gap:" + panelId, Width = isLeaving ? 0 : 4, FlexShrink = 0, LayoutTransition = motion } );
 			// A half opens the workspace that holds the split, wherever it is, and focuses that chat in it.
 			var half = BuildSplitTile( "half:" + panelId, conversation.Title, panelId == active,
 				() => module.SelectConversation( context.App, Host.Ref( conversation.Id ) ) );
 			half.DragSource = new DragSource( _ =>
 			{
 				context.Run( () => (_draggedHalf.Value, _isHalfInside.Value) = (panelId, true) );
-				return new DragData( new SplitHalfDrag( panelId ), DragEffect.Move );
+				return new DragData( new SplitHalfDrag( panelId, conversation.Title ), DragEffect.Move );
 			}, _ => context.Run( () =>
 			{
 				// The drag's look ends first, so a failing close cannot leave the row showing one half in its frame.
@@ -260,18 +325,19 @@ internal sealed partial class HistoryContent
 				// Let go outside the row, the chat leaves the split: its panel closes and the other chat fills the space; the chat stays in the list.
 				if ( isOut )
 					context.App.Panels.Close( panelId );
-				(_draggedHalf.Value, _isHalfInside.Value) = (Guid.Empty, true);
 			} ) );
+			half.LayoutTransition = motion;
+			if ( isLeaving )
+			{
+				half.FlexGrow = 0;
+				half.Padding = 0;
+				half.Opacity = 0;
+			}
 			halves.Add( half );
 		}
 		return BuildSplitFrame( "split:" + chats[0].PanelId.ToString( "N" ), indent, chats.Any( item => item.PanelId == active ), halves, new DropTarget(
 			drop => drop.Data.Value is SplitHalfDrag ? DragEffect.Move : DragEffect.None,
-			drop => context.Run( () =>
-			{
-				var isInside = drop.Kind != DragEventKind.Leave;
-				if ( _isHalfInside.Value != isInside )
-					_isHalfInside.Value = isInside;
-			} ) ) );
+			drop => context.Run( () => UpdateHalfPointer( drop, isOverRow: true ) ) ) );
 	}
 
 	/// <summary>Builds the split row's frame, as Arc draws it: always lit, and set around its tiles rather than inside a plain row's box, so each title

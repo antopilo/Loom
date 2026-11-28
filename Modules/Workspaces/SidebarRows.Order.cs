@@ -26,6 +26,9 @@ public sealed partial class SidebarRows
 	/// <summary>Holds the drag in progress, or null while no row is dragged.</summary>
 	private readonly State<RowDragState?> _drag = new( null );
 
+	/// <summary>Stores the pointer height of the latest primary press on a row, in window coordinates, where a drag that follows began.</summary>
+	private double? _pressY;
+
 	/// <summary>Holds the place of each reorderable row from the latest build, by row.</summary>
 	private readonly Dictionary<Guid, RowOrder> _orders = [];
 
@@ -36,7 +39,8 @@ public sealed partial class SidebarRows
 	/// <param name="openAt">Shows the row's panel against a pane it is dropped on, or null for a row that opens no panel.</param>
 	public DragSource BuildRowDrag( Guid id, RowOrder order, Action<Guid, PanelPlacement>? openAt = null ) => new( start =>
 	{
-		context.Run( () => _drag.Value = StartDrag( id, order, start.WindowPosition.Y ) );
+		// The drag starts a few pixels after the press; measuring from the press keeps the row under the pointer where it was grabbed.
+		context.Run( () => _drag.Value = StartDrag( id, order, _pressY ?? start.WindowPosition.Y ) );
 		return new DragData( new RowDrag( this, order.Group, id, order.Index, openAt ), DragEffect.Move );
 	}, _ => context.Run( () => _drag.Value = null ) );
 
@@ -146,10 +150,15 @@ public sealed partial class SidebarRows
 
 		if ( id == drag.Id )
 		{
-			row.Transform = new PanelTransform { TranslateY = ClampOffset( drag, drag.PointerY - drag.StartY ), Scale = LiftScale };
+			row.Transform = new PanelTransform { TranslateY = ClampOffset( drag, drag.PointerY - drag.StartY ), Scale = drag.Onto is null ? LiftScale : 0.92 };
 			row.ZIndex = 1;
 			row.BackgroundColor = Theme.Current.Hover;
 			row.BoxShadow = new BoxShadow { OffsetY = 4, Blur = 12, Color = Color.Black.WithAlpha( 0.35 ) };
+			// Over a row it would join, the dragged row melts into that row's merged preview instead of covering it.
+			row.Opacity = drag.Onto is null ? 1 : 0;
+			row.TransitionMs = MakeRoomMs;
+			row.TransitionEasing = Easing.EaseOut;
+			row.TransitionProperties = [TransitionProperty.Opacity];
 			return;
 		}
 
@@ -165,7 +174,8 @@ public sealed partial class SidebarRows
 			}
 			return;
 		}
-		var shift = drag.Onto is not null ? 0
+		// While it joins another row, the rows after its old place close up, as if it had already left the list.
+		var shift = drag.Onto is not null ? (order.Index > drag.Index ? -drag.Slot : 0)
 			: order.Index > drag.Index && order.Index <= drag.Target ? -drag.Slot
 			: order.Index < drag.Index && order.Index >= drag.Target ? drag.Slot
 			: 0;

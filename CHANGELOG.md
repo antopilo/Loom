@@ -3,6 +3,12 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.35
+
+- **Unsplitting works.** Dragging a chat out of a split row in the sidebar takes it out of the split; the row no longer stays stuck
+  showing one chat in a split frame. The chat you drag follows the pointer while you drag it.
+- **Smoother row drags.** A dragged row stays under the pointer where you grabbed it, and fades into the row it joins.
+
 ## 0.4.34
 
 - **An emoji for every chat.** Chats get an emoji that matches their subject, picked with their title, shown before the title in the

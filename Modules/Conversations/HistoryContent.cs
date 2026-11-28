@@ -109,9 +109,15 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		children.AddRange( dialogs );
 		if ( HostFolderPrompt.Build( context ) is { } prompt )
 			children.Add( prompt );
+		if ( BuildHalfGhost() is { } ghost )
+			children.Add( ghost );
 		ReleaseWorktreeWatches();
 		return new Container
 		{
+			Handle = _historyRoot,
+			// A split half dragged out of its row follows the pointer anywhere over the sidebar.
+			DropTarget = new DropTarget( drop => drop.Data.Value is SplitHalfDrag ? DragEffect.Move : DragEffect.None,
+				drop => context.Run( () => UpdateHalfPointer( drop, isOverRow: false ) ) ),
 			OnPointerMove = UpdateStrayHalfDrag,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Conversation history",
