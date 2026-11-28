@@ -139,6 +139,8 @@ public sealed partial class SidebarRows( PanelContext context )
 				FontFamily = HeadingFontFamily,
 				FontSize = Theme.Current.FontSize + HeadingSizeStep,
 				FontWeight = GroupWeight,
+				// Headings group the rows under them; muted, they step back so the chats read first.
+				Color = Theme.Current.Muted,
 				MinWidth = 0,
 				FlexShrink = 1,
 				TextWrap = TextWrap.NoWrap,
@@ -211,6 +213,7 @@ public sealed partial class SidebarRows( PanelContext context )
 				FontFamily = HeadingFontFamily,
 				FontSize = theme.FontSize + HeadingSizeStep,
 				FontWeight = GroupWeight,
+				Color = theme.Muted,
 				MinWidth = 0,
 				FlexShrink = 1,
 				TextWrap = TextWrap.NoWrap,
