@@ -84,7 +84,8 @@ internal sealed unsafe partial class ControlPointer : IDisposable
 			}
 		}
 
-		var position = new Point { X = cursor.X - side / 2, Y = cursor.Y - side / 2 };
+		// The pointer's position is its tip; the arrow's body hangs down and right of it, so the ring centers on the body, not on the tip.
+		var position = new Point { X = cursor.X + (int)Math.Round( 5 * scale ) - side / 2, Y = cursor.Y + (int)Math.Round( 8 * scale ) - side / 2 };
 		var size = new Point { X = side, Y = side };
 		var origin = new Point();
 		var blend = new Blend { Operation = 0, Alpha = 255, Format = 1 };
