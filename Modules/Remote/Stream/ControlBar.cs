@@ -112,7 +112,9 @@ internal sealed unsafe partial class ControlBar : IDisposable
 	{
 		// Screen pixels everywhere, so the bar and the frame line up with the window on any screen's scale.
 		SetThreadDpiAwarenessContext( -4 /* DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 */ );
-		const string name = "LoknControlBar";
+		// A class name of its own per bar: after a reload of this module, a class registered under a shared name would still send its messages to
+		// the window procedure of the unloaded copy, and the bar would never show.
+		var name = "LoknControlBar-" + Guid.NewGuid().ToString( "N" );
 		fixed ( char* className = name )
 		{
 			var windowClass = new WindowClass
