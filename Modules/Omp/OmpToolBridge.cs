@@ -123,7 +123,10 @@ public sealed class OmpToolBridge : IDisposable
 			{
 				name = LoaderName,
 				label = "Load Lokn tools",
-				description = $"Loads hidden Lokn tool groups for this chat. Load a group before its feature is needed. Available groups: {string.Join( ", ", hiddenGroups )}.",
+				// Each group names its tools and what they are for, so an agent asked for, say, a report finds browser_show among the hidden ones.
+				description = "Loads hidden Lokn tool groups for this chat. Load a group before its feature is needed. Groups and their tools:\n"
+					+ string.Join( "\n", hiddenGroups.Select( group => $"- {group}: " + string.Join( "; ", registered.Where( tool => tool.ModuleId == group )
+						.Select( tool => $"{tool.Name} ({ComputeSummary( tool.Description )})" ) ) ) ),
 				parameters = JsonSerializer.SerializeToElement( new
 				{
 					type = "object",
@@ -155,6 +158,23 @@ public sealed class OmpToolBridge : IDisposable
 				_publishedNames.Add( LoaderName );
 		}
 		return [.. payload];
+	}
+
+	/// <summary>Defines the most characters of a tool's description the loader repeats for it.</summary>
+	private const int SummaryLength = 170;
+
+	/// <summary>Gets a tool description's first sentence, cut to <see cref="SummaryLength"/> characters, for the loader's list of hidden tools.</summary>
+	internal static string ComputeSummary( string description )
+	{
+		var line = description.AsSpan().Trim();
+		var end = line.IndexOfAny( '\n', '\r' );
+		if ( end >= 0 )
+			line = line[..end];
+		var stop = line.IndexOf( ". " );
+		if ( stop >= 0 )
+			line = line[..stop];
+		line = line.TrimEnd( '.' );
+		return line.Length <= SummaryLength ? line.ToString() : line[..(SummaryLength - 1)].TrimEnd().ToString() + "…";
 	}
 
 	/// <summary>Builds one provider host-tool definition.</summary>

@@ -56,19 +56,21 @@ internal sealed partial class TerminalContent : PanelContent
 	/// <summary>Tracks whether the shell ended and Enter restarts it.</summary>
 	private bool _hasExited;
 
-	/// <summary>Creates the panel for an explicit shell, a restored one, or the configured default, in its restored folder, else the working folder such as
-	/// the open project's, else the user's home: This PC's user folder, or the paired host's own.</summary>
+	/// <summary>Creates the panel for an explicit shell, a restored one, or the configured default, in the folder an agent asked for, else its restored
+	/// folder, else the working folder such as the open project's, else the user's home: This PC's user folder, or the paired host's own.</summary>
 	/// <remarks>A paired host gets nothing of This PC's own: no shell path detected here (<see cref="ShellProfile.ForHost"/>) and no folder of this disk.</remarks>
 	internal TerminalContent( PanelContext context )
 	{
 		_context = context;
 		var restored = ReadRestored( context.RestoredState );
-		_profile = context.Input as ShellProfile
+		var launch = context.Input as TerminalLaunch;
+		_profile = launch?.Profile
+			?? context.Input as ShellProfile
 			?? restored.Profile
 			?? ShellProfile.Resolve( context.App.Settings.Get( TerminalModule.Shell ), context.Host.IsLocal );
 		if ( !context.Host.IsLocal )
 			_profile = _profile.ForHost();
-		_directories = [.. new[] { restored.Directory, context.WorkingFolder }.OfType<string>()];
+		_directories = [.. new[] { launch?.Directory, restored.Directory, context.WorkingFolder }.OfType<string>()];
 		_directory = _directories.FirstOrDefault() ?? Home;
 		_terminal = new( InitialColumns, InitialRows, context.App.Settings.Get( TerminalModule.Scrollback ) );
 		_terminal.Replied += Write;

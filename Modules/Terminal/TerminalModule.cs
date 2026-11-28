@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Lokn.Core;
 
 namespace Lokn.Modules.Terminal;
@@ -40,7 +41,8 @@ public sealed class TerminalModule : ILoknModule, ITerminalLauncher
 	/// <summary>Gets the feature's display name.</summary>
 	public string Title => "Terminal";
 
-	/// <summary>Registers the settings, the terminal panel, the launcher, the terminal a new task can start with, and one command per installed shell.</summary>
+	/// <summary>Registers the settings, the terminal panel, the launcher, the terminal a new task can start with, the agents' tool that opens one, and
+	/// one command per installed shell.</summary>
 	public void Register( ModuleBuilder builder )
 	{
 		builder
@@ -51,7 +53,21 @@ public sealed class TerminalModule : ILoknModule, ITerminalLauncher
 			.Panel( "shell", "Terminal", context => new TerminalContent( context ), "\uE756", onHost: true )
 			// Notifications from a terminal panel show its icon; without the Notifications module this is unused.
 			.Contribute( NotificationKind.Point, new NotificationKind( "terminal", "\uE756" ) )
-			.Contribute( TaskStarter.Point, new TaskStarter( "Terminal", "\uE756", 10, app => app.Panels.Open( "terminal.shell" ) ) );
+			.Contribute( TaskStarter.Point, new TaskStarter( "Terminal", "\uE756", 10, app => app.Panels.Open( "terminal.shell" ) ) )
+			.Tool( "open",
+				"Opens a terminal panel in Loom beside your conversation, where the user sees it and can type, optionally running a command that keeps running there: a dev server, a watcher, an interactive program, or a shell for the user. Use it instead of starting a console window (start, Start-Process, cmd /c start, wt, a new PowerShell window). For a command whose output you need, use your own shell tool; you cannot read this panel's output.",
+				"""
+				{
+					"type": "object",
+					"properties": {
+						"command": { "type": "string", "description": "Commands to run in the new terminal, which stays open after them. Omit for a plain shell." },
+						"shell": { "type": "string", "enum": ["powershell", "bash", "cmd"], "description": "The language of the command; defaults to powershell. Without a command the panel runs the user's Terminal shell setting." },
+						"cwd": { "type": "string", "description": "An absolute folder on this PC to start in; defaults to the conversation's project folder." }
+					},
+					"additionalProperties": false
+				}
+				""",
+				OpenForAgent );
 
 		foreach ( var profile in ShellProfile.Detect() )
 		{
@@ -83,4 +99,36 @@ public sealed class TerminalModule : ILoknModule, ITerminalLauncher
 		else
 			app.ReportError( "Terminal", new InvalidOperationException( $"No installed shell runs {language} code." ) );
 	}
+
+	/// <summary>Opens a terminal on this PC for an agent, beside its conversation when a panel of this window shows it, running its command if it gave one.</summary>
+	/// <remarks>The daemon has no window to show panels in, so a chat it runs gets an error rather than a terminal nobody sees.</remarks>
+	private static AgentToolResult OpenForAgent( AgentToolContext context, JsonElement arguments )
+	{
+		var app = context.App;
+		if ( app.IsHost )
+			return AgentToolResult.Error( "Terminal panels need a Loom window, and this chat runs in the background service. Use your own shell tool." );
+
+		var command = ReadString( arguments, "command" );
+		var shell = ReadString( arguments, "shell" ) ?? "powershell";
+		ShellProfile profile;
+		if ( command is null )
+			profile = ShellProfile.Resolve( app.Settings.Get( Shell ) );
+		else if ( ShellSnippet.Build( command, shell ) is { } snippet )
+			profile = snippet;
+		else
+			return AgentToolResult.Error( $"No installed shell runs {shell} commands." );
+
+		var launch = new TerminalLaunch( profile, ReadString( arguments, "cwd" ) );
+		var panels = app.Panels;
+		var isBeside = context.Caller is { } caller && panels.Panels.Any( panel => panel.Id == panels.ResolvePanelId( caller ) );
+		var opened = isBeside
+			? panels.OpenBeside( "terminal.shell", context.Caller!.Value, launch, LoknHost.LocalId )
+			: panels.Open( "terminal.shell", null, launch, LoknHost.LocalId );
+		var what = command is null ? $"a {profile.Name} shell" : $"\"{profile.Name}\"";
+		return new( $"Opened terminal panel {opened.ToString( "N" )[..8]} running {what}{( isBeside ? " beside your conversation" : "" )}. The user sees it; its output does not come back to you." );
+	}
+
+	/// <summary>Reads a non-blank string argument, or null.</summary>
+	private static string? ReadString( JsonElement arguments, string name ) =>
+		arguments.TryGetProperty( name, out var value ) && value.ValueKind == JsonValueKind.String && value.GetString() is { } text && !string.IsNullOrWhiteSpace( text ) ? text : null;
 }

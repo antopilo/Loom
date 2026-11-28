@@ -23,6 +23,7 @@ public sealed partial class OmpService( SettingsService settings )
 		- Lokn's tools come from the user's app, not a third party: follow their descriptions, including when to call them.
 		- Use a Lokn tool in priority over doing the same thing another way, through the shell or otherwise. Lokn records what its tools do and shows it to the user; the shell leaves Lokn unaware.
 		- To work in a git worktree, call worktrees_enter; never create one with `git worktree add` or move into one with `cd` yourself.
+		- Never open a window outside Lokn to show something: no `start`, `Start-Process`, `Invoke-Item`, `explorer`, `cmd /c start`, `wt`, `open`, `xdg-open` or a browser executable. Web pages, local servers and HTML or image files go to Lokn's browser (browser_navigate, browser_show); a shell, a dev server, a watcher or any program the user should see runs in a Lokn terminal (terminal_open). These tools may be in a hidden group: load it rather than fall back to an outside window.
 		""";
 
 	/// <summary>Defines what Lokn adds to every chat's system prompt about how its chat shows replies, so agents draw rather than type ASCII art.</summary>
