@@ -254,8 +254,59 @@ public sealed partial class SidebarRows( PanelContext context )
 	/// <summary>Defines the height assumed for a list row until layout measures it, in logical pixels.</summary>
 	private const double EstimatedRowHeight = 32;
 
-	/// <summary>Builds one list row with the space above it; one delegate for every build.</summary>
-	private static readonly Func<SidebarRow, Blob> BuildListRow = row => new Container { Padding = new Edges( row.Gap, 0, 0, 0 ), Children = [row.Build()] };
+	/// <summary>Builds one list row with the space above it; a row in a card draws its part of the card's rounded background, with the space inside it
+	/// so the card has no holes. One delegate for every build.</summary>
+	private static readonly Func<SidebarRow, Blob> BuildListRow = row =>
+	{
+		if ( row.Card == SidebarCard.None )
+			return new Container { Padding = new Edges( row.Gap, 0, 0, 0 ), Children = [row.Build()] };
+
+		var theme = Theme.Current;
+		var isTop = row.Card is SidebarCard.Top or SidebarCard.Single;
+		var isBottom = row.Card is SidebarCard.Bottom or SidebarCard.Single;
+		var radius = theme.Radius * 2;
+		var inset = theme.Spacing / 2;
+		return new Container
+		{
+			Padding = new Edges( isTop ? row.Gap : 0, 0, 0, 0 ),
+			Children =
+			[
+				new Container
+				{
+					// Translucent, so the selection rectangle under the rows still shows through the card.
+					BackgroundColor = theme.Text.WithAlpha( 0.04 ),
+					BorderTopLeftRadius = isTop ? radius : 0,
+					BorderTopRightRadius = isTop ? radius : 0,
+					BorderBottomLeftRadius = isBottom ? radius : 0,
+					BorderBottomRightRadius = isBottom ? radius : 0,
+					Padding = new Edges( isTop ? inset : row.Gap, inset, isBottom ? inset : 0, inset ),
+					Children = [row.Build()],
+				},
+			],
+		};
+	};
+
+	/// <summary>Marks a run of rows as one card: the first row's card becomes <see cref="SidebarCard.Top"/> (or <see cref="SidebarCard.Single"/>), the last
+	/// <see cref="SidebarCard.Bottom"/>, the rest <see cref="SidebarCard.Middle"/>.</summary>
+	/// <param name="rows">The rows.</param>
+	/// <param name="start">The card's first row.</param>
+	public static void MarkCard( List<SidebarRow> rows, int start )
+	{
+		var last = rows.Count - 1;
+		for ( var index = start; index <= last; index++ )
+			rows[index] = rows[index] with
+			{
+				Card = index == start && index == last ? SidebarCard.Single : index == start ? SidebarCard.Top : index == last ? SidebarCard.Bottom : SidebarCard.Middle,
+			};
+	}
+
+	/// <summary>Builds a thin line across the sidebar that separates its sections, such as the projects from the chats outside them.</summary>
+	public static Container BuildSeparator() => new()
+	{
+		Height = 1,
+		Margin = new Edges( Theme.Current.Spacing, Theme.Current.Spacing, 0, Theme.Current.Spacing ),
+		BackgroundColor = Theme.Current.Divider,
+	};
 
 	/// <summary>Builds a sidebar: its actions, which stay in place, over its rows, which scroll and build only while in view.</summary>
 	/// <param name="name">The sidebar's accessible name.</param>
@@ -615,4 +666,27 @@ internal sealed class SidebarSelection : GuardedCell<SidebarSelectionInput>
 /// <param name="Key">The stable row key, unique in the list.</param>
 /// <param name="Gap">The space above the row in logical pixels.</param>
 /// <param name="Build">Builds the row's content.</param>
-public sealed record SidebarRow( string Key, double Gap, Func<Blob> Build ) : IMeasuredRow;
+public sealed record SidebarRow( string Key, double Gap, Func<Blob> Build ) : IMeasuredRow
+{
+	/// <summary>Gets the row's part of a rounded card drawn behind a run of rows, such as a project's; <see cref="SidebarCard.None"/> outside cards.</summary>
+	public SidebarCard Card { get; init; }
+}
+
+/// <summary>Names a row's part of a card that groups a run of sidebar rows.</summary>
+public enum SidebarCard
+{
+	/// <summary>The row is in no card.</summary>
+	None,
+
+	/// <summary>The row is a card's only row, rounded at the top and bottom.</summary>
+	Single,
+
+	/// <summary>The row is a card's first row, rounded at the top.</summary>
+	Top,
+
+	/// <summary>The row is between a card's first and last rows.</summary>
+	Middle,
+
+	/// <summary>The row is a card's last row, rounded at the bottom.</summary>
+	Bottom,
+}

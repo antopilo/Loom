@@ -258,17 +258,14 @@ public sealed partial class ChatContent : PanelContent
 		MinHeight = 0,
 	};
 
-	/// <summary>Builds the empty chat, new or cleared, as Home shows it: the wordmark and its host's recent cards, centered above the composer.</summary>
+	/// <summary>Holds the empty chat's painting and kicker line, created when the chat first shows empty.</summary>
+	private HomeFront? _front;
+
+	/// <summary>Builds the empty chat, new or cleared, as Home shows it: the day's painting under Loom's mark, centered above the composer.</summary>
 	private Column BuildEmpty()
 	{
-		var children = new List<Blob> { new Spacer(), Cell.Mount( "home-logo", () => new HomeLogo() ) };
-		// A chat hosted without the Conversations module, as in focused checks, has no projects to offer.
-		if ( context.App.Modules.Any( module => module.Id == "conversations" ) )
-		{
-			var conversations = context.App.GetModule<ConversationsModule>();
-			children.Add( HomeContent.BuildCards( context, conversations, conversations.Hosts.Find( context.HostId ) ?? conversations.Hosts.Local, session.UpdateStatus ) );
-		}
-		children.Add( new Spacer() );
+		_front ??= new HomeFront( context );
+		List<Blob> children = [new Spacer(), _front.Build( EmptyPaintingHeight ), new Spacer()];
 
 		return new Column
 		{
@@ -287,6 +284,9 @@ public sealed partial class ChatContent : PanelContent
 
 	/// <summary>Defines the space between the agent's actions, such as two tool lines, in logical pixels, as Tern spaces them.</summary>
 	private const double ActionGap = 28;
+
+	/// <summary>Defines the painting's height in an empty chat, in logical pixels: lower than Home's, as the composer takes room under it.</summary>
+	private const int EmptyPaintingHeight = 240;
 
 	/// <summary>Lists the visible messages as transcript rows, pairing tool results with their calls and spacing agent turns as one flow.</summary>
 	/// <remarks>

@@ -181,6 +181,9 @@ internal static partial class SvgView
 				text.Remove();
 			}
 
+			// SVG draws nothing for a zero-size shape; Goo refuses it and would fail the whole drawing.
+			root.Descendants().Where( IsEmptyShape ).ToArray().Remove();
+
 			var hasShapes = root.Descendants().Any( element => element.Name.LocalName is not ("g" or "defs" or "title" or "desc" or "style") );
 			var shapes = hasShapes ? Goo.Svg.Svg.Parse( document.ToString( SaveOptions.DisableFormatting ) ) : null;
 			return new Drawing( shapes, [.. labels], x, y, width, height );
@@ -190,6 +193,15 @@ internal static partial class SvgView
 			return null;
 		}
 	}
+
+	/// <summary>Reports whether an element is a rect, circle or ellipse with a zero or negative size, which SVG does not draw.</summary>
+	private static bool IsEmptyShape( XElement element ) => element.Name.LocalName switch
+	{
+		"rect" => ReadLength( element, "width", 1 ) <= 0 || ReadLength( element, "height", 1 ) <= 0,
+		"circle" => ReadLength( element, "r", 1 ) <= 0,
+		"ellipse" => ReadLength( element, "rx", 1 ) <= 0 || ReadLength( element, "ry", 1 ) <= 0,
+		_ => false,
+	};
 
 	/// <summary>Reads the drawing's view box, or its width and height when it has none.</summary>
 	private static (double X, double Y, double Width, double Height) ReadViewBox( XElement root )

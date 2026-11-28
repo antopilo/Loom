@@ -124,17 +124,22 @@ internal sealed partial class ShellView
 		Rebuild();
 	}
 
-	/// <summary>Builds the sidebar column: the modules' sections stacked in slot order, then the profile switcher pinned to the bottom.</summary>
+	/// <summary>Builds the sidebar column: the titlebar's actions on top while the sidebar shows, then the modules' sections stacked in slot order, then the
+	/// profile switcher pinned to the bottom.</summary>
 	private Blob BuildSidebar()
 	{
 		var children = new List<Blob>();
+		// The floating sidebar of a hidden one goes without: the titlebar across the window holds the actions then.
+		if ( IsSidebarShown )
+			children.Add( BuildTitleBar() );
+		var sections = children.Count;
 		foreach ( var item in _app.Slots.Get( ShellSlots.Sidebar ) )
 		{
 			children.Add( new Container
 			{
 				Key = $"sidebar-section:{item.Id}",
 				// The first section fills the column; later ones take only the height they need.
-				FlexGrow = children.Count == 0 ? 1 : 0,
+				FlexGrow = children.Count == sections ? 1 : 0,
 				FlexShrink = 1,
 				MinHeight = 0,
 				// The sliding content stays inside the sidebar rather than painting over the workspace.
@@ -143,7 +148,7 @@ internal sealed partial class ShellView
 				Children = [Mount<ContentSurface>( $"sidebar-surface:{item.Id}", () => new( item ) )],
 			} );
 		}
-		if ( children.Count == 0 )
+		if ( children.Count == sections )
 			children.Add( new Spacer() );
 
 		children.Add( BuildProfileSwitcher() );

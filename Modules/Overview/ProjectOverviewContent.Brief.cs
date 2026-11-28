@@ -102,7 +102,7 @@ internal sealed partial class ProjectOverviewContent
 		if ( _paintingDay == day )
 			return;
 		_paintingDay = day;
-		_ = LoadPaintingAsync( BriefArt.ForDay( day ), day );
+		_ = LoadPaintingAsync( DailyPainting.ForDay( day ), day );
 	}
 
 	/// <summary>Decodes a painting and shows it, unless the day or the page moved on meanwhile; the painting it replaces is released after the page
@@ -112,7 +112,7 @@ internal sealed partial class ProjectOverviewContent
 		ImageSource source;
 		try
 		{
-			source = await Task.Run( () => BriefArt.Decode( painting ), _context.Lifetime );
+			source = await Task.Run( () => DailyPainting.Decode( painting ), _context.Lifetime );
 		}
 		catch ( OperationCanceledException )
 		{
@@ -333,7 +333,7 @@ internal sealed partial class ProjectOverviewContent
 			AlignItems = AlignItems.Center,
 			JustifyContent = JustifyContent.Center,
 			AccessibilityRole = AccessibilityRole.Group,
-			AccessibilityName = $"The {day} Brief. {BriefArt.ForDay( _now.Value.DayOfWeek ).Credit}",
+			AccessibilityName = $"The {day} Brief. {DailyPainting.ForDay( _now.Value.DayOfWeek ).Credit}",
 			Children =
 			[
 				.. picture,
@@ -382,7 +382,7 @@ internal sealed partial class ProjectOverviewContent
 		var credit = new Text
 		{
 			Key = "credit",
-			Content = BriefArt.ForDay( _now.Value.DayOfWeek ).Credit,
+			Content = DailyPainting.ForDay( _now.Value.DayOfWeek ).Credit,
 			FontFamily = ViewStyle.CodeFontFamily,
 			FontSize = 10,
 			LineHeight = 1.5,

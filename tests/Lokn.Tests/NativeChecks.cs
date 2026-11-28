@@ -254,9 +254,11 @@ internal static class NativeChecks
 		var handle = (ElementHandle)typeof( ShellView )
 			.GetField( "_workspaceHandle", BindingFlags.Instance | BindingFlags.NonPublic )!
 			.GetValue( shell )!;
-		CoreChecks.Check( handle.BorderBox.Y == TitleBar.BarHeight, "The workspace starts immediately below the titlebar." );
-
 		var isSidebarShown = app.Settings.Get( ShellSettings.ShowSidebar );
+		// The shown sidebar's top row is the titlebar, so the workspace reaches the window's top; with the sidebar hidden the bar spans the window.
+		CoreChecks.Check( handle.BorderBox.Y == (isSidebarShown ? 0 : TitleBar.BarHeight), "The workspace starts right below the titlebar, or at the top while the sidebar holds it." );
+
+
 		ClickTitlebarAction( window, semantics, "Toggle sidebar" );
 		PumpUntil( window, semantics, () => app.Settings.Get( ShellSettings.ShowSidebar ) != isSidebarShown, "The titlebar sidebar icon shows or hides the sidebar." );
 		if ( !app.Settings.Get( ShellSettings.ShowSidebar ) )
@@ -264,9 +266,12 @@ internal static class NativeChecks
 		ClickTitlebarAction( window, semantics, "Toggle sidebar" );
 		PumpUntil( window, semantics, () => app.Settings.Get( ShellSettings.ShowSidebar ) == isSidebarShown, "The titlebar sidebar icon toggles back." );
 
-		ClickTitlebarAction( window, semantics, "Settings" );
+		ClickTitlebarAction( window, semantics, "Loom menu" );
+		UiInput.Click( window, () => semantics.Tree?.Root is { } root
+			? Flatten( root ).SingleOrDefault( node => node.Role == AccessibilityRole.MenuItem && node.Name == "Settings" )
+			: null, () => Pump( window ), "The Loom menu's Settings" );
 		PumpUntil( window, semantics, () => app.Popups.Top?.TypeId == "shell.settings",
-			"The titlebar Settings icon opens the Settings window." );
+			"The Loom menu's Settings opens the Settings window." );
 		app.Popups.Close( app.Popups.Top! );
 		Pump( window );
 

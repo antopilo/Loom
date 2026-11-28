@@ -3,6 +3,15 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.36
+
+- **No more top bar.** The Loom logo, the bell and the sidebar button sit at the top of the sidebar, and the window's minimize,
+  maximize and close buttons sit in the corner of the top-right panel. With the sidebar hidden or in tabs mode, the bar comes back.
+- **The Loom menu.** Click the logo for Settings, Search, Edit theme, Check for updates and Exit.
+- **Projects in cards.** Each project and its chats sit on one rounded card in the sidebar, with a line before your other chats.
+- **A painting on Home.** Home and new chats show the day's painting under Loom's mark, with the date and time along the margins.
+- **Drawings show more often.** A drawing in a chat with an empty shape, such as a rectangle with no height, now shows instead of its source.
+
 ## 0.4.35
 
 - **Unsplitting works.** Dragging a chat out of a split row in the sidebar takes it out of the split; the row no longer stays stuck

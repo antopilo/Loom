@@ -91,8 +91,6 @@ internal static class HomeChecks
 		var turned = HomeLogo.RotateHue( accent, 360 );
 		CoreChecks.Check( Math.Abs( turned.R - accent.R ) + Math.Abs( turned.G - accent.G ) + Math.Abs( turned.B - accent.B ) < 0.01 && HomeLogo.RotateHue( accent, 180 ) != accent,
 			"The gradient's hues turn and come back around after a full turn." );
-		var now = DateTimeOffset.UtcNow;
-		CoreChecks.Check( HomeContent.FormatAge( now.AddMinutes( -5 ), now ) == "5 min ago" && HomeContent.FormatAge( now.AddDays( -1.5 ), now ) == "yesterday", "Card ages read naturally." );
 		await CheckProjectIcons( root, projects, profile );
 
 		app.Shutdown();

@@ -80,6 +80,9 @@ internal sealed partial class ShellView
 			children.Add( BuildHeaderButton( $"maximize:{pane.Id}", isMaximized ? RestoreGlyph : MaximizeGlyph, isMaximized ? $"Restore {name}" : $"Maximize {name}", Maximize, isVisible, Reveal ) );
 		if ( canClose )
 			children.Add( BuildHeaderButton( $"close:{pane.Id}", HeaderCloseGlyph, $"Close {name}", Close, isVisible, Reveal ) );
+		var hasWindowControls = pane.Id == _controlsPaneId;
+		if ( hasWindowControls )
+			children.Add( WindowControls.Build( Host, PaneHeaderHeight, PaneRadius ) );
 
 		var header = new Button
 		{
@@ -90,7 +93,8 @@ internal sealed partial class ShellView
 			FlexDirection = FlexDirection.Row,
 			AlignItems = AlignItems.Center,
 			Gap = theme.Spacing / 2,
-			Padding = new Edges( 0, theme.Spacing / 2, 0, theme.Spacing ),
+			// The window controls reach the pane's right edge.
+			Padding = new Edges( 0, hasWindowControls ? 0 : theme.Spacing / 2, 0, theme.Spacing ),
 			BorderWidth = new Edges( 0, 0, theme.BorderWidth, 0 ),
 			BorderColor = theme.Border,
 			Cursor = panel is null ? Cursor.Default : Cursor.Move,

@@ -1,246 +1,97 @@
 using Goo;
 using Lokn.Core;
-using Lokn.Modules.Projects;
+using Lokn.Modules.Workspaces;
 
 namespace Lokn.Modules.Conversations;
 
-/// <summary>Shows Home, the empty state of a conversation panel: the wordmark, cards for the current host's recent projects, and a prompt bar that starts a chat in this panel.</summary>
+/// <summary>Shows Home, the empty state of a conversation panel: the day's painting under Loom's mark, the date and time along the margins, and a prompt bar
+/// that starts a chat in this panel.</summary>
 internal sealed class HomeContent( PanelContext context, ConversationsModule module ) : PanelContent
 {
-	/// <summary>Defines how many recent cards Home shows.</summary>
-	private const int CardLimit = 6;
-
-	/// <summary>Defines a card's width in logical pixels; four cards and their gaps fit the column.</summary>
-	private const int CardWidth = 158;
-
-	/// <summary>Defines a card's least height in logical pixels; larger text makes it taller.</summary>
-	private const int CardHeight = 92;
-
-	/// <summary>Defines the widest the cards and the prompt bar grow, in logical pixels.</summary>
-	private const int ColumnWidth = 680;
+	/// <summary>Defines the widest the prompt bar and the notes grow, in logical pixels.</summary>
+	private const int ColumnWidth = HomeFront.ColumnWidth;
 
 	/// <summary>Defines the prompt bar's least height in logical pixels.</summary>
 	private const int PromptHeight = 46;
 
-	/// <summary>Defines the space between the wordmark and the cards, in logical pixels.</summary>
-	private const int LogoGap = 44;
+	/// <summary>Defines the painting's height on Home, in logical pixels.</summary>
+	private const int PaintingHeight = 330;
 
 	/// <summary>Defines the outer inset in logical pixels.</summary>
 	private const int Inset = 32;
 
-	/// <summary>Defines a card name's size in logical pixels.</summary>
-	private const int NameSize = 14;
-
 	/// <summary>Defines small detail text's size in logical pixels.</summary>
 	private const int DetailSize = 11;
-
-	/// <summary>Defines a project icon's width and height in logical pixels.</summary>
-	private const int ProjectIconSize = 22;
 
 	/// <summary>Retains the prompt being typed.</summary>
 	private readonly State<string> _prompt = new( "" );
 
-	/// <summary>Reports a failure, such as a folder chooser that could not open, or empty.</summary>
-	private readonly State<string> _status = new( "" );
+	/// <summary>Holds the painting, the kicker line and the margins.</summary>
+	private readonly HomeFront _front = new( context );
 
-	/// <summary>Builds the centered wordmark and cards with the prompt bar along the bottom.</summary>
+	/// <summary>Builds the painting centered, the date and time along the margins, and the prompt bar along the bottom.</summary>
 	public override Blob Build()
 	{
 		var host = module.Hosts.Current;
-		var content = new List<Blob>
-		{
-			new Spacer(),
-			Cell.Mount( "home-logo", () => new HomeLogo() ),
-			BuildCards( context, module, host, error => _status.Value = error ),
-		};
+		var content = new List<Blob> { new Spacer(), _front.Build( PaintingHeight ) };
 		// Project-trusted modules load on This PC alone.
 		if ( host.IsLocal && module.Projects.BuildModulePrompt( context ) is { } modules )
 			content.Add( modules );
 		if ( host.IsLocal && module.IsWhatsNewShown )
 			content.Add( BuildWhatsNew() );
-		if ( _status.Value.Length > 0 )
-			content.Add( BuildDetail( _status.Value, "home-status" ) );
 		content.Add( new Spacer() );
 
-		return new Column
+		return new Container
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Home",
 			FlexGrow = 1,
 			MinHeight = 0,
-			AlignItems = AlignItems.Center,
-			Padding = Inset,
-			Gap = Theme.Current.Spacing * 2,
 			Color = Theme.Current.Text,
 			Children =
 			[
+				_front.BuildRail( isLeft: true ),
+				_front.BuildRail( isLeft: false ),
 				new Column
 				{
-					Key = "home-content",
+					Key = "home-page",
 					FlexGrow = 1,
-					MinWidth = 0,
 					MinHeight = 0,
-					AlignSelf = AlignSelf.Stretch,
-					OverflowY = Overflow.Scroll,
-					ScrollbarY = ViewStyle.GetScrollbar(),
+					AlignItems = AlignItems.Center,
+					Padding = new Edges( Inset, HomeFront.RailWidth + Inset / 2 ),
+					Gap = Theme.Current.Spacing * 2,
 					Children =
 					[
 						new Column
 						{
-							MinHeight = Length.Percent( 100 ),
-							FlexShrink = 0,
-							AlignItems = AlignItems.Center,
-							Gap = Theme.Current.Spacing * 2,
-							Children = content,
+							Key = "home-content",
+							FlexGrow = 1,
+							MinWidth = 0,
+							MinHeight = 0,
+							AlignSelf = AlignSelf.Stretch,
+							OverflowY = Overflow.Scroll,
+							ScrollbarY = ViewStyle.GetScrollbar(),
+							Children =
+							[
+								new Column
+								{
+									MinHeight = Length.Percent( 100 ),
+									FlexShrink = 0,
+									AlignItems = AlignItems.Center,
+									Gap = Theme.Current.Spacing * 2,
+									Children = content,
+								},
+							],
 						},
+						BuildPrompt(),
+						BuildDetail( "Enter starts a chat  ·  Ctrl+Shift+H comes back here", "home-hint" ),
 					],
 				},
-				BuildPrompt(),
-				BuildDetail( "Enter starts a chat  ·  Ctrl+Shift+H comes back here", "home-hint" ),
 			],
 		};
 	}
 
-	/// <summary>Formats how long ago something happened, in the largest whole unit.</summary>
-	internal static string FormatAge( DateTimeOffset date, DateTimeOffset now )
-	{
-		var age = now - date;
-		return age.TotalMinutes < 1 ? "just now"
-			: age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago"
-			: age.TotalDays < 1 ? $"{(int)age.TotalHours} h ago"
-			: age.TotalDays < 2 ? "yesterday"
-			: age.TotalDays < 60 ? $"{(int)age.TotalDays} days ago"
-			: date.ToLocalTime().ToString( "MMM d, yyyy" );
-	}
-
-	/// <summary>Shortens a directory under the user's profile to start with ~.</summary>
-	internal static string FormatDirectory( string directory )
-	{
-		var profile = Environment.GetFolderPath( Environment.SpecialFolder.UserProfile );
-		return profile.Length > 0 && directory.StartsWith( profile, StringComparison.OrdinalIgnoreCase )
-			? "~" + directory[profile.Length..]
-			: directory;
-	}
-
-	/// <summary>Builds a host's recent cards and the card that opens one of its folders as a project; an empty chat shows the same cards.</summary>
-	/// <param name="context">The panel the cards are in.</param>
-	/// <param name="module">The module whose projects the cards open.</param>
-	/// <param name="host">The host whose projects and chats the cards open.</param>
-	/// <param name="report">Shows a failure of the folder chooser in the panel.</param>
-	internal static Blob BuildCards( PanelContext context, ConversationsModule module, ChatHost host, Action<string> report )
-	{
-		var now = DateTimeOffset.UtcNow;
-		var cards = module.ComputeEntries( context.App, host )
-			.Take( CardLimit )
-			.Select( entry => (Blob)BuildCard( entry.Key, entry.Title, entry.Project is null ? entry.Detail : FormatDirectory( entry.Detail ),
-				FormatUse( entry, now ), $"Open {entry.Title}", () => context.Run( () => module.Open( context.App, entry ) ),
-				entry.Project is { } project ? module.Projects.BuildProjectIcon( project, host.Id, ProjectIconSize ) : null ) )
-			.Append( BuildCard( "open-folder", "Open folder…", host.IsLocal ? "Add a project" : $"Add a project on {host.Name}", "", "Open a folder as a project",
-				() => context.Run( () => ChooseFolder( context, module, host, report ) ), icon: null, isQuiet: true ) )
-			.ToList();
-
-		return new Row
-		{
-			Key = "home-cards",
-			Margin = new Edges( LogoGap, 0, 0, 0 ),
-			Width = Length.Percent( 100 ),
-			MaxWidth = ColumnWidth,
-			FlexWrap = FlexWrap.Wrap,
-			JustifyContent = JustifyContent.Center,
-			Gap = Theme.Current.Spacing * 1.5,
-			Children = cards,
-		};
-	}
-
-	/// <summary>Describes when a card was last used and how many chats it holds.</summary>
-	private static string FormatUse( HomeEntry entry, DateTimeOffset now )
-	{
-		var chats = entry.Conversations == 1 ? "1 chat" : $"{entry.Conversations} chats";
-		return entry.LastUsed is { } used ? $"{FormatAge( used, now )}  ·  {chats}" : chats;
-	}
-
-	/// <summary>Builds one quiet card with an optional project icon, a name, a detail line, and a footnote.</summary>
-	private static Button BuildCard( string key, string title, string detail, string footnote, string name, Action open, Blob? icon, bool isQuiet = false )
-	{
-		var theme = Theme.Current;
-		var heading = new Row
-		{
-			AlignItems = AlignItems.Center,
-			Gap = theme.Spacing,
-			MinWidth = 0,
-			Children =
-			[
-				.. icon is null ? Array.Empty<Blob>() : [icon],
-				new Text
-				{
-					Content = title,
-					FontFamily = ViewStyle.FontFamily,
-					FontSize = NameSize,
-					FontWeight = 600,
-					Color = isQuiet ? theme.Muted : theme.Text,
-					TextWrap = TextWrap.NoWrap,
-					TextTrimming = TextTrimming.Ellipsis,
-					MinWidth = 0,
-					FlexShrink = 1,
-				},
-			],
-		};
-		var lines = new List<Blob>
-		{
-			heading,
-			new Text
-			{
-				Content = detail,
-				FontSize = DetailSize,
-				Color = theme.Muted,
-				TextWrap = TextWrap.NoWrap,
-				TextTrimming = TextTrimming.Ellipsis,
-				MinWidth = 0,
-			},
-			new Spacer(),
-		};
-		if ( footnote.Length > 0 )
-			lines.Add( new Text
-			{
-				Content = footnote,
-				FontSize = DetailSize,
-				Color = theme.Inactive,
-				TextWrap = TextWrap.NoWrap,
-				TextTrimming = TextTrimming.Ellipsis,
-				MinWidth = 0,
-			} );
-
-		return new Button
-		{
-			Key = key,
-			Width = CardWidth,
-			MinHeight = CardHeight,
-			Padding = new Edges( 12, 14 ),
-			Gap = 3,
-			FlexDirection = FlexDirection.Column,
-			AlignItems = AlignItems.Stretch,
-			BorderRadius = theme.Radius + 3,
-			BorderWidth = theme.BorderWidth,
-			BorderColor = isQuiet ? theme.Border : Color.Transparent,
-			BackgroundColor = isQuiet ? Color.Transparent : theme.Raised,
-			TransitionMs = 150,
-			TransitionProperties = [TransitionProperty.BackgroundColor, TransitionProperty.BorderColor],
-			HoverStyle = new Style { BackgroundColor = theme.Hover },
-			FocusStyle = new Style { BorderColor = theme.Accent },
-			Cursor = Cursor.Pointer,
-			Focusable = true,
-			AccessibilityName = name,
-			OnClick = open,
-			KeyBindings =
-			[
-				new( Key.Enter, KeyModifiers.None, open ),
-				new( Key.Space, KeyModifiers.None, open ),
-			],
-			Children = lines,
-		};
-	}
-
-	/// <summary>Builds the rounded prompt bar; Enter starts a chat outside projects with what was typed.</summary>
+	/// <summary>Builds the prompt bar as a project's overview draws it: paper, a hairline outline and soft corners; Enter starts a chat outside projects with what was typed.</summary>
 	private Blob BuildPrompt()
 	{
 		var theme = Theme.Current;
@@ -251,18 +102,20 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 			Value = _prompt.Value,
 			Controlled = true,
 			Placeholder = "Ask anything…",
+			PlaceholderColor = theme.Inactive,
 			AccessibilityName = "Start a chat",
 			Width = Length.Percent( 100 ),
 			MaxWidth = ColumnWidth,
 			MinHeight = PromptHeight,
 			FlexShrink = 0,
-			Padding = new Edges( 0, PromptHeight / 2 - 4 ),
+			Padding = new Edges( 0, 16 ),
 			FontSize = theme.FontSize + 1,
-			BackgroundColor = theme.Raised,
-			BorderColor = theme.Border,
-			BorderWidth = theme.BorderWidth,
-			BorderRadius = PromptHeight / 2.0,
-			FocusStyle = new Style { BorderColor = theme.Accent },
+			Color = theme.Text,
+			BackgroundColor = theme.Canvas,
+			BorderColor = theme.Text.WithAlpha( 0.22 ),
+			BorderWidth = 1,
+			BorderRadius = 12,
+			FocusStyle = new Style { BorderColor = theme.Muted },
 			OnChange = value => context.Run( () => _prompt.Value = value ),
 			OnSubmit = value => context.Run( () => UpdateSubmit( value ) ),
 		};
@@ -295,15 +148,13 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 			AccessibilityName = $"What's new in Loom {ConversationsModule.WhatsNewVersion}",
 			Width = Length.Percent( 100 ),
 			MaxWidth = ColumnWidth,
-			Padding = new Edges( 12, 14 ),
+			Padding = new Edges( 14, 16 ),
 			Gap = theme.Spacing,
-			BorderRadius = theme.Radius + 3,
-			BorderWidth = theme.BorderWidth,
-			BorderColor = theme.Border,
-			BackgroundColor = theme.Raised,
+			BorderRadius = 12,
+			BackgroundColor = theme.Text.WithAlpha( 0.045 ),
 			Children =
 			[
-				new Text { Key = "title", Content = $"What's new in Loom {ConversationsModule.WhatsNewVersion}", FontSize = NameSize, FontWeight = 600 },
+				new Text { Key = "title", Content = $"What's new in Loom {ConversationsModule.WhatsNewVersion}", FontFamily = SidebarRows.SerifFontFamily, FontStyle = FontStyle.Italic, FontSize = 18 },
 				Line( "background", "Chats can keep running in the background. Turn it on and your agents keep working after you close Loom." ),
 				Line( "devices", "You can also use this PC's chats from your laptop or phone. Paired devices are a preview; find them in Remote access." ),
 				Line( "unchanged", "Nothing changed unless you turn it on. Your chats, projects and settings are as you left them, and Loom kept a backup in Settings." ),
@@ -319,33 +170,6 @@ internal sealed class HomeContent( PanelContext context, ConversationsModule mod
 			return;
 
 		_prompt.Value = "";
-		_status.Value = "";
 		module.StartConversation( context.App, module.Hosts.Current, value.Trim(), module.ComputeSessionProject( context.App ), context.Id );
-	}
-
-	/// <summary>Asks for a folder of the host, then opens its project, creating it when it is new: the native folder chooser over the shell window on This PC,
-	/// a typed path checked on the host for a paired one.</summary>
-	private static void ChooseFolder( PanelContext context, ConversationsModule module, ChatHost host, Action<string> report )
-	{
-		if ( !host.IsLocal )
-			HostFolderPrompt.Show( context, host.Host, "Open a project folder", null, directory => module.OpenFolder( context.App, host, directory ) );
-		else if ( context.App.Window is { } window )
-			_ = ChooseFolderAsync( window, context, module, report );
-	}
-
-	/// <summary>Opens the chosen folder's project on This PC once the owner-modal chooser closes.</summary>
-	private static async Task ChooseFolderAsync( Window window, PanelContext context, ConversationsModule module, Action<string> report )
-	{
-		var result = await window.ShowFileDialogAsync( FileDialogKind.Folder, new FileDialogOptions
-		{
-			Title = "Open a project folder",
-		} );
-		context.Post( () =>
-		{
-			if ( result.Status == FileDialogStatus.Success && result.Paths.FirstOrDefault() is { } directory )
-				module.OpenFolder( context.App, module.Hosts.Local, directory );
-			else if ( result.Status != FileDialogStatus.Cancelled )
-				report( $"Could not open the folder chooser: {result.Error}" );
-		} );
 	}
 }

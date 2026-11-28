@@ -183,7 +183,8 @@ internal sealed partial class ProjectOverviewContent : PanelContent
 			ScrollbarY = ViewStyle.GetScrollbar(),
 		};
 		var now = _now.Value;
-		return new Row
+		var leaving = _leaving.Value;
+		var page = new Row
 		{
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = project is null ? "Project overview" : $"{project.Name} brief",
@@ -203,6 +204,76 @@ internal sealed partial class ProjectOverviewContent : PanelContent
 					BuildRail( "time", now.ToString( "t", CultureInfo.CurrentCulture ).ToUpper( CultureInfo.CurrentCulture ), 90, layout ),
 				]
 				: [list],
+		};
+		// Leaving for the chat: the page fades away while a copy of the prompt bar glides from where it was to the bottom, where the chat's prompt waits.
+		// The page always sits in the same wrapper, so the fade runs from the page as it shows instead of starting it again hidden.
+		page.Key = "page";
+		page.Opacity = leaving is null ? 1 : 0;
+		page.TransitionMs = leaving is null ? 0 : LeaveMs;
+		page.TransitionEasing = Easing.EaseOut;
+		page.TransitionProperties = [TransitionProperty.Opacity];
+		var children = new List<Blob> { page };
+		if ( leaving is { } bar )
+		{
+			var box = _page.BorderBox;
+			children.Add( new Container
+				{
+					Key = "leaving-bar",
+					Position = PositionType.Absolute,
+					Left = bar.X - box.X,
+					Top = bar.Y - box.Y,
+					Width = bar.Width,
+					HitTestSelf = false,
+					Transform = new PanelTransform { TranslateY = _isLanded.Value ? Math.Max( 0, box.Height - LandedInset - bar.Height - (bar.Y - box.Y) ) : 0 },
+					TransitionMs = LeaveMs,
+					TransitionEasing = Easing.EaseInOut,
+					TransitionProperties = [TransitionProperty.Transform],
+					Children = [BuildBarCopy( _leavingText )],
+				} );
+		}
+		return new Container
+		{
+			FlexGrow = 1,
+			MinWidth = 0,
+			MinHeight = 0,
+			BackgroundColor = paper.Paper,
+			Children = children,
+		};
+	}
+
+	/// <summary>Defines how long the prompt bar takes to glide down as the page fades, in milliseconds.</summary>
+	private const double LeaveMs = 320;
+
+	/// <summary>Defines how far above the panel's bottom the gliding bar lands, about where the chat's prompt sits, in logical pixels.</summary>
+	private const double LandedInset = 40;
+
+	/// <summary>Targets the prompt bar, whose place the leaving copy starts from.</summary>
+	private readonly ElementHandle _promptBar = new();
+
+	/// <summary>Holds the prompt bar's box while the page leaves for a chat, or null while it shows.</summary>
+	private readonly State<ElementRect?> _leaving = new( null );
+
+	/// <summary>Reports whether the leaving bar moved to its place at the bottom; set the frame after it mounts, so it glides there.</summary>
+	private readonly State<bool> _isLanded = new( false );
+
+	/// <summary>Stores the text the leaving bar shows.</summary>
+	private string _leavingText = "";
+
+	/// <summary>Builds a still copy of the prompt bar showing the sent text, for the leaving glide.</summary>
+	private static Container BuildBarCopy( string text )
+	{
+		var theme = Theme.Current;
+		var paper = BriefPaper.Current;
+		return new Container
+		{
+			Height = 46,
+			Padding = new Edges( 0, 16 ),
+			JustifyContent = JustifyContent.Center,
+			BackgroundColor = paper.Paper,
+			BorderColor = paper.Ink2,
+			BorderWidth = 1,
+			BorderRadius = 12,
+			Children = [new Text { Content = text, FontSize = theme.FontSize + 1, Color = paper.Ink, TextWrap = TextWrap.NoWrap, TextTrimming = TextTrimming.Ellipsis, MinWidth = 0 }],
 		};
 	}
 
@@ -271,6 +342,7 @@ internal sealed partial class ProjectOverviewContent : PanelContent
 				new TextEntry
 				{
 					Key = "entry",
+					Handle = _promptBar,
 					Value = _prompt.Value,
 					Controlled = true,
 					Placeholder = "Ask anything…   Enter: chat   Ctrl+Enter: task",
@@ -302,10 +374,42 @@ internal sealed partial class ProjectOverviewContent : PanelContent
 		if ( text.Length == 0 )
 			return;
 		_prompt.Value = "";
-		if ( isTask )
-			_conversations.NewTask( _context.App, host, project.Id, text.Split( '\n' )[0] );
-		else
-			_conversations.StartConversationInNewTask( _context.App, host, text, project.Id );
+		void Start()
+		{
+			if ( isTask )
+				_conversations.NewTask( _context.App, host, project.Id, text.Split( '\n' )[0] );
+			else
+				_conversations.StartConversationInNewTask( _context.App, host, text, project.Id );
+		}
+		// With motion off, or no laid-out bar to start from, the chat opens at once.
+		if ( Motion.TimeScale <= 0 || _promptBar.BorderBox is not { Width: > 0 } bar || _page.BorderBox.Height <= 0 )
+		{
+			Start();
+			return;
+		}
+		_leavingText = text.Split( '\n' )[0];
+		_leaving.Value = bar;
+		_context.Post( () => _isLanded.Value = true );
+		_ = FinishLeaveAsync( Start );
+	}
+
+	/// <summary>Opens the chat once the glide ended, then shows the page at rest again for the next visit.</summary>
+	private async Task FinishLeaveAsync( Action start )
+	{
+		try
+		{
+			await Task.Delay( TimeSpan.FromMilliseconds( LeaveMs / Math.Max( Motion.TimeScale, 0.01 ) ), _context.Lifetime );
+		}
+		catch ( OperationCanceledException )
+		{
+			return;
+		}
+		_context.Post( () =>
+		{
+			start();
+			_leaving.Value = null;
+			_isLanded.Value = false;
+		} );
 	}
 
 	/// <summary>Reads the project's branch and <c>origin</c> remote with git on its host; a folder that is no repository leaves both empty.</summary>

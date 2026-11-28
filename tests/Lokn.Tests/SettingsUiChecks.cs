@@ -15,9 +15,11 @@ internal static class SettingsUiChecks
 			app.Panels.Close( panel.Id );
 
 		Pump( window );
-		Click( window, semantics, Find( semantics, AccessibilityRole.Button, "Settings" ) );
+		Click( window, semantics, Find( semantics, AccessibilityRole.Button, "Loom menu" ) );
+		Pump( window );
+		Click( window, semantics, Find( semantics, AccessibilityRole.MenuItem, "Settings" ) );
 		var settingsPanel = app.Panels.ActivePanelId!.Value;
-		CoreChecks.Check( app.Panels.Panels.Single( panel => panel.Id == settingsPanel ).TypeId == "shell.settings", "The titlebar gear opens the Settings panel." );
+		CoreChecks.Check( app.Panels.Panels.Single( panel => panel.Id == settingsPanel ).TypeId == "shell.settings", "The Loom menu's Settings opens the Settings panel." );
 
 		var handle = (ElementHandle)typeof( ShellView ).GetField( "_workspaceHandle", BindingFlags.Instance | BindingFlags.NonPublic )!.GetValue( shell )!;
 		var geometry = DockGeometry.Build( app.Panels.Root, new( handle.BorderBox.Width, handle.BorderBox.Height ) );

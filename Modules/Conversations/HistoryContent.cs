@@ -88,7 +88,12 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		ConversationInfo[] ungrouped = [.. loose.Where( conversation => !conversation.IsArchived ).OrderByDescending( conversation => conversation.IsPinned )];
 		ConversationInfo[] looseArchived = [.. loose.Where( conversation => conversation.IsArchived ).OrderByDescending( conversation => conversation.UpdatedAt )];
 		if ( ungrouped.Length > 0 || looseArchived.Length > 0 )
+		{
+			// A line parts the project cards from the chats outside projects.
+			if ( shown > 0 )
+				rows.Add( new( "scratch-separator", Theme.Current.Spacing, SidebarRows.BuildSeparator ) );
 			AddScratch( ungrouped, looseArchived, rows );
+		}
 
 		if ( shown == 0 && ungrouped.Length == 0 )
 		{
@@ -146,13 +151,16 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		// Chats keep one small inset under every project, with or without an icon, so lists line up from project to project.
 		var indent = SidebarRows.ChevronColumn;
 		// Each project starts a visibly separate block.
-		rows.Add( new( "project:" + project.Id, Theme.Current.Spacing * 2, () => BuildProject( project, index, conversations, archived.Count, isFlat, worktrees, worktreeActions ) ) );
+		var start = rows.Count;
+		rows.Add( new( "project:" + project.Id, Theme.Current.Spacing, () => BuildProject( project, index, conversations, archived.Count, isFlat, worktrees, worktreeActions ) ) );
 		if ( _tidyPlan.Value.ProjectId == project.Id )
 			dialogs.Add( BuildTidy( project, _tidyPlan.Value ) );
 		if ( _openArchive.Value == project.Id )
 			AddArchived( archived, rows, indent );
 		if ( !_sidebar.IsCollapsed( project.Id ) )
 			AddProjectChats( project, groups, worktrees, worktreeActions, indent, rows, dialogs );
+		// The project's heading and chats share one rounded card.
+		SidebarRows.MarkCard( rows, start );
 	}
 
 	/// <summary>Builds a project's heading (its chevron in the left margin, icon, name that opens its overview, then its tools, pull requests and menu

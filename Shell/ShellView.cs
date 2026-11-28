@@ -38,11 +38,11 @@ internal sealed partial class ShellView : Cell
 	/// <summary>Builds the window chrome, docking surface, and overlays.</summary>
 	public override Blob Build()
 	{
-		var children = new List<Blob>
-		{
-			BuildTitleBar(),
-			BuildBody(),
-		};
+		// With the sidebar shown, its top row is the titlebar and the top-right pane holds the window controls; otherwise the bar spans the window.
+		var children = new List<Blob>();
+		if ( !IsSidebarShown )
+			children.Add( BuildTitleBar() );
+		children.Add( BuildBody() );
 		if ( _app.LastError is { } error )
 			children.Add( BuildError( error ) );
 
@@ -132,15 +132,14 @@ internal sealed partial class ShellView : Cell
 		} );
 	}
 
-	/// <summary>Defines the essential shell command that opens the Settings panel.</summary>
-	private const string SettingsCommand = "shell.open.settings";
-
-	/// <summary>Supplies shell actions to the titlebar, and the tabs for its middle in tabs mode.</summary>
+	/// <summary>Supplies shell actions to the titlebar: the shown sidebar's top row, or the bar across the window with the tabs in its middle in tabs mode.</summary>
 	private Blob BuildTitleBar()
 	{
 		return Mount<TitleBarInput, TitleBar>( "titlebar", new(
 			() => _ = _app.Commands.ExecuteAsync( "shell.toggle-sidebar" ),
-			() => _ = _app.Commands.ExecuteAsync( SettingsCommand ),
+			command => _ = _app.Commands.ExecuteAsync( command ),
+			_app.Search.Open,
+			IsSidebarShown,
 			_app.Slots.Get( ShellSlots.TitleLeft ),
 			_app.Slots.Get( ShellSlots.TitleRight ),
 			IsTabsShown ? BuildTabStrip() : null ) );

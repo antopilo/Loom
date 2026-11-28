@@ -174,8 +174,9 @@ public sealed partial class SidebarRows
 			}
 			return;
 		}
-		// While it joins another row, the rows after its old place close up, as if it had already left the list.
-		var shift = drag.Onto is not null ? (order.Index > drag.Index ? -drag.Slot : 0)
+		// While it joins another row, every row keeps its place: closing the dragged row's gap moved the joined row out from under the pointer and
+		// slid the next row over it.
+		var shift = drag.Onto is not null ? 0
 			: order.Index > drag.Index && order.Index <= drag.Target ? -drag.Slot
 			: order.Index < drag.Index && order.Index >= drag.Target ? drag.Slot
 			: 0;

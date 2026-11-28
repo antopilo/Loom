@@ -73,6 +73,8 @@ internal sealed partial class ShellView
 			_panelHandles.Remove( panelId );
 
 		var isSplit = maximized is null && panels.Root is DockSplit;
+		// With the titlebar in the sidebar, the pane in the workspace's top-right corner holds the window controls.
+		_controlsPaneId = IsSidebarShown ? FindTopRightPane( maximized ?? panels.Root ).Id : null;
 		var hasHeaders = HasPaneHeaders;
 		var bodies = new Dictionary<Guid, ElementHandle>();
 
@@ -139,6 +141,43 @@ internal sealed partial class ShellView
 			Layout = new DockLayout( maximized ?? panels.Root, slots, PaneGap ),
 			Children = children,
 		};
+	}
+
+	/// <summary>Stores the pane that holds the window controls in its top-right corner, or null while the titlebar holds them.</summary>
+	private Guid? _controlsPaneId;
+
+	/// <summary>Finds the pane in a layout's top-right corner: the right side of a side-by-side split, the top of a stacked one.</summary>
+	private static DockPane FindTopRightPane( DockNode node ) => node switch
+	{
+		DockPane pane => pane,
+		DockSplit { Axis: SplitAxis.Horizontal } split => FindTopRightPane( split.Second ),
+		DockSplit split => FindTopRightPane( split.First ),
+		_ => throw new InvalidOperationException( $"Unknown dock node {node.GetType().Name}." ),
+	};
+
+	/// <summary>Builds the strip a pane without a header shows on top while it holds the window controls: a window drag area, then the controls.</summary>
+	/// <param name="isOverlaid">Whether the strip lies over the top of its pane, as over a panel's body that leaves room for it.</param>
+	private Blob BuildControlsStrip( bool isOverlaid )
+	{
+		var strip = new Row
+		{
+			Key = "window-strip",
+			Height = PaneHeaderHeight,
+			FlexShrink = 0,
+			Children =
+			[
+				Window.DragRegion( new Container { Key = "window-drag", FlexGrow = 1 } ),
+				WindowControls.Build( Host, PaneHeaderHeight, PaneRadius ),
+			],
+		};
+		if ( isOverlaid )
+		{
+			strip.Position = PositionType.Absolute;
+			strip.Left = 0;
+			strip.Top = 0;
+			strip.Right = 0;
+		}
+		return strip;
 	}
 
 	/// <summary>Captures one visible panel without opening a Window stream, preferring a native provider so child surfaces such as WebView2 are included.</summary>
@@ -317,7 +356,8 @@ internal sealed partial class ShellView
 			OnPointerMove = item => UpdateGripZone( pane.Id, handle, item ),
 			OnPointerLeave = _ => ReleaseGripZone( pane.Id ),
 			DropTarget = new DropTarget( QueryPanelDrop, item => UpdateBodyDrop( item, pane.Id, handle ) ),
-			Children = HasPaneHeaders ? [BuildPaneHeader( pane, null, handle, null, isOverlaid: false ), starters] : [starters],
+			Children = HasPaneHeaders ? [BuildPaneHeader( pane, null, handle, null, isOverlaid: false ), starters]
+				: pane.Id == _controlsPaneId ? [BuildControlsStrip( isOverlaid: false ), starters] : [starters],
 		};
 	}
 
@@ -382,8 +422,8 @@ internal sealed partial class ShellView
 			Handle = handle,
 			MinWidth = 0,
 			MinHeight = 0,
-			// With a header, the header lies over this room at the top.
-			Padding = HasPaneHeaders ? new Edges( PaneHeaderHeight, 0, 0, 0 ) : new Edges( 0, 0, 0, 0 ),
+			// With a header, or the window controls' strip, it lies over this room at the top.
+			Padding = HasPaneHeaders || pane.Id == _controlsPaneId ? new Edges( PaneHeaderHeight, 0, 0, 0 ) : new Edges( 0, 0, 0, 0 ),
 			Overflow = Overflow.Hidden,
 			BackgroundColor = Theme.Current.Panel.WithAlpha( PanelAlpha ),
 			// A panel waiting for the user keeps a calm, thicker outline until the user activates it.
@@ -418,6 +458,8 @@ internal sealed partial class ShellView
 		};
 		if ( hasHeader )
 			layers.Add( BuildPaneHeader( pane, session.Info, body, host, isOverlaid: true ) );
+		else if ( pane.Id == _controlsPaneId )
+			layers.Add( BuildControlsStrip( isOverlaid: true ) );
 		if ( host is null )
 			return layers;
 

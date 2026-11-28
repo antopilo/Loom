@@ -3,17 +3,12 @@ using Lokn.Core;
 
 namespace Lokn;
 
-/// <summary>Builds the custom titlebar and native window controls.</summary>
+/// <summary>Builds the custom titlebar: across the window with the window controls, or, while the sidebar shows, as the sidebar's top row whose
+/// window controls the top-right pane holds instead.</summary>
 internal sealed partial class TitleBar : GuardedCell<TitleBarInput>
 {
 	/// <summary>Defines the titlebar height in logical pixels; the full-window notification feed starts below it.</summary>
 	internal const int BarHeight = 36;
-
-	/// <summary>Defines each window control's width in logical pixels.</summary>
-	private const int ControlWidth = 46;
-
-	/// <summary>Defines the control glyph size in logical pixels.</summary>
-	private const int ControlFontSize = 10;
 
 	/// <summary>Defines the caption icon font weight on the OpenType scale.</summary>
 	private const int CaptionFontWeight = 400;
@@ -21,28 +16,36 @@ internal sealed partial class TitleBar : GuardedCell<TitleBarInput>
 	/// <summary>Retains the registered system caption font for the application lifetime; the notification views use its icons too.</summary>
 	internal static readonly FontSource CaptionFont = SystemFonts.Register( "Lokn Caption", CaptionFontWeight, italic: false, "SegoeIcons.ttf" );
 
-	/// <summary>Defines the native Windows minimize glyph.</summary>
-	private const string MinimizeGlyph = "\uE921";
-
-	/// <summary>Defines the native Windows maximize glyph.</summary>
-	private const string MaximizeGlyph = "\uE922";
-
-	/// <summary>Defines the native Windows restore glyph.</summary>
-	private const string RestoreGlyph = "\uE923";
-
-	/// <summary>Defines the native Windows close glyph.</summary>
-	private const string CloseGlyph = "\uE8BB";
-
 	/// <summary>Defines the titlebar divider thickness in logical pixels.</summary>
 	private const int DividerWidth = 1;
 
-	/// <summary>Defines the close control hover color in sRGB, matching the Windows caption convention.</summary>
-	private static readonly Color CloseHighlight = Color.Parse( "#c42b1c" );
-
-	/// <summary>Builds the draggable titlebar and its window controls, with content such as the tabs in its middle.</summary>
+	/// <summary>Builds the draggable titlebar: in the sidebar, Loom's menu, the modules' contributions and the sidebar button; across the window, the
+	/// same with content such as the tabs in its middle and the window controls at its end.</summary>
 	protected override Blob BuildView( TitleBarInput input )
 	{
-		var isMaximized = Host.State == WindowState.Maximized;
+		List<Blob> children;
+		if ( input.IsInSidebar )
+		{
+			children =
+			[
+				BuildWorkspaceActions( input ),
+				.. input.Left.Select( BuildSlot ),
+				new Spacer(),
+				.. input.Right.Select( BuildSlot ),
+				BuildSidebarAction( input ),
+			];
+		}
+		else
+		{
+			children =
+			[
+				BuildWorkspaceActions( input ),
+				.. input.Left.Select( BuildSlot ),
+				input.Middle ?? new Spacer(),
+				.. input.Right.Select( BuildSlot ),
+				WindowControls.Build( Host, BarHeight, 0 ),
+			];
+		}
 
 		// Goo excludes interactive descendants from native dragging and double-clicks.
 		return Window.DragRegion( new Container
@@ -51,20 +54,12 @@ internal sealed partial class TitleBar : GuardedCell<TitleBarInput>
 			Height = BarHeight,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
+			Padding = input.IsInSidebar ? new Edges( 0, ActionInset, 0, 0 ) : new Edges( 0 ),
 			Color = Host.IsFocused ? Theme.Current.Text : Theme.Current.Inactive,
-			BorderWidth = new Edges( 0, 0, DividerWidth, 0 ),
+			BorderWidth = input.IsInSidebar ? new Edges( 0 ) : new Edges( 0, 0, DividerWidth, 0 ),
 			BorderColor = Theme.Current.Divider,
 			FontFamily = Theme.Current.FontFamily,
-			Children =
-			[
-				BuildWorkspaceActions( input ),
-				.. input.Left.Select( BuildSlot ),
-				input.Middle ?? new Spacer(),
-				.. input.Right.Select( BuildSlot ),
-				BuildControl( "Minimize", MinimizeGlyph, () => Host.State = WindowState.Minimized ),
-				BuildControl( isMaximized ? "Restore" : "Maximize", isMaximized ? RestoreGlyph : MaximizeGlyph, UpdateMaximized ),
-				BuildControl( "Close", CloseGlyph, Host.RequestClose, isClose: true ),
-			],
+			Children = children,
 		} );
 	}
 
@@ -79,49 +74,4 @@ internal sealed partial class TitleBar : GuardedCell<TitleBarInput>
 		AlignItems = AlignItems.Center,
 		Children = [Mount<ContentSurface>( $"slot-surface:{item.Id}", () => new( item ) )],
 	};
-
-	/// <summary>Builds a labeled window control with pointer and keyboard activation.</summary>
-	private Button BuildControl( string label, string glyph, Action action, bool isClose = false )
-	{
-		return new Button
-		{
-			Width = ControlWidth,
-			Height = BarHeight,
-			FlexShrink = 0,
-			AlignItems = AlignItems.Center,
-			JustifyContent = JustifyContent.Center,
-			Focusable = true,
-			AccessibilityName = label,
-			OnClick = action,
-			KeyBindings =
-			[
-				new KeyBinding( Key.Enter, KeyModifiers.None, action ),
-				new KeyBinding( Key.Space, KeyModifiers.None, action ),
-			],
-			HoverStyle = new Style
-			{
-				BackgroundColor = isClose ? CloseHighlight : Theme.Current.CaptionHover,
-				Color = isClose ? Color.White : Theme.Current.Text,
-			},
-			FocusStyle = new Style
-			{
-				BackgroundColor = Theme.Current.CaptionHover,
-			},
-			Children =
-			[
-				new Text
-				{
-					Content = glyph,
-					FontSize = ControlFontSize,
-					FontFamily = CaptionFont.Family,
-				},
-			],
-		};
-	}
-
-	/// <summary>Toggles the window between normal and maximized states.</summary>
-	private void UpdateMaximized()
-	{
-		Host.State = Host.State == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-	}
 }
