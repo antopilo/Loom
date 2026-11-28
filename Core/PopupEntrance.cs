@@ -26,8 +26,12 @@ public sealed class PopupEntrance : GuardedCell<PopupEntranceInput>
 	protected override Blob BuildView( PopupEntranceInput input )
 	{
 		var surface = new Container { Children = [input.Content] };
+		// A filling surface may shrink below its content, so a fixed-size portal clips and scrolls it rather than growing to fit it.
 		if ( input.Fill )
+		{
 			surface.FlexGrow = 1;
+			surface.MinHeight = 0;
+		}
 		PopupMotion.Apply( surface, _appear?.Value ?? 1, input.Rise );
 		return surface;
 	}

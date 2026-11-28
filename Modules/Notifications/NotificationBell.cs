@@ -236,9 +236,11 @@ internal sealed class NotificationBell : PanelContent
 					UpdatePopover();
 			} ),
 		};
+		// The surface takes the portal's height itself: grown to fill it, a column's item would still be at least as tall as its rows, so a long feed
+		// pushed the popover past the window and its footer, with Clear read, out of reach.
 		var surface = new Container
 		{
-			FlexGrow = 1,
+			Height = PopoverHeight,
 			BackgroundColor = theme.Panel,
 			Color = theme.Text,
 			FontFamily = theme.FontFamily,
