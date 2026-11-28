@@ -155,20 +155,24 @@ internal sealed partial class ShellView
 		_ => throw new InvalidOperationException( $"Unknown dock node {node.GetType().Name}." ),
 	};
 
-	/// <summary>Builds the strip a pane without a header shows on top while it holds the window controls: a window drag area, then the controls.</summary>
+	/// <summary>Builds the strip a pane without a header shows on top while it holds the window controls: a window drag area, the panel's host chip when
+	/// it works on a paired host, then the controls.</summary>
 	/// <param name="isOverlaid">Whether the strip lies over the top of its pane, as over a panel's body that leaves room for it.</param>
-	private Blob BuildControlsStrip( bool isOverlaid )
+	/// <param name="host">The paired host the panel works on, or null.</param>
+	private Blob BuildControlsStrip( bool isOverlaid, LoknHost? host = null )
 	{
+		var children = new List<Blob> { Window.DragRegion( new Container { Key = "window-drag", FlexGrow = 1 } ) };
+		if ( host is not null )
+			children.Add( BuildHostChip( host, isFloating: false ) );
+		children.Add( WindowControls.Build( Host, PaneHeaderHeight, PaneRadius ) );
 		var strip = new Row
 		{
 			Key = "window-strip",
 			Height = PaneHeaderHeight,
 			FlexShrink = 0,
-			Children =
-			[
-				Window.DragRegion( new Container { Key = "window-drag", FlexGrow = 1 } ),
-				WindowControls.Build( Host, PaneHeaderHeight, PaneRadius ),
-			],
+			AlignItems = AlignItems.Center,
+			Gap = Theme.Current.Spacing / 2,
+			Children = children,
 		};
 		if ( isOverlaid )
 		{
@@ -456,18 +460,20 @@ internal sealed partial class ShellView
 		{
 			BuildPanelSurface( session, !IsWorkspaceCovered && host is not { IsOnline: false } ),
 		};
+		// The pane holding the window controls without a header shows a strip on top, which the host chip joins beside the controls.
+		var hasStrip = !hasHeader && pane.Id == _controlsPaneId;
 		if ( hasHeader )
 			layers.Add( BuildPaneHeader( pane, session.Info, body, host, isOverlaid: true ) );
-		else if ( pane.Id == _controlsPaneId )
-			layers.Add( BuildControlsStrip( isOverlaid: true ) );
+		else if ( hasStrip )
+			layers.Add( BuildControlsStrip( isOverlaid: true, host ) );
 		if ( host is null )
 			return layers;
 
 		// The content stays mounted under the overlay, so it keeps its state and comes back as it was once the host reconnects.
 		if ( !host.IsOnline )
-			layers.Add( BuildHostOverlay( session, host, hasHeader ? PaneHeaderHeight : 0 ) );
-		// With a header the chip sits in it.
-		if ( !hasHeader )
+			layers.Add( BuildHostOverlay( session, host, hasHeader || hasStrip ? PaneHeaderHeight : 0 ) );
+		// With a header or the strip the chip sits in it.
+		if ( !hasHeader && !hasStrip )
 			layers.Add( BuildHostChip( host, isFloating: true ) );
 		return layers;
 	}

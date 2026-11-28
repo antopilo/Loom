@@ -3,6 +3,11 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.37
+
+- **The host tag stays clear of the window buttons.** In the top-right panel, the tag that names a paired PC now sits beside the
+  minimize, maximize and close buttons instead of over them.
+
 ## 0.4.36
 
 - **No more top bar.** The Loom logo, the bell and the sidebar button sit at the top of the sidebar, and the window's minimize,
