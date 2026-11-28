@@ -3,6 +3,15 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.32
+
+- **Drag anything from the sidebar.** Drag a chat, a task, a project's Files, Git or Terminal icon, or the Files and Notifications
+  buttons onto the workspace to open it right there, beside or in place of a panel. A tool already open in its own task moves to
+  where you drop it.
+- **Order your projects.** Drag a project by its name to move it up or down the sidebar. The order is kept; new projects go last.
+- **Tidy project buttons.** A project's Files, Git and Terminal buttons stay inside its row when you point at it.
+- **Drag to the top.** A chat or task dragged up or down its list can now take the first and the last place.
+
 ## 0.4.31
 
 - **A morning brief for each project.** A project's overview now opens like Dia's brief: the day's painting under

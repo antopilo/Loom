@@ -38,10 +38,17 @@ public sealed class NotificationsModule : ILoknModule
 			.ExtensionPoint<NotificationPromptSource>( "prompts" )
 			.Panel( "feed", "Notifications", context => new NotificationsContent( context ) )
 			.Slot( ShellSlots.TitleRight, 1000, context => new NotificationBell( context ) )
-			// A Notifications row in the sidebar opens the feed like Settings: one page, shown or brought back.
+			// A Notifications row in the sidebar opens the feed like Settings: one page, shown or brought back; dragged onto a pane, the feed shows there.
 			.Contribute( SidebarAction.Point, new SidebarAction( "Notifications", "\uEA8F", OpenFeed )
 			{
 				IsActive = app => app.Panels.ActivePanelId is { } active && app.Panels.Panels.Any( panel => panel.Id == active && panel.TypeId == PanelType ),
+				OpenAt = ( app, pane, placement ) =>
+				{
+					if ( app.Panels.Panels.FirstOrDefault( panel => panel.TypeId == PanelType ) is { } feed )
+						app.Panels.ShowAt( feed.Id, pane, placement );
+					else
+						app.Panels.OpenAt( PanelType, pane, placement );
+				},
 			} )
 			.Command( "open", "Notifications", context => OpenFeed( context.App ) )
 			.Route( "feed", request => OpenFeed( request.App ) );

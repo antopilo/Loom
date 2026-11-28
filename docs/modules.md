@@ -263,6 +263,15 @@ which usually opens one panel there. A task started with **Chat** is named like 
 Conversations offers **Chat**, Terminal **Terminal**, Git **Git**, Files **Files** and Browser
 **Browser**; a source module adds its own with
 `builder.Contribute( TaskStarter.Point, new TaskStarter( "Notes", glyph, 30, app => app.Panels.Open( "notes.page" ) ) )`.
+Every item of the sidebar drags: onto a pane, an `IPanelDrop` shows the item's panel there
+(`PanelWorkspace.ShowAt` for an open panel, shown or hidden, and `OpenAt` for a new one), and within
+the list, a row with a `RowOrder` moves among its group. Chat rows open their chat; a task without a
+chat brings the active panel of its workspace (`WorkspacesModule.MovePanel`, which takes it out of the
+saved layout with `PanelWorkspace.TakeFromLayout`), and a tool icon's task goes once its panel left.
+Project headings reorder with `RowOrder( …, IsHeading: true )`: the other headings stay in place and
+the one whose place it takes is outlined; `ProjectStore.Move` keeps the order as `ProjectInfo.Position`.
+A `SidebarAction` with `OpenAt` drags onto a pane, as Files and Notifications do; any other button can
+use `SidebarRows.BuildPanelDrag`.
 Dragging a task onto another of its list moves it there (`RowOrder`, `SidebarRows.BuildRowDrag`):
 only among tasks pinned as it is, in the same session, project or worktree list. Workspaces keeps
 a session's task order (`WorkspacesModule.MoveTask`); Conversations keeps

@@ -402,6 +402,36 @@ internal sealed class WorkspaceStore( string path )
 		return workspace.Layout is { } layout && PanelWorkspace.ReadLayoutTree( layout ) is { } tree && ListPanels( tree ).Any( id => panels.ResolvePanelId( id ) == panelId );
 	}
 
+	/// <summary>Reports whether a session other than the current one shows a panel in its current workspace, which <see cref="TakePanel"/> can take.</summary>
+	internal bool HasPanel( string key )
+	{
+		_ = _version.Value;
+		static bool HasAny( DockNode node ) => node switch
+		{
+			DockPane pane => pane.PanelId is not null,
+			DockSplit split => HasAny( split.First ) || HasAny( split.Second ),
+			_ => false,
+		};
+		return key != _session && _sessions.TryGetValue( key, out var session )
+			&& session.Items.FirstOrDefault( item => item.Id == session.Current ) is { Layout: { } layout }
+			&& PanelWorkspace.ReadLayoutTree( layout ) is { } tree && HasAny( tree );
+	}
+
+	/// <summary>Takes the active panel out of the current workspace of a session other than the current one, so it can show in the current layout: the
+	/// session's saved layout keeps the rest, and the panel opens from its saved state when it is not open.</summary>
+	/// <returns>The panel, or null when the session is the current one, unknown, or shows no panel.</returns>
+	internal Guid? TakePanel( PanelWorkspace panels, string key )
+	{
+		if ( key == _session || !_sessions.TryGetValue( key, out var session )
+			|| session.Items.FirstOrDefault( item => item.Id == session.Current ) is not { Layout: { } layout }
+			|| panels.TakeFromLayout( layout ) is not { } taken )
+			return null;
+
+		Replace( session, session.Current, item => item with { Layout = taken.Layout } );
+		Save();
+		return taken.PanelId;
+	}
+
 	/// <summary>Reads a version 2 document, or moves a version 1 document's workspaces into <see cref="LegacySession"/>.</summary>
 	private void Read( string json )
 	{

@@ -138,6 +138,9 @@ public sealed partial class ProjectStore
 				case nameof( Delete ):
 					Delete( op.Require<Guid>( "id" ) );
 					break;
+				case nameof( Arrange ):
+					Arrange( op.Require<Guid[]>( "ids" ) );
+					break;
 				default:
 					throw new ArgumentException( $"The project store has no operation {op.Op}." );
 			}

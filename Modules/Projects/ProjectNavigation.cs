@@ -58,7 +58,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 		var shown = 0;
 		foreach ( var project in module.Store.Projects( context.App.Settings.ActiveProfile ) )
 		{
-			AddProject( workspaces, project, rows );
+			AddProject( workspaces, project, shown, rows );
 			shown++;
 		}
 
@@ -71,9 +71,9 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 	}
 
 	/// <summary>Adds a project's rows: its heading, set visibly apart from what comes before, then its tasks at the same indent unless it is collapsed.</summary>
-	private void AddProject( WorkspacesModule? workspaces, ProjectInfo project, List<SidebarRow> rows )
+	private void AddProject( WorkspacesModule? workspaces, ProjectInfo project, int projectIndex, List<SidebarRow> rows )
 	{
-		rows.Add( new( "project:" + project.Id, Theme.Current.Spacing * 2, () => BuildProject( project ) ) );
+		rows.Add( new( "project:" + project.Id, Theme.Current.Spacing * 2, () => BuildProject( project, projectIndex ) ) );
 		if ( _sidebar.IsCollapsed( project.Id ) || workspaces is null )
 			return;
 
@@ -87,13 +87,14 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 		}
 	}
 
-	/// <summary>Builds a project's bold heading with its actions, its + grid and its menu.</summary>
-	private Container BuildProject( ProjectInfo project )
+	/// <summary>Builds a project's bold heading with its actions, its + grid and its menu; dragging the heading moves the project among the others.</summary>
+	private Container BuildProject( ProjectInfo project, int index )
 	{
 		var isCollapsed = _sidebar.IsCollapsed( project.Id );
 		var isOpen = module.FindCurrentProject( context.App ) == project.Id;
+		var order = new RowOrder( "projects", index, dragged => module.Store.Move( dragged, project.Id ), IsHeading: true );
 		var heading = Projects.BuildHeading( project, module.BuildProjectIcon( project, LoknHost.LocalId, SidebarRows.GroupIconSize ), isCollapsed,
-			$"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}{(isOpen ? ", open" : "")}" );
+			$"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}{(isOpen ? ", open" : "")}", drag: _sidebar.BuildRowDrag( project.Id, order ) );
 		// Row actions stay out of sight until the pointer is on the row, or its menu or + grid is open.
 		var isRevealed = _sidebar.IsRevealed( project.Id );
 		void NewTask( string name ) => module.NewTask( context.App, project, name: name );
@@ -104,7 +105,7 @@ internal sealed class ProjectNavigation( PanelContext context, ProjectsModule mo
 				heading,
 				_sidebar.BuildAddButton( project.Id, $"New task in {project.Name}", () => NewTask( WorkspacesModule.NewTaskName ), isRevealed ),
 				_sidebar.BuildMoreButton( project.Id, $"{project.Name} options", isRevealed ),
-			] ),
+			], order ),
 		};
 		if ( _sidebar.BuildStarters( project.Id, project.Name, NewTask ) is { } starters )
 			children.Add( starters );

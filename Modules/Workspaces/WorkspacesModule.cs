@@ -157,6 +157,21 @@ public sealed partial class WorkspacesModule : ILoknModule, IPanelPlaces
 		ReportFailure();
 	}
 
+	/// <summary>Reports whether a session other than the current one shows a panel that <see cref="MovePanel"/> can bring here; subscribes the building view.</summary>
+	public bool CanMovePanel( string session ) => Store.HasPanel( session );
+
+	/// <summary>Moves the active panel of another session's workspace into the current layout, against a pane, such as a task dragged from the sidebar: it
+	/// leaves that session's layout, which keeps its other panels.</summary>
+	/// <returns>The panel moved, or null when the session is the current one or shows no panel.</returns>
+	public Guid? MovePanel( LoknApplication app, string session, Guid paneId, PanelPlacement placement )
+	{
+		var panel = Store.TakePanel( app.Panels, session );
+		ReportFailure();
+		if ( panel is { } id )
+			app.Panels.ShowAt( id, paneId, placement );
+		return panel;
+	}
+
 	/// <summary>Finds the session a hidden panel belongs to: the most recently opened one whose saved workspaces hold it, or null.</summary>
 	public string? FindSession( LoknApplication app, Guid panelId ) => Store.FindSession( app.Panels, panelId );
 

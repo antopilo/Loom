@@ -289,6 +289,8 @@ public sealed partial class SidebarRows( PanelContext context )
 			MinHeight = 0,
 			OverflowX = Overflow.Hidden,
 			OverflowY = Overflow.Hidden,
+			// A dragged row keeps following the pointer between the rows of its group, such as over a project's chats while its heading moves.
+			DropTarget = BuildListDrop(),
 			Children =
 			[
 				Cell.Mount<SidebarSelectionInput, SidebarSelection>( "selection", new( _surface, target, duration ) ),

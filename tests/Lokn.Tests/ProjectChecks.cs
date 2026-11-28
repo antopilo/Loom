@@ -20,8 +20,38 @@ internal static class ProjectChecks
 		CheckMigration( directory );
 		CheckSetting( directory );
 		CheckNavigation( directory );
+		CheckOrder( directory );
 		Directory.Delete( directory, recursive: true );
-		Console.WriteLine( "PASS projects: imported once from an older conversation history with chats kept in them, chats leaving deleted or missing projects, the trusted modules setting moved, and the project list and sessions without Conversations." );
+		Console.WriteLine( "PASS projects: imported once from an older conversation history with chats kept in them, chats leaving deleted or missing projects, the trusted modules setting moved, the project list and sessions without Conversations, and the order the user drags projects into." );
+	}
+
+	/// <summary>Checks that projects list by name until one is moved, keep the order given across a restart and in a mirror with new ones last, and that a
+	/// move's echo changes nothing.</summary>
+	private static void CheckOrder( string directory )
+	{
+		var path = Path.Combine( directory, "order-projects.json" );
+		var store = new ProjectStore( path );
+		const SettingsProfile profile = SettingsProfile.Work;
+		var (alpha, _, gamma) = (store.Create( profile, "Alpha", directory ), store.Create( profile, "Beta", directory ), store.Create( profile, "Gamma", directory ));
+		string Names( ProjectStore from ) => string.Join( ",", from.Projects( profile ).Select( project => project.Name ) );
+		CoreChecks.Check( Names( store ) == "Alpha,Beta,Gamma", "Projects list by name until one is moved." );
+
+		var mirror = new ProjectStore();
+		mirror.Load( store.Projects( profile ) );
+		var sent = new List<StoreOp>();
+		store.Mutated += sent.Add;
+		store.Mutated += mirror.Apply;
+		store.Move( gamma.Id, alpha.Id );
+		var delta = store.Create( profile, "Delta", directory );
+		CoreChecks.Check( Names( store ) == "Gamma,Alpha,Beta,Delta" && Names( mirror ) == "Gamma,Alpha,Beta,Delta" && Names( new ProjectStore( path ) ) == "Gamma,Alpha,Beta,Delta",
+			"A moved project takes the other's place, the order survives a restart and reaches a mirror, and a project created later lists last." );
+		store.Move( alpha.Id, delta.Id );
+		var count = sent.Count;
+		store.Apply( sent[^1] );
+		CoreChecks.Check( Names( store ) == "Gamma,Beta,Delta,Alpha" && sent.Count == count,
+			"Moving down puts the project after the one it lands on, and the move's echo changes nothing." );
+		store.Mutated -= sent.Add;
+		store.Mutated -= mirror.Apply;
 	}
 
 	/// <summary>Checks that an older history's projects move to the projects file once, chats keep them, and a chat whose project is gone leaves it.</summary>

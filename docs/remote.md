@@ -420,7 +420,8 @@ store applies each local mutation at once, so its caller reads it back, and send
 `store` request; the host's `store` push of it finds it applied already, since every mutator
 leaves a value it already holds alone, and pushes come in the host's order, so every mirror ends
 as the host. `MoveConversation` is the exception: moving twice is not a no-op, so a mirror only
-sends it and moves when the push comes back. `AppendMessage`, `UpdateMessage`,
+sends it and moves when the push comes back. `ProjectStore.Move` sends `Arrange` with the whole
+order instead, which reads the same twice. `AppendMessage`, `UpdateMessage`,
 `ReplaceMessages` and `SetWorking` are host-only and never sent by a client. A conversation
 deleted by an op, or missing from a `sync` snapshot, raises `ConversationStore.Deleted`: the
 Conversations module unloads the panels showing it and stops its session, on the host as on

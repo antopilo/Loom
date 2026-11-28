@@ -11,7 +11,9 @@ namespace Lokn.Modules.Projects;
 /// <param name="Name">Its display name.</param>
 /// <param name="Directory">Its working directory.</param>
 /// <param name="Icon">The emoji the user chose as its icon, shown while its folder has no icon image; null for none.</param>
-public sealed record ProjectInfo( Guid Id, SettingsProfile Profile, string Name, string Directory, string? Icon = null );
+/// <param name="Position">Its place among its profile's projects once the user moved one (<see cref="ProjectStore.Move"/>); null for a project never
+/// placed, which lists after the placed ones, by name.</param>
+public sealed record ProjectInfo( Guid Id, SettingsProfile Profile, string Name, string Directory, string? Icon = null, int? Position = null );
 
 /// <summary>Owns the projects of every profile on the UI thread and keeps them in one small file.</summary>
 /// <remarks>
@@ -105,14 +107,16 @@ public sealed partial class ProjectStore
 		}
 	}
 
-	/// <summary>Gets the projects of one profile ordered by display name.</summary>
+	/// <summary>Gets the projects of one profile in the order the user gave them, then those never placed, by display name; until the user moves one,
+	/// all are by name.</summary>
 	public IReadOnlyList<ProjectInfo> Projects( SettingsProfile profile )
 	{
 		EnsureLoaded();
 		_ = _version.Value;
 		return _projects.Values
 			.Where( project => project.Profile == profile )
-			.OrderBy( project => project.Name, StringComparer.OrdinalIgnoreCase )
+			.OrderBy( project => project.Position ?? int.MaxValue )
+			.ThenBy( project => project.Name, StringComparer.OrdinalIgnoreCase )
 			.ToArray();
 	}
 
@@ -198,6 +202,45 @@ public sealed partial class ProjectStore
 		MarkMutated( nameof( Delete ), new { id } );
 		Deleted?.Invoke( project );
 		return true;
+	}
+
+	/// <summary>Moves a project to another's place in its profile's list, the projects between shifting toward where it was; every project of the profile
+	/// then keeps its place (<see cref="Arrange"/>), and projects created later list after them.</summary>
+	/// <param name="id">The project moved.</param>
+	/// <param name="target">The project whose place it takes, of the same profile.</param>
+	public void Move( Guid id, Guid target )
+	{
+		var project = Get( id );
+		if ( id == target || Find( target ) is not { } other || other.Profile != project.Profile )
+			return;
+
+		var order = Projects( project.Profile ).Select( item => item.Id ).ToList();
+		var place = order.IndexOf( target );
+		order.Remove( id );
+		order.Insert( place, id );
+		Arrange( order );
+	}
+
+	/// <summary>Places projects in a given order, each at its index; projects left out keep their places.</summary>
+	/// <remarks>It is the operation <see cref="Move"/> sends, since it reads the same applied twice: the host's echo of a mirror's own move finds every
+	/// place set already.</remarks>
+	/// <param name="ids">The projects, first first.</param>
+	public void Arrange( IReadOnlyList<Guid> ids )
+	{
+		EnsureLoaded();
+		var isChanged = false;
+		for ( var index = 0; index < ids.Count; index++ )
+		{
+			if ( !_projects.TryGetValue( ids[index], out var project ) || project.Position == index )
+				continue;
+			_projects[project.Id] = project with { Position = index };
+			isChanged = true;
+		}
+		if ( !isChanged )
+			return;
+
+		MarkChanged();
+		MarkMutated( nameof( Arrange ), new { ids } );
 	}
 
 	/// <summary>Reads the projects file again in place of what was read, such as after another process that kept it, a daemon, wrote it and exited.</summary>

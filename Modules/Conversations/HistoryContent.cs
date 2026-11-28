@@ -80,7 +80,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			// Pinned chats lead, each group still most recent first; archived chats wait in the project's archive.
 			var all = host.Store.Conversations( profile, project.Id );
 			ConversationInfo[] conversations = [.. all.Where( conversation => !conversation.IsArchived ).OrderByDescending( conversation => conversation.IsPinned )];
-			AddProject( project, conversations, [.. all.Where( conversation => conversation.IsArchived ).OrderByDescending( conversation => conversation.UpdatedAt )], rows, dialogs );
+			AddProject( project, shown, conversations, [.. all.Where( conversation => conversation.IsArchived ).OrderByDescending( conversation => conversation.UpdatedAt )], rows, dialogs );
 			shown++;
 		}
 
@@ -124,7 +124,13 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 
 	/// <summary>Adds a project's rows: its heading, then its archived chats while its archive is open, then its chats unless it is collapsed, flat or under a
 	/// label per worktree once its repository has a linked worktree or its chats work in several; its tidy confirmation goes to the dialogs, outside the list.</summary>
-	private void AddProject( ProjectInfo project, IReadOnlyList<ConversationInfo> conversations, IReadOnlyList<ConversationInfo> archived, List<SidebarRow> rows, List<Blob> dialogs )
+	/// <param name="project">The project.</param>
+	/// <param name="index">Its place among the profile's projects, top first, where dragging its heading moves it from.</param>
+	/// <param name="conversations">Its chats and tasks that are not archived.</param>
+	/// <param name="archived">Its archived chats.</param>
+	/// <param name="rows">The sidebar rows to add to.</param>
+	/// <param name="dialogs">The dialogs outside the list to add to.</param>
+	private void AddProject( ProjectInfo project, int index, IReadOnlyList<ConversationInfo> conversations, IReadOnlyList<ConversationInfo> archived, List<SidebarRow> rows, List<Blob> dialogs )
 	{
 		var worktreeActions = Host.IsLocal ? FindWorktreeActions() : null;
 		var worktrees = ReadWorktrees( project, worktreeActions );
@@ -133,7 +139,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		// Chats keep one small inset under every project, with or without an icon, so lists line up from project to project.
 		var indent = SidebarRows.ChevronColumn;
 		// Each project starts a visibly separate block.
-		rows.Add( new( "project:" + project.Id, Theme.Current.Spacing * 2, () => BuildProject( project, conversations, archived.Count, isFlat, worktrees, worktreeActions ) ) );
+		rows.Add( new( "project:" + project.Id, Theme.Current.Spacing * 2, () => BuildProject( project, index, conversations, archived.Count, isFlat, worktrees, worktreeActions ) ) );
 		if ( _tidyPlan.Value.ProjectId == project.Id )
 			dialogs.Add( BuildTidy( project, _tidyPlan.Value ) );
 		if ( _openArchive.Value == project.Id )
@@ -144,9 +150,9 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 
 	/// <summary>Builds a project's heading (its chevron in the left margin, icon, name that opens its overview, then its tools, pull requests and menu
 	/// floating over the row's end on hover), its menu, icon picker and New worktree form; its menu creates and manages worktrees while Worktrees is loaded,
-	/// for This PC's projects only.</summary>
-	private Container BuildProject( ProjectInfo project, IReadOnlyList<ConversationInfo> conversations, int archived, bool isFlat, IReadOnlyList<WorktreeEntry>? worktrees,
-		WorktreeActions? worktreeActions )
+	/// for This PC's projects only. Dragging the name moves the project among the others.</summary>
+	private Container BuildProject( ProjectInfo project, int index, IReadOnlyList<ConversationInfo> conversations, int archived, bool isFlat,
+		IReadOnlyList<WorktreeEntry>? worktrees, WorktreeActions? worktreeActions )
 	{
 		var host = Host;
 		var isCollapsed = _sidebar.IsCollapsed( project.Id );
@@ -154,11 +160,13 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		var listed = conversations.Where( conversation => !IsToolTask( conversation ) ).ToArray();
 		var hasOverview = context.App.Modules.Any( loaded => loaded.Id == OverviewModuleId );
 		var icon = module.Projects.BuildProjectIcon( project, host.Id, SidebarRows.GroupIconSize );
+		var order = new RowOrder( "projects", index, dragged => host.Projects.Move( dragged, project.Id ), IsHeading: true );
 		var heading = Projects.BuildHeading( project, icon, isCollapsed,
 			hasOverview ? $"{project.Name}, open overview{(isTidying ? ", tidying" : "")}" : $"{project.Name}, {(isCollapsed ? "collapsed" : "expanded")}",
 			isTidying ? [Cell.Mount<Color, ActivityOrb>( "tidying", Theme.Current.Accent )] : null,
 			// Without the overview, the name folds the project like its chevron, so the heading keeps its layout either way.
-			hasOverview ? () => OpenOverview( host, project ) : () => _sidebar.ToggleCollapsed( project.Id ) );
+			hasOverview ? () => OpenOverview( host, project ) : () => _sidebar.ToggleCollapsed( project.Id ),
+			drag: _sidebar.BuildRowDrag( project.Id, order ) );
 		// A folded project still shows whether one of its chats works or waits.
 		var mark = isCollapsed ? BuildStateMark( listed.Select( conversation => host.Ref( conversation.Id ) ).ToArray() ) : null;
 		var tools = isFlat && host.IsLocal ? BuildTools( project, project.Directory, conversations ) : null;
@@ -167,7 +175,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		[
 			heading,
 			BuildEndColumns( project.Id, $"{project.Name} options", tools, pullRequests, mark ),
-		] );
+		], order );
 		var children = new List<Blob> { row };
 		if ( _sidebar.IsMenuOpen( project.Id ) )
 		{
@@ -372,8 +380,11 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 				() => _sidebar.BeginRename( conversation.Id, conversation.Title ),
 				isWorking ? $"{conversation.Title}, working" : isWaiting ? $"{conversation.Title}, waiting for you"
 				: conversation.IsPinned ? $"{conversation.Title}, pinned" : null );
-			// Dragged onto a pane, the chat opens there, beside the chat it lands next to.
-			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order, ( pane, placement ) => module.OpenConversationAt( context.App, chat, pane, placement ) );
+			// Dragged onto a pane, a chat opens there, beside the chat it lands next to; a task without a chat brings the panel its workspace shows.
+			Action<Guid, PanelPlacement>? openAt = conversation.HasChat ? ( pane, placement ) => module.OpenConversationAt( context.App, chat, pane, placement )
+				: module.CanMoveTaskPanel( context.App, chat ) ? ( pane, placement ) => module.MoveTaskPanel( context.App, chat, pane, placement, isTool: false )
+				: null;
+			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order, openAt );
 			// A long title stays on one line and fades out at the row's end rather than growing the row; a generated title replacing the first line rolls in.
 			// Emoji the user typed in it fall back to the emoji face.
 			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily, Fade = true } )];

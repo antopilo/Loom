@@ -63,7 +63,8 @@ public sealed partial class SidebarRows
 		return button;
 	}
 
-	/// <summary>Adds the actions other modules contribute to <see cref="SidebarAction.Point"/>, such as Files, drawn like the sidebar's own; an active one is highlighted.</summary>
+	/// <summary>Adds the actions other modules contribute to <see cref="SidebarAction.Point"/>, such as Files, drawn like the sidebar's own; an active one is
+	/// highlighted, and one with <see cref="SidebarAction.OpenAt"/> drags onto a pane to open there.</summary>
 	public void AddContributedActions( List<Blob> children )
 	{
 		foreach ( var item in context.App.Extensions.Get<SidebarAction>( SidebarAction.Point ) )
@@ -72,6 +73,8 @@ public sealed partial class SidebarRows
 			button.Key = $"action:{item.Title}";
 			if ( item.IsActive?.Invoke( context.App ) == true )
 				button.BackgroundColor = Theme.Current.Hover;
+			if ( item.OpenAt is { } openAt )
+				button.DragSource = BuildPanelDrag( () => true, ( pane, placement ) => openAt( context.App, pane, placement ) );
 			children.Add( button );
 		}
 	}

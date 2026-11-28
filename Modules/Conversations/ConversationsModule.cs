@@ -471,18 +471,29 @@ public sealed partial class ConversationsModule(
 		shown.Host.Store.AddChat( shown.Conversation.Id );
 		Select( shown.Conversation.Profile, chat );
 		var panelId = FindPanels( app ).FirstOrDefault( item => item.Panel.Chat == chat ).Id;
-		if ( panelId == Guid.Empty || !app.Panels.IsShown( panelId ) )
-		{
-			app.Panels.ActivatePane( paneId );
-			var pane = app.Panels.SplitActive( SplitAxis.Horizontal );
-			if ( panelId == Guid.Empty )
-				panelId = app.Panels.Open( ChatPanelType, pane, BuildInput( chat, shown.Conversation.Profile ), shown.Host.Id );
-			else
-				app.Panels.Show( panelId, pane );
-		}
-		if ( app.Panels.Panes.FirstOrDefault( pane => pane.PanelId == panelId ) is { } source && source.Id != paneId )
-			app.Panels.Move( panelId, paneId, placement );
-		app.Panels.Activate( panelId );
+		if ( panelId == Guid.Empty )
+			app.Panels.OpenAt( ChatPanelType, paneId, placement, BuildInput( chat, shown.Conversation.Profile ), shown.Host.Id );
+		else
+			app.Panels.ShowAt( panelId, paneId, placement );
+	}
+
+	/// <summary>Reports whether a task without a chat can bring its panel onto a pane of the layout on screen: its workspace is not the one on screen and shows a
+	/// panel. Subscribes the building view.</summary>
+	public bool CanMoveTaskPanel( LoknApplication app, ChatRef task ) =>
+		FindWorkspaces( app ) is { } workspaces && workspaces.CanMovePanel( ConversationSession( task ) );
+
+	/// <summary>Moves a task without a chat onto a pane of the layout on screen, as a chat dragged there shows: the panel its workspace shows leaves that
+	/// workspace and shows against the pane. A tool's task (Files, Git, Terminal, Pull requests) exists only for its panel, so it is deleted once the panel
+	/// left, as deleting it from its menu would, and its icon starts it afresh.</summary>
+	/// <param name="app">The application.</param>
+	/// <param name="task">The task.</param>
+	/// <param name="paneId">The pane it was dropped on.</param>
+	/// <param name="placement">Where against the pane.</param>
+	/// <param name="isTool">Whether the task is a tool's.</param>
+	public void MoveTaskPanel( LoknApplication app, ChatRef task, Guid paneId, PanelPlacement placement, bool isTool )
+	{
+		if ( FindWorkspaces( app ) is { } workspaces && workspaces.MovePanel( app, ConversationSession( task ), paneId, placement ) is not null && isTool )
+			DeleteConversation( app, task );
 	}
 
 	/// <summary>Shows a chat on the right of another, opening that one first when it is not on screen, so the two read as one split.</summary>

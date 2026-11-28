@@ -81,7 +81,9 @@ internal sealed partial class HistoryContent
 			app => app.Panels.Open( PullRequestsPanel ) );
 	}
 
-	/// <summary>Builds one tool icon, which opens its task in the folder, or creates it there and fills it with <paramref name="open"/>.</summary>
+	/// <summary>Builds one tool icon, which opens its task in the folder, or creates it there and fills it with <paramref name="open"/>. Dragged onto a pane,
+	/// it brings its task's panel there, leaving the task, which then goes; with no task yet, it opens the tool there when the folder is the one worked in
+	/// now, as the tool would open in it (the pull requests, in any folder).</summary>
 	private Button BuildTool( ProjectInfo project, string directory, IReadOnlyList<ConversationInfo> tasks, string title, string glyph, string accessibilityName,
 		Action<LoknApplication> open )
 	{
@@ -93,6 +95,13 @@ internal sealed partial class HistoryContent
 		button.Key = $"tool:{title}";
 		button.Width = ToolSize;
 		button.Height = ToolSize;
+		var app = context.App;
+		button.DragSource = existing is not null
+			? SidebarRows.BuildPanelDrag( () => module.CanMoveTaskPanel( app, host.Ref( existing.Id ) ),
+				( pane, placement ) => context.Run( () => module.MoveTaskPanel( app, host.Ref( existing.Id ), pane, placement, isTool: true ) ) )
+			: SidebarRows.BuildPanelDrag( () => title == PullRequestsTitle
+				|| app.Services.Get<IWorkingFolder>()?.Current is { } folder && ConversationStore.IsSameFolder( folder, directory ),
+				( pane, placement ) => context.Run( () => OpenToolAt( open, pane, placement ) ) );
 		button.Children =
 		[
 			new Text
@@ -104,6 +113,18 @@ internal sealed partial class HistoryContent
 			},
 		];
 		return button;
+	}
+
+	/// <summary>Opens a tool's panel against a pane of the layout on screen: in a new pane split from it, then placed as it was dropped.</summary>
+	private void OpenToolAt( Action<LoknApplication> open, Guid paneId, PanelPlacement placement )
+	{
+		var app = context.App;
+		if ( !app.Panels.ActivatePane( paneId ) )
+			return;
+		var pane = app.Panels.SplitActive( SplitAxis.Horizontal );
+		open( app );
+		if ( app.Panels.Panes.FirstOrDefault( candidate => candidate.Id == pane )?.PanelId is { } panel )
+			app.Panels.ShowAt( panel, paneId, placement );
 	}
 
 	/// <summary>Opens a folder's tool: selects its task when it has one, else creates the task in the folder, named after the tool, and fills it.</summary>

@@ -20,11 +20,17 @@ public sealed partial class SidebarRows
 		return button;
 	}
 
-	/// <summary>Adds the actions other modules contribute to <see cref="SidebarAction.Point"/>, such as Notifications, as header icon buttons.</summary>
+	/// <summary>Adds the actions other modules contribute to <see cref="SidebarAction.Point"/>, such as Notifications, as header icon buttons; one with
+	/// <see cref="SidebarAction.OpenAt"/> drags onto a pane to open there.</summary>
 	public void AddContributedHeaderButtons( List<Blob> children )
 	{
 		foreach ( var item in context.App.Extensions.Get<SidebarAction>( SidebarAction.Point ) )
-			children.Add( BuildHeaderButton( item.Glyph, item.Title, () => item.Run( context.App ), item.IsActive?.Invoke( context.App ) == true ) );
+		{
+			var button = BuildHeaderButton( item.Glyph, item.Title, () => item.Run( context.App ), item.IsActive?.Invoke( context.App ) == true );
+			if ( item.OpenAt is { } openAt )
+				button.DragSource = BuildPanelDrag( () => true, ( pane, placement ) => openAt( context.App, pane, placement ) );
+			children.Add( button );
+		}
 	}
 
 	/// <summary>Builds the header's wide button, such as New chat: an icon and a title on a raised, bordered field that fills the row.</summary>

@@ -79,6 +79,41 @@ public sealed partial class PanelWorkspace
 		return true;
 	}
 
+	/// <summary>Shows a panel, shown or hidden, against a pane and focuses it: in a new split on one of the pane's sides, or in its place for
+	/// <see cref="PanelPlacement.Swap"/>, where the pane's panel moves to where the panel was, or, for a hidden panel, beside it, so nothing leaves the screen.</summary>
+	/// <returns>Whether the panel and the pane exist.</returns>
+	public bool ShowAt( Guid panelId, Guid paneId, PanelPlacement placement )
+	{
+		if ( !_sessions.ContainsKey( panelId ) || FindPane( Root, paneId ) is not { } target )
+			return false;
+		if ( FindPanelPane( Root, panelId ) is { } shown && shown.Id == paneId )
+			return ActivatePane( paneId );
+		if ( target.PanelId is null )
+			return Show( panelId, paneId );
+
+		if ( FindPanelPane( Root, panelId ) is null )
+		{
+			// A hidden panel first gets a pane of its own beside the target, which the move then places or swaps.
+			Root = Replace( Root, target.Id, new DockSplit( Guid.NewGuid(), SplitAxis.Horizontal, DefaultRatio, target, new DockPane( Guid.NewGuid(), panelId ) ) );
+		}
+		Move( panelId, paneId, placement );
+		ClearAttention( panelId );
+		PlaceWaiting();
+		_app.MarkChanged();
+		return true;
+	}
+
+	/// <summary>Opens a new panel against a pane and focuses it, as <see cref="ShowAt"/> shows one: in a new split on one of the pane's sides, or in its place
+	/// for <see cref="PanelPlacement.Swap"/>, the pane's panel then beside it.</summary>
+	/// <returns>The new panel.</returns>
+	public Guid OpenAt( string typeId, Guid paneId, PanelPlacement placement, object? input = null, string? hostId = null )
+	{
+		ActivatePane( paneId );
+		var id = Open( typeId, SplitActive( SplitAxis.Horizontal ), input, hostId );
+		ShowAt( id, paneId, placement );
+		return id;
+	}
+
 	/// <summary>Replaces the tree with a captured layout, reusing open panels so they keep their state and slide into place.</summary>
 	/// <remarks>
 	/// Each panel in the layout is matched to an open panel with the same identifier, then to one of the same type whose
@@ -110,30 +145,11 @@ public sealed partial class PanelWorkspace
 				map[panel.Id] = id;
 		}
 
-		// After a restart or a reload, identical panels such as the same chat still match by their captured state, on the same host. A panel that says which
-		// host it works on now, such as a conversation panel that shows any host's chat, names that host in its state, which alone then decides: the host it
-		// was opened on may differ from the one a layout saved it under.
 		var states = new Dictionary<Guid, string?>();
 		foreach ( var panel in saved.Panels.Where( panel => !map.ContainsKey( panel.Id ) ) )
 		{
-			var state = panel.State?.GetRawText();
-			var host = panel.Host ?? LoknHost.LocalId;
-			var match = _sessions.Values.FirstOrDefault( session => !claimed.Contains( session.Info.Id ) && session.Info.TypeId == panel.TypeId
-				&& (session.HostId is null || session.HostId == host || session.Content?.HostId is not null)
-				&& (states.TryGetValue( session.Info.Id, out var captured ) ? captured : states[session.Info.Id] = CaptureState( session )?.GetRawText()) == state );
-			if ( match is not null )
-			{
-				claimed.Add( match.Info.Id );
-				map[panel.Id] = match.Info.Id;
-				continue;
-			}
-
-			if ( !_types.TryGetValue( panel.TypeId, out var type ) || type.Lifetime.IsCancellationRequested )
-				continue;
-
-			var id = Guid.NewGuid();
-			_sessions.Add( id, BuildSession( type, id, input: null, panel.State, panel.Title, RestoreHost( type, panel.Host ) ) );
-			map[panel.Id] = id;
+			if ( OpenSavedPanel( panel, claimed, states ) is { } id )
+				map[panel.Id] = id;
 		}
 
 		Root = BuildAppliedNode( saved.Root, map ) ?? new DockPane( Guid.NewGuid(), null );
@@ -142,6 +158,84 @@ public sealed partial class PanelWorkspace
 		PlaceWaiting();
 		_app.MarkChanged();
 		return true;
+	}
+
+	/// <summary>Finds an open panel a saved one stands for by its captured state, else opens it from that state; the panel found or opened is claimed.</summary>
+	/// <remarks>After a restart or a reload, identical panels such as the same chat still match by their captured state, on the same host. A panel that says which
+	/// host it works on now, such as a conversation panel that shows any host's chat, names that host in its state, which alone then decides: the host it
+	/// was opened on may differ from the one a layout saved it under.</remarks>
+	/// <param name="panel">The saved panel.</param>
+	/// <param name="claimed">The panels already standing for saved ones, which are not matched again.</param>
+	/// <param name="states">The captured states read so far, by panel, so each open panel captures once.</param>
+	/// <returns>The panel, or null when its type is no longer registered.</returns>
+	private Guid? OpenSavedPanel( SavedPanel panel, HashSet<Guid> claimed, Dictionary<Guid, string?> states )
+	{
+		var state = panel.State?.GetRawText();
+		var host = panel.Host ?? LoknHost.LocalId;
+		var match = _sessions.Values.FirstOrDefault( session => !claimed.Contains( session.Info.Id ) && session.Info.TypeId == panel.TypeId
+			&& (session.HostId is null || session.HostId == host || session.Content?.HostId is not null)
+			&& (states.TryGetValue( session.Info.Id, out var captured ) ? captured : states[session.Info.Id] = CaptureState( session )?.GetRawText()) == state );
+		if ( match is not null )
+		{
+			claimed.Add( match.Info.Id );
+			return match.Info.Id;
+		}
+
+		if ( !_types.TryGetValue( panel.TypeId, out var type ) || type.Lifetime.IsCancellationRequested )
+			return null;
+
+		var id = Guid.NewGuid();
+		_sessions.Add( id, BuildSession( type, id, input: null, panel.State, panel.Title, RestoreHost( type, panel.Host ) ) );
+		claimed.Add( id );
+		return id;
+	}
+
+	/// <summary>Takes a panel out of a captured layout, such as a saved workspace's, so it can show in this one instead: its pane leaves the layout's tree,
+	/// its neighbor taking the space, and the panel is found open, or opened from its saved state as <see cref="ApplyLayout"/> would.</summary>
+	/// <param name="layout">The captured layout.</param>
+	/// <param name="panelId">The panel to take, or null for the layout's active one, else its first.</param>
+	/// <returns>The open panel and the layout without it, or null when the layout holds no such panel, its type is gone, or it is no layout.</returns>
+	public (Guid PanelId, JsonElement Layout)? TakeFromLayout( JsonElement layout, Guid? panelId = null )
+	{
+		SavedLayout saved;
+		try
+		{
+			saved = layout.Deserialize<SavedLayout>() ?? throw new InvalidDataException( "The layout is empty." );
+			EnsureValidLayout( saved );
+			saved = ResolveFormerTypes( saved );
+		}
+		catch ( Exception error ) when ( error is JsonException or InvalidDataException or NotSupportedException )
+		{
+			return null;
+		}
+
+		static IEnumerable<SavedNode> ListPanes( SavedNode node ) =>
+			node.Kind == "pane" ? [node] : ListPanes( node.First! ).Concat( ListPanes( node.Second! ) );
+		var panes = ListPanes( saved.Root ).Where( pane => pane.PanelId is not null ).ToList();
+		var pane = panelId is { } wanted ? panes.FirstOrDefault( candidate => ResolvePanelId( candidate.PanelId!.Value ) == wanted )
+			: panes.FirstOrDefault( candidate => candidate.Id == saved.ActivePaneId ) ?? panes.FirstOrDefault();
+		if ( pane is null || saved.Panels.FirstOrDefault( panel => panel.Id == pane.PanelId ) is not { } entry )
+			return null;
+
+		// The panels shown here are not taken by their state: they are this layout's, not the saved one's.
+		var claimed = EnumeratePanes( Root ).Select( shown => shown.PanelId ).OfType<Guid>().ToHashSet();
+		var id = ResolvePanelId( entry.Id );
+		var open = _sessions.TryGetValue( id, out var session ) && session.Info.TypeId == entry.TypeId ? id : OpenSavedPanel( entry, claimed, [] );
+		if ( open is not { } taken )
+			return null;
+
+		static SavedNode? Remove( SavedNode node, Guid paneId )
+		{
+			if ( node.Kind == "pane" )
+				return node.Id == paneId ? null : node;
+			var first = Remove( node.First!, paneId );
+			var second = Remove( node.Second!, paneId );
+			return first is null ? second : second is null ? first : node with { First = first, Second = second };
+		}
+		var root = Remove( saved.Root, pane.Id ) ?? new SavedNode( "pane", Guid.NewGuid(), null, default, 0, null, null );
+		var active = saved.ActivePaneId != pane.Id ? saved.ActivePaneId : ListPanes( root ).First().Id;
+		var rest = new SavedLayout( saved.Version, active, root, [.. saved.Panels.Where( panel => panel.Id != entry.Id )] );
+		return (taken, JsonSerializer.SerializeToElement( rest ));
 	}
 
 	/// <summary>Gets the tree of a captured layout for previews, or null when it is not a layout.</summary>

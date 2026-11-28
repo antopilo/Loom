@@ -50,6 +50,19 @@ and shows while you point at the project, and always while it is folded. A row's
 (a project's tools and pull requests, and **…**) appear over the row's right end while you point
 at it; they take no space otherwise, so titles keep the full width and nothing moves.
 
+Everything in the sidebar is a view you can click, drag and move:
+
+- **Click** opens it, as before.
+- **Drag it onto a pane** of the workspace to open it there, on the side the blue preview shows
+  (or in the pane's place, its panel moving beside): a chat, a task without a chat (its panel
+  leaves the task's workspace), a project's or worktree's **Files**, **Git**, **Terminal** and pull
+  requests icons (a tool already open in its own task moves here and that task goes; one not open
+  yet opens here when it is the folder you work in), and the header's **Files** and
+  **Notifications** buttons.
+- **Drag it up or down** to reorder it: chats and tasks within their list, and projects by their
+  name, which outlines the project whose place it takes. The project order is saved; new projects
+  go last. Until you move one, projects list by name.
+
 ### Project overview
 
 Hover a project's heading in the sidebar and click its overview button (four squares), or

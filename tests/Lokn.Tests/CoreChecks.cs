@@ -16,6 +16,7 @@ internal static class CoreChecks
 		CheckModuleOwnership();
 		await CheckCommandsAsync();
 		CheckDocking();
+		CheckShowAt();
 		CheckMaximize();
 		CheckAttention();
 		CheckNotifications();
@@ -160,6 +161,34 @@ internal static class CoreChecks
 		workspace.Close( second );
 		Check( workspace.Root is DockPane { PanelId: null } && workspace.ActivePanelId is null, "Closing the final panel preserves a usable empty pane." );
 		CheckInvariants( workspace );
+		app.Shutdown();
+	}
+
+	/// <summary>Verifies that a panel, shown or hidden, comes onto the pane it is dropped on without pushing another off screen, that a new one opens there,
+	/// and that a panel taken out of a saved layout leaves the rest of it, opening from its saved state when it is closed.</summary>
+	private static void CheckShowAt()
+	{
+		var app = CreateWorkspace();
+		var workspace = app.Panels;
+		var (first, second) = (workspace.Open( "fixture.panel" ), workspace.Open( "fixture.panel" ));
+		var saved = workspace.CaptureLayout();
+		workspace.HideAll();
+		var third = workspace.Open( "fixture.panel" );
+		var pane = workspace.Panes.Single( candidate => candidate.PanelId == third ).Id;
+		Check( workspace.ShowAt( first, pane, PanelPlacement.Swap ) && workspace.Panes.Single( candidate => candidate.Id == pane ).PanelId == first
+			&& workspace.IsShown( third ) && workspace.ActivePanelId == first,
+			"A hidden panel dropped onto a pane takes its place, and the pane's panel stays on screen beside it." );
+		var opened = workspace.OpenAt( "fixture.panel", pane, PanelPlacement.Top );
+		Check( workspace.Panes.Count == 3 && workspace.IsShown( opened ) && workspace.ActivePanelId == opened && workspace.IsShown( first ),
+			"A new panel opens against the pane it is dropped on." );
+
+		Check( workspace.TakeFromLayout( saved, second ) is { } taken && taken.PanelId == second
+			&& PanelWorkspace.ReadLayoutTree( taken.Layout ) is DockPane { PanelId: var rest } && rest == first,
+			"Taking a panel out of a saved layout leaves the rest of it, its neighbor filling the space." );
+		workspace.Close( second );
+		Check( workspace.TakeFromLayout( saved, second ) is { } reopened && reopened.PanelId != second && workspace.Panels.Any( panel => panel.Id == reopened.PanelId ),
+			"A closed panel taken out of a saved layout opens again from its saved state." );
+		Check( workspace.TakeFromLayout( saved, Guid.NewGuid() ) is null, "A layout without the panel gives none." );
 		app.Shutdown();
 	}
 

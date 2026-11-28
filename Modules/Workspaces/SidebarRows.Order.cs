@@ -9,7 +9,9 @@ namespace Lokn.Modules.Workspaces;
 /// <param name="MoveHere">Moves a dropped row of the group to this row's place, the rows between shifting toward where it was.</param>
 /// <param name="JoinHere">Joins a row of the group dropped onto the middle of this one, such as a chat shown beside this one; null for a row that
 /// takes no row onto it.</param>
-public sealed record RowOrder( string Group, int Index, Action<Guid> MoveHere, Action<Guid>? JoinHere = null );
+/// <param name="IsHeading">Whether the row heads rows of its own, such as a project's heading over its chats: the others then stay in place while one
+/// is dragged, as the rows between them would not slide with them, and the heading whose place it takes is outlined instead.</param>
+public sealed record RowOrder( string Group, int Index, Action<Guid> MoveHere, Action<Guid>? JoinHere = null, bool IsHeading = false );
 
 /// <summary>Lets the user drag rows to another place among their group's rows: the dragged row follows the pointer up and down, and the rows it
 /// passes slide aside to open the place it lands in.</summary>
@@ -46,6 +48,11 @@ public sealed partial class SidebarRows
 	/// it follows the pointer, and a drop moves the dragged row to the place it shows.</summary>
 	private DropTarget BuildRowDrop( RowOrder order ) => new(
 		drop => drop.Data.Value is RowDrag dragged && dragged.Owner == this && dragged.Group == order.Group ? DragEffect.Move : DragEffect.None,
+		drop => context.Run( () => UpdateDrop( drop ) ) );
+
+	/// <summary>Builds what the whole list does with one of its rows dragged over it, between the rows of the row's group too: the same as those rows do.</summary>
+	private DropTarget BuildListDrop() => new(
+		drop => drop.Data.Value is RowDrag dragged && dragged.Owner == this ? DragEffect.Move : DragEffect.None,
 		drop => context.Run( () => UpdateDrop( drop ) ) );
 
 	/// <summary>Records where every row of the dragged row's group sits, so the place it lands can be found from the pointer alone.</summary>
@@ -121,11 +128,12 @@ public sealed partial class SidebarRows
 	/// <summary>Defines how close, as a share of a row's place, the dragged row's middle comes to another's for a drop onto it rather than beside it.</summary>
 	private const double OntoBand = 0.25;
 
-	/// <summary>Keeps the dragged row's offset within its group, from its first row's place to its last.</summary>
+	/// <summary>Keeps the dragged row's offset within its group, from half a place above its first row to half a place below its last, so its middle can pass
+	/// theirs, out of the band that would join it to them, and take the first or the last place.</summary>
 	private static double ClampOffset( RowDragState drag, double offset )
 	{
 		var self = drag.Rows.FirstOrDefault( row => row.Id == drag.Id ).Center;
-		return Math.Clamp( offset, drag.Rows[0].Center - self, drag.Rows[^1].Center - self );
+		return Math.Clamp( offset, drag.Rows[0].Center - self - drag.Slot / 2, drag.Rows[^1].Center - self + drag.Slot / 2 );
 	}
 
 	/// <summary>Moves a reorderable row while a row of its group is dragged: the dragged row follows the pointer, held above the others, and each row
@@ -148,6 +156,15 @@ public sealed partial class SidebarRows
 		// The row it would join draws its own merged preview through JoinPreview, so it stays in place.
 		if ( drag.Onto == id )
 			return;
+		if ( order.IsHeading )
+		{
+			if ( order.Index == drag.Target && drag.Target != drag.Index )
+			{
+				row.BorderWidth = Theme.Current.BorderWidth;
+				row.BorderColor = Theme.Current.Accent;
+			}
+			return;
+		}
 		var shift = drag.Onto is not null ? 0
 			: order.Index > drag.Index && order.Index <= drag.Target ? -drag.Slot
 			: order.Index < drag.Index && order.Index >= drag.Target ? drag.Slot
@@ -184,5 +201,25 @@ public sealed partial class SidebarRows
 		/// <inheritdoc/>
 		/// <remarks>The shell calls it on the UI thread, where the drop arrives.</remarks>
 		public void Drop( Guid paneId, PanelPlacement placement ) => OpenAt?.Invoke( paneId, placement );
+	}
+
+	/// <summary>Builds the drag of an item that opens a panel, such as a tool's icon: dropped on a pane, it shows its panel against that pane, with the
+	/// shell's preview of where.</summary>
+	/// <param name="canDrop">Whether the item can open its panel now; one that cannot is refused over panes.</param>
+	/// <param name="openAt">Shows the item's panel against the pane it is dropped on.</param>
+	public static DragSource BuildPanelDrag( Func<bool> canDrop, Action<Guid, PanelPlacement> openAt ) =>
+		new( _ => new DragData( new PanelDrag( canDrop, openAt ), DragEffect.Move ), _ => { } );
+
+	/// <summary>Identifies an item dragged to open its panel on a pane.</summary>
+	/// <param name="IsAllowed">Whether it can open its panel now.</param>
+	/// <param name="OpenAt">Shows its panel against a pane.</param>
+	private sealed record PanelDrag( Func<bool> IsAllowed, Action<Guid, PanelPlacement> OpenAt ) : IPanelDrop
+	{
+		/// <inheritdoc/>
+		public bool CanDrop => IsAllowed();
+
+		/// <inheritdoc/>
+		/// <remarks>The shell calls it on the UI thread, where the drop arrives.</remarks>
+		public void Drop( Guid paneId, PanelPlacement placement ) => OpenAt( paneId, placement );
 	}
 }

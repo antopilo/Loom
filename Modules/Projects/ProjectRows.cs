@@ -161,8 +161,9 @@ public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, Proj
 	/// <param name="trailing">Marks after the name, such as an activity dot.</param>
 	/// <param name="open">Runs when the name is clicked, such as opening the project's overview, or null to fold on a click anywhere.</param>
 	/// <param name="badge">A muted count after the name, such as its chats, or null for none; shown with <paramref name="open"/> only.</param>
+	/// <param name="drag">What dragging the name does, such as moving the project among the others, or null for nothing.</param>
 	public Blob BuildHeading( ProjectInfo project, Blob? icon, bool isCollapsed, string accessibilityName, IEnumerable<Blob>? trailing = null,
-		Action? open = null, string? badge = null )
+		Action? open = null, string? badge = null, DragSource? drag = null )
 	{
 		if ( sidebar.IsRenaming( project.Id ) )
 		{
@@ -177,11 +178,13 @@ public sealed class ProjectRows( PanelContext context, SidebarRows sidebar, Proj
 		{
 			var (row, name) = sidebar.BuildLinkedGroupHeading( project.Id, project.Name, icon, isCollapsed, accessibilityName, open, badge, trailing );
 			AddRename( name, project, keepKeys: true );
+			name.DragSource = drag;
 			return row;
 		}
 
 		var heading = sidebar.BuildGroupHeading( project.Id, project.Name, icon, isCollapsed, accessibilityName, trailing );
 		AddRename( heading, project, keepKeys: false );
+		heading.DragSource = drag;
 		return heading;
 	}
 

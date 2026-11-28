@@ -16,4 +16,11 @@ public sealed record SidebarAction( string Title, string Glyph, Action<LoknAppli
 	{
 		get; init;
 	}
+
+	/// <summary>Gets what dragging the button onto a pane does: shows the action's panel against that pane, given the pane and where against it; null
+	/// leaves the button a click target only.</summary>
+	public Action<LoknApplication, Guid, PanelPlacement>? OpenAt
+	{
+		get; init;
+	}
 }

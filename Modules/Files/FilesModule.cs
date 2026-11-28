@@ -38,10 +38,17 @@ public sealed class FilesModule : ILoknModule, IFileSideView
 			.ExtensionPoint<FileTreeMode>( "modes" )
 			// No task icon: the file tree is a side view beside any task, not what the task is about.
 			.Panel( "tree", "Files", context => _trees[context.Id] = new FileTreeContent( context ), onHost: true )
-			// Drawn like the sidebar's own actions, right under New project; highlighted while the tree shows.
+			// Drawn like the sidebar's own actions, right under New project; highlighted while the tree shows. Dragged onto a pane, the tree shows there.
 			.Contribute( SidebarAction.Point, new SidebarAction( "Files", FileTreeContent.FolderGlyph, Toggle )
 			{
 				IsActive = app => Find( app ) is not null,
+				OpenAt = ( app, pane, placement ) =>
+				{
+					if ( Find( app ) is { } shown )
+						app.Panels.ShowAt( shown.Id, pane, placement );
+					else
+						app.Panels.OpenAt( PanelType, pane, placement );
+				},
 			} )
 			.Contribute( TaskStarter.Point, new TaskStarter( "Files", FileTreeContent.FolderGlyph, 40, app => app.Panels.Open( PanelType ) ) )
 			.Command( "toggle", "Files: show or hide", context => Toggle( context.App ) )

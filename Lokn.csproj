@@ -13,7 +13,7 @@
 		<RootNamespace>Lokn</RootNamespace>
 		<ApplicationIcon>assets\brand\loom.ico</ApplicationIcon>
 		<!-- The release version: the installer's package version, and the version Program reports to Goo. Raise it for every release. -->
-		<Version>0.4.31</Version>
+		<Version>0.4.32</Version>
 		<!-- A publish (scripts/publish.ps1, the installer) precompiles Loom, Core, Goo and their libraries to native code, so starting Loom compiles
 		     about 6,000 fewer methods before its first frame (docs/performance.md#startup). Modules gain nothing from it: they load from their bytes
 		     (Shell/ModuleHost.cs), where the runtime ignores precompiled code, so they stay IL. -->
