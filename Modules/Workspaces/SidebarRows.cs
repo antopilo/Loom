@@ -150,12 +150,12 @@ public sealed partial class SidebarRows( PanelContext context )
 		return heading;
 	}
 
-	/// <summary>Builds a group's heading whose name opens the group, such as a project's overview: the icon, then the name in the heading face with an
+	/// <summary>Builds a group's heading whose name opens the group, such as a project's overview: the name in the heading face, then the icon, with an
 	/// optional muted count, which opens it. The chevron that folds or unfolds the group hangs in the sidebar's left margin, outside the row, so the name
 	/// starts at the row's edge; it shows while the row is hovered or focused, and always while the group is folded.</summary>
 	/// <param name="id">The group, whose folding <see cref="IsCollapsed"/> reports.</param>
 	/// <param name="name">The group's name.</param>
-	/// <param name="icon">The icon before the name, or null for none, which leaves no empty column.</param>
+	/// <param name="icon">The icon after the name, or null for none, which leaves no empty column.</param>
 	/// <param name="isCollapsed">Whether the chevron shows the group folded.</param>
 	/// <param name="accessibilityName">The name's accessible name, such as "Lokn, open overview".</param>
 	/// <param name="open">Runs when the name is clicked.</param>
@@ -205,14 +205,6 @@ public sealed partial class SidebarRows( PanelContext context )
 		label.Padding = new Edges( 0, theme.Spacing / 2 );
 		label.Children =
 		[
-			.. icon is null ? Array.Empty<Blob>() : [new Container
-			{
-				Key = "icon",
-				Width = GroupIconSize,
-				FlexShrink = 0,
-				AlignItems = AlignItems.Center,
-				Children = [icon],
-			}],
 			new Text
 			{
 				Content = name,
@@ -224,6 +216,14 @@ public sealed partial class SidebarRows( PanelContext context )
 				TextWrap = TextWrap.NoWrap,
 				TextTrimming = TextTrimming.Ellipsis,
 			},
+			.. icon is null ? Array.Empty<Blob>() : [new Container
+			{
+				Key = "icon",
+				Width = GroupIconSize,
+				FlexShrink = 0,
+				AlignItems = AlignItems.Center,
+				Children = [icon],
+			}],
 			.. badge is null ? Array.Empty<Blob>() : [new Text { Key = "badge", Content = badge, Color = theme.Muted, FontSize = theme.FontSize - 1, FlexShrink = 0 }],
 			.. trailing ?? [],
 		];
