@@ -31,6 +31,9 @@
     sup.cite > a + span     citation number; the span is the source card shown on hover
     .timeline               events (.event, --at 0..1, <b> date) and shaded spans (.span, --at, --to) on one line
     svg .shape, .stroke     simple illustrations in ink
+    .gallery > figure       media grid: tiles of one height, cropped to fill, caption under each; data-cols="2|3|4", figure.wide spans two
+                            columns; <div class="gallery" data-layout="feature"> puts the first tile large beside the others
+    video                   Loom's player: clips under 30 s loop muted while in view, longer ones play on click (data-click forces it)
 */
 
 /* Bundled fonts (SIL Open Font License, see fonts\OFL-*.txt): Fraunces stands in for Dia's Exposure, set soft and without its wonky letters as in
@@ -294,3 +297,33 @@ pre { font-family: var(--mono); font-size: 13px; line-height: 1.55; border-left:
 .report .compare > img:last-of-type { width: 100%; height: 100%; max-height: none; }
 .report .flip { text-align: center; }
 .report .flip > img { width: auto; }
+
+/* Gallery: media in a grid of tiles with one height, each cropped to fill its frame, rounded and lifted, its caption under it. */
+.report .gallery { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); gap: 18px; margin: 28px 0; }
+.report .gallery[data-cols="3"] { --cols: 3; } .report .gallery[data-cols="4"] { --cols: 4; }
+.report .gallery > figure { margin: 0; min-width: 0; }
+.report .gallery > figure.wide { grid-column: span 2; }
+.report .gallery :is(img, .player) { width: 100%; height: auto; max-height: none; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 10px;
+	box-shadow: 0 1px 0 var(--rule), 0 14px 30px -18px rgb(0 0 0 / .45); }
+.report .gallery figcaption { margin-top: 10px; font: italic 13px/1.4 var(--sans); color: var(--ink-3); }
+/* Feature: the first tile two rows tall on the left, the rest stacked beside it. */
+.report .gallery[data-layout="feature"] { grid-template-columns: 2fr 1fr; }
+.report .gallery[data-layout="feature"] > figure:first-child { grid-row: span 2; }
+.report .gallery[data-layout="feature"] > figure:first-child { display: flex; flex-direction: column; }
+.report .gallery[data-layout="feature"] > figure:first-child > :is(img, .player) { flex: 1; min-height: 0; aspect-ratio: auto; }
+@media (max-width: 640px) { .report .gallery, .report .gallery[data-layout="feature"] { grid-template-columns: 1fr; } .report .gallery > figure.wide { grid-column: auto; } }
+
+/* Player: the video fills a rounded frame; a round play button sits in the middle until it plays, a hairline bar along the foot shows the time. */
+.report .player { position: relative; overflow: hidden; border-radius: 10px; background: #111; max-width: 100%; margin-inline: auto; }
+.report .player video { display: block; width: 100%; height: 100%; object-fit: cover; cursor: pointer; }
+.report .player:not(.gallery .player) { aspect-ratio: 16 / 9; }
+.player-play { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border: 0; border-radius: 50%; cursor: pointer;
+	background: rgb(255 255 255 / .9); box-shadow: 0 10px 30px -8px rgb(0 0 0 / .5); transition: opacity .2s, transform .2s; }
+.player-play::after { content: ""; position: absolute; left: 23px; top: 18px; border-style: solid; border-width: 11px 0 11px 17px; border-color: transparent transparent transparent #111; }
+.player-play:hover { transform: scale(1.06); }
+.player.playing .player-play { opacity: 0; pointer-events: none; }
+.player-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgb(255 255 255 / .18); cursor: pointer; opacity: 0; transition: opacity .2s; }
+.player:hover .player-bar, .player:not(.playing) .player-bar { opacity: 1; }
+.player-bar i { display: block; height: 100%; width: 0; background: #fff; }
+.player-time { position: absolute; right: 10px; top: 10px; padding: 2px 7px; border-radius: 6px; background: rgb(0 0 0 / .55); color: #fff; font: 600 11px var(--sans); }
+.player.playing .player-time { opacity: 0; transition: opacity .3s; }

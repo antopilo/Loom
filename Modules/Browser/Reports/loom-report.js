@@ -768,4 +768,71 @@
 		group.prepend( bar );
 		show( Math.max( 0, panes.findIndex( pane => pane.hasAttribute( "data-selected" ) ) ) );
 	}
+
+	// Videos: every <video> gets Loom's player instead of the browser's. A clip under 30 s plays muted and looped while in view, like a moving
+	// picture; a longer one waits for a click. Click toggles play, double-click goes full screen, and a thin bar shows and seeks the time.
+	const visible = new IntersectionObserver( entries => {
+		for ( const entry of entries )
+		{
+			const video = entry.target;
+			if ( video.dataset.loop !== "true" )
+				continue;
+			if ( entry.isIntersecting )
+				video.play().catch( () => {} );
+			else
+				video.pause();
+		}
+	}, { threshold: 0.4 } );
+	for ( const video of document.querySelectorAll( ".report video" ) )
+	{
+		const frame = document.createElement( "div" );
+		frame.className = "player";
+		video.replaceWith( frame );
+		frame.append( video );
+		video.controls = false;
+		video.muted = true;
+		video.playsInline = true;
+		video.preload = "metadata";
+		const play = document.createElement( "button" );
+		play.type = "button";
+		play.className = "player-play";
+		play.setAttribute( "aria-label", "Play" );
+		const bar = document.createElement( "div" );
+		bar.className = "player-bar";
+		const fill = document.createElement( "i" );
+		bar.append( fill );
+		const time = document.createElement( "span" );
+		time.className = "player-time";
+		frame.append( play, bar, time );
+		const clock = seconds => Math.floor( seconds / 60 ) + ":" + String( Math.floor( seconds % 60 ) ).padStart( 2, "0" );
+		video.addEventListener( "loadedmetadata", () => {
+			time.textContent = clock( video.duration );
+			if ( video.duration < 30 && !video.hasAttribute( "data-click" ) )
+			{
+				video.dataset.loop = "true";
+				video.loop = true;
+				visible.observe( video );
+			}
+		} );
+		video.addEventListener( "timeupdate", () => fill.style.width = ( video.currentTime / ( video.duration || 1 ) ) * 100 + "%" );
+		const sync = () => frame.classList.toggle( "playing", !video.paused );
+		video.addEventListener( "play", sync );
+		video.addEventListener( "pause", sync );
+		const toggle = () => {
+			if ( video.paused )
+			{
+				video.muted = video.dataset.loop === "true" ? video.muted : false;
+				video.play().catch( () => {} );
+			}
+			else
+				video.pause();
+		};
+		play.addEventListener( "click", event => { event.stopPropagation(); toggle(); } );
+		video.addEventListener( "click", toggle );
+		video.addEventListener( "dblclick", () => frame.requestFullscreen?.() );
+		bar.addEventListener( "pointerdown", event => {
+			const box = bar.getBoundingClientRect();
+			video.currentTime = ( ( event.clientX - box.left ) / box.width ) * ( video.duration || 0 );
+		} );
+	}
 } )();
