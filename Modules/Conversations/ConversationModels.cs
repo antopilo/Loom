@@ -20,6 +20,8 @@ namespace Lokn.Modules.Conversations;
 /// place; null for a task started since, which lists above the placed ones, newest first. Changing the task's project clears it.</param>
 /// <param name="IsArchived">Whether the chat is archived: it leaves the sidebar's list, its messages leave memory, and it comes back from its project's
 /// archive, or when it is opened any other way.</param>
+/// <param name="Emoji">The emoji that matches what the chat is about, picked by the model with its generated title and shown before the title; null until one
+/// is picked, which a title the user chose keeps.</param>
 public sealed record ConversationInfo(
 	Guid Id,
 	SettingsProfile Profile,
@@ -37,7 +39,8 @@ public sealed record ConversationInfo(
 	string? Worktree = null,
 	bool IsTaskCheckOff = false,
 	int? Position = null,
-	bool IsArchived = false );
+	bool IsArchived = false,
+	string? Emoji = null );
 
 /// <summary>Stores a conversation message and optional backend-defined rich JSON content.</summary>
 public sealed record ConversationMessage(

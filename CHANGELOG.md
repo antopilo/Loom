@@ -3,6 +3,11 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.34
+
+- **An emoji for every chat.** Chats get an emoji that matches their subject, picked with their title, shown before the title in the
+  sidebar and the tabs. **Tidy chats** gives a project's chats new ones.
+
 ## 0.4.33
 
 - **No more crashes on some emoji.** A few emoji with very detailed artwork, such as the horse, the knot and family emoji, closed Loom

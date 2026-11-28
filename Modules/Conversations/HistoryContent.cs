@@ -386,8 +386,12 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 				: null;
 			button.DragSource = _sidebar.BuildRowDrag( conversation.Id, order, openAt );
 			// A long title stays on one line and fades out at the row's end rather than growing the row; a generated title replacing the first line rolls in.
-			// Emoji the user typed in it fall back to the emoji face.
-			button.Children = [Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily, Fade = true } )];
+			// Emoji the user typed in it fall back to the emoji face. The chat's emoji comes first, in a column of its own so titles line up.
+			button.Children =
+			[
+				BuildEmoji( conversation ),
+				Cell.Mount<RollingTextInput, RollingText>( "title", new( conversation.Title, Theme.Current.FontSize, Theme.Current.Text ) { FontFamily = ViewStyle.FontFamily, Fade = true } ),
+			];
 			main = button;
 		}
 		// A chat dragged onto this one shows it merged while the pointer stays, as the split it makes when dropped; the row keeps its drop target.
@@ -424,4 +428,22 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			Children = children,
 		};
 	}
+
+	/// <summary>Defines the width of the column a row's emoji sits in, in logical pixels.</summary>
+	private const int EmojiWidth = 18;
+
+	/// <summary>Builds the column before a row's title: the chat's emoji, or, until the model picks one, a muted chat or task glyph.</summary>
+	internal static Container BuildEmoji( ConversationInfo conversation ) => new()
+	{
+		Key = "emoji",
+		Width = EmojiWidth,
+		FlexShrink = 0,
+		AlignItems = AlignItems.Center,
+		Children =
+		[
+			conversation.Emoji is { } emoji
+				? new Text { Content = EmojiGuard.Guard( emoji ), FontFamily = ViewStyle.FontFamily, FontSize = Theme.Current.FontSize, TextMaxLines = 1 }
+				: SidebarRows.BuildIcon( conversation.HasChat ? "\uE8BD" : "\uE9D5" ),
+		],
+	};
 }

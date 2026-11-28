@@ -37,7 +37,9 @@ public sealed partial class ChatSession
 
 		_isRetitling = true;
 		_titledAtPrompts = prompts;
-		_ = UpdateTitleRequestAsync( RetitleQuestion, BuildRetitleMaterial( conversation.Title, store.GetMessages( conversationId ) ) );
+		// The current title carries its emoji, so a title that still fits comes back whole.
+		var current = conversation.Emoji is { } emoji ? $"{emoji} {conversation.Title}" : conversation.Title;
+		_ = UpdateTitleRequestAsync( RetitleQuestion, BuildRetitleMaterial( current, store.GetMessages( conversationId ) ) );
 	}
 
 	/// <summary>Takes a session name Omp reports after the user's own <c>/rename</c>: the title typed, or one Omp generated, cleaned.</summary>

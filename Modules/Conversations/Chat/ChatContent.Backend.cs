@@ -14,12 +14,14 @@ public sealed partial class ChatContent
 	/// <summary>Defines the prompt that asks the agent to finish a turn a module reload stopped.</summary>
 	internal const string ContinuePrompt = "Lokn reloaded while you were working, which stopped your turn. Continue where you left off. If you were waiting for an answer to a question, ask it again.";
 
-	/// <summary>Defines the isolated question that names a chat from bounded user prompts.</summary>
-	internal const string TitleQuestion = "Reply with only a title for this conversation as it stands now: at most 4 plain words, no emoji, no category prefix, no quotes, no trailing punctuation.";
+	/// <summary>Defines the isolated question that names a chat from bounded user prompts, with one emoji for its subject first.</summary>
+	internal const string TitleQuestion = "Reply with only a title for this conversation as it stands now, starting with one emoji that fits its subject and a space: "
+		+ "at most 4 plain words after the emoji, no category prefix, no quotes, no trailing punctuation.";
 
-	/// <summary>Defines the isolated question that names a chat again for the task it works on now, keeping a title that still fits.</summary>
-	internal const string RetitleQuestion = "Reply with only a title for what this conversation works on now, weighing the latest prompts most: at most 4 plain words, no emoji, "
-		+ "no category prefix, no quotes, no trailing punctuation. If the current title still fits, reply with it unchanged.";
+	/// <summary>Defines the isolated question that names a chat again for the task it works on now, with its emoji, keeping a title that still fits.</summary>
+	internal const string RetitleQuestion = "Reply with only a title for what this conversation works on now, weighing the latest prompts most, starting with one emoji "
+		+ "that fits its subject and a space: at most 4 plain words after the emoji, no category prefix, no quotes, no trailing punctuation. "
+		+ "If the current title still fits, reply with it unchanged.";
 
 	/// <summary>Defines how many new user prompts a chat takes before it is named again for its current task.</summary>
 	internal const int RetitleEvery = 3;

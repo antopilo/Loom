@@ -31,8 +31,9 @@ public sealed partial class ConversationsModule
 
 	/// <summary>Defines the question that names a project's chats at once, one numbered line each.</summary>
 	internal const string TidyQuestion = "The attached file lists numbered chats from one project, each with its current title, the first request and the latest requests. "
-		+ "Give each chat a new title for what it is about now, weighing its latest requests most: at most 4 plain words, no emoji, no category prefix, "
-		+ "no quotes, no trailing punctuation, and different chats should get distinct titles. Reply with only one line per chat, as <number>: <title>.";
+		+ "Give each chat one emoji that fits its subject and a new title for what it is about now, weighing its latest requests most: at most 4 plain words, "
+		+ "no category prefix, no quotes, no trailing punctuation, and different chats should get distinct titles. Reply with only one line per chat, "
+		+ "as <number>: <emoji> <title>.";
 
 	/// <summary>Holds the projects whose chats are being named, so the sidebar shows it and a second tidy waits.</summary>
 	private readonly State<IReadOnlySet<Guid>> _tidying = new( new HashSet<Guid>() );
@@ -205,7 +206,8 @@ public sealed partial class ConversationsModule
 		}
 	}
 
-	/// <summary>Reads the answer's <c>number: title</c> lines, keeping the first title for each number from 1 to <paramref name="count"/>, cleaned as a generated title.</summary>
+	/// <summary>Reads the answer's <c>number: emoji title</c> lines, keeping the first title for each number from 1 to <paramref name="count"/>, cleaned as a
+	/// generated title, after the emoji it starts with, which <see cref="ConversationStore.SetAutomaticTitle"/> reads again.</summary>
 	internal static IReadOnlyDictionary<int, string> ReadTidyTitles( string answer, int count )
 	{
 		var titles = new Dictionary<int, string>();
@@ -213,7 +215,7 @@ public sealed partial class ConversationsModule
 		{
 			if ( TidyLine().Match( line ) is { Success: true } match && int.TryParse( match.Groups[1].Value, out var number ) && number >= 1 && number <= count
 				&& ConversationStore.ComputeGeneratedTitle( match.Groups[2].Value ) is { Length: > 0 } title )
-				titles.TryAdd( number, title );
+				titles.TryAdd( number, ConversationStore.ComputeGeneratedEmoji( match.Groups[2].Value ) is { } emoji ? $"{emoji} {title}" : title );
 		}
 		return titles;
 	}

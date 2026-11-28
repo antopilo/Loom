@@ -277,29 +277,57 @@ public sealed partial class ConversationStore
 	/// <summary>Defines the most words a generated title keeps.</summary>
 	public const int GeneratedTitleWords = 4;
 
-	/// <summary>Sets a title Lokn made up, from the first prompt or a model's summary, unless the user named the chat.</summary>
+	/// <summary>Sets a title Lokn made up, from the first prompt or a model's summary, unless the user named the chat; a model's summary that starts with an
+	/// emoji also sets the chat's <see cref="ConversationInfo.Emoji"/>, and one without keeps the emoji picked before.</summary>
 	/// <param name="id">The conversation.</param>
-	/// <param name="title">The new title; a model's is cleaned by <see cref="ComputeGeneratedTitle"/>.</param>
+	/// <param name="title">The new title; a model's is cleaned by <see cref="ComputeGeneratedTitle"/> and its emoji read by <see cref="ComputeGeneratedEmoji"/>.</param>
 	/// <param name="isGenerated">Whether a model summarized it, so no further summary is asked for.</param>
 	/// <returns>Whether the title is set, false when the user named the chat or the title is empty.</returns>
 	public bool SetAutomaticTitle( Guid id, string title, bool isGenerated )
 	{
 		var conversation = Get( id );
 		var args = new { id, title, isGenerated };
+		var emoji = (isGenerated ? ComputeGeneratedEmoji( title ) : null) ?? conversation.Emoji;
 		title = isGenerated ? ComputeGeneratedTitle( title ) : title.Trim();
 		if ( conversation.IsTitleChosen || title.Length == 0 )
 			return false;
-		if ( conversation.Title == title && (conversation.IsTitleGenerated || !isGenerated) )
+		if ( conversation.Title == title && conversation.Emoji == emoji && (conversation.IsTitleGenerated || !isGenerated) )
 			return true;
 
 		_conversations[id] = conversation with
 		{
 			Title = title,
+			Emoji = emoji,
 			IsTitleGenerated = conversation.IsTitleGenerated || isGenerated,
 		};
 		MarkChanged();
 		MarkMutated( nameof( SetAutomaticTitle ), args );
 		return true;
+	}
+
+	/// <summary>Reads the emoji a model's title answer starts with, such as <c>🪟</c> in <c>🪟 Panel layout fix</c>, past Markdown marks, quotes and
+	/// spaces; null when its first line starts with a letter, a digit or nothing, or with an emoji Goo cannot draw (<see cref="EmojiGuard"/>).</summary>
+	public static string? ComputeGeneratedEmoji( string text )
+	{
+		var line = text.Split( '\n' ).Select( part => part.Trim() ).FirstOrDefault( part => part.Length > 0 ) ?? "";
+		return ReadLeadingEmoji( line ) is { } emoji && EmojiGuard.Guard( emoji ) == emoji ? emoji : null;
+	}
+
+	/// <summary>Reads the emoji a text starts with, with its modifiers and joined parts, past marks, quotes and spaces; null when a letter, a digit or nothing
+	/// comes first.</summary>
+	public static string? ReadLeadingEmoji( string text )
+	{
+		for ( var index = 0; index < text.Length; )
+		{
+			// A lone surrogate is skipped like a mark, rather than read as the replacement character, which is a symbol too.
+			var status = System.Text.Rune.DecodeFromUtf16( text.AsSpan( index ), out var rune, out var length );
+			if ( status == System.Buffers.OperationStatus.Done && System.Text.Rune.IsLetterOrDigit( rune ) )
+				return null;
+			if ( status == System.Buffers.OperationStatus.Done && System.Text.Rune.GetUnicodeCategory( rune ) == System.Globalization.UnicodeCategory.OtherSymbol )
+				return System.Globalization.StringInfo.GetNextTextElement( text, index );
+			index += Math.Max( 1, length );
+		}
+		return null;
 	}
 
 	/// <summary>Cleans a model's title into a few plain words: its first non-blank line, without an icon, Markdown, a <c>Title:</c> label,

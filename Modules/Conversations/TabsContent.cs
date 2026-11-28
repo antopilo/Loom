@@ -72,12 +72,13 @@ internal sealed class TabsContent( PanelContext context, ConversationsModule mod
 		return RecentTabs.BuildStrip( "Chats", children );
 	}
 
-	/// <summary>Builds one chat's tab: its title, last used at its last activity or when its workspace last opened, with its working or waiting mark.</summary>
+	/// <summary>Builds one chat's tab: its emoji and title, last used at its last activity or when its workspace last opened, with its working or waiting mark.</summary>
 	private static RecentTab BuildTab( ChatHost host, ConversationInfo conversation, Dictionary<string, DateTimeOffset> opened, bool isWaiting )
 	{
 		var isWorking = host.Store.IsWorking( conversation.Id );
 		var lastOpened = opened.GetValueOrDefault( ConversationsModule.ConversationSession( host.Ref( conversation.Id ) ), DateTimeOffset.MinValue );
-		return new RecentTab( conversation.Id, conversation.Title, conversation.IsPinned, lastOpened > conversation.UpdatedAt ? lastOpened : conversation.UpdatedAt )
+		var title = conversation.Emoji is { } emoji ? $"{EmojiGuard.Guard( emoji )} {conversation.Title}" : conversation.Title;
+		return new RecentTab( conversation.Id, title, conversation.IsPinned, lastOpened > conversation.UpdatedAt ? lastOpened : conversation.UpdatedAt )
 		{
 			Marks = isWorking ? [Cell.Mount<Color, HistoryContent.ActivityOrb>( "activity", Theme.Current.Accent )]
 				: isWaiting ? [HistoryContent.BuildWaitingDot()]

@@ -410,6 +410,11 @@ it still fits. `/clear` counts the prompts from none again.
 A title you set yourself, by renaming the task or with `/rename <title>` in the chat,
 is never replaced, not even by a compaction.
 
+With each title, the model picks one emoji for what the chat is about (`ConversationInfo.Emoji`). The sidebar shows it
+before the title, in a column of its own, and the tab strip before the tab's title; a chat without one yet shows a muted
+chat glyph. A later title without an emoji keeps the one picked, a title you set yourself keeps it too, and **Tidy chats**
+picks new ones with the new titles. Emoji Loom cannot draw are refused.
+
 A thin line along the top of the prompt shows how full the chat's context is, as in
 Tern: the filled part is the context used, with its share at its end, and the window's
 size sits at the right. A mark shows where Omp compacts automatically, from the

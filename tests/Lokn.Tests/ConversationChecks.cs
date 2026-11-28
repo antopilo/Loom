@@ -61,6 +61,13 @@ internal static class ConversationChecks
 		var loose = store.CreateConversation( SettingsProfile.Work, work.Id );
 		Check( store.SetAutomaticTitle( loose.Id, "fix the login", isGenerated: false ) && store.SetAutomaticTitle( loose.Id, "Login fix", isGenerated: true )
 			&& store.Get( loose.Id ) is { Title: "Login fix", IsTitleGenerated: true, IsTitleChosen: false }, "Automatic titles replace each other and record a model summary." );
+		Check( ConversationStore.ComputeGeneratedEmoji( "🔐 Login fix" ) == "🔐" && ConversationStore.ComputeGeneratedEmoji( "**🧪 Test runner**" ) == "🧪"
+			&& ConversationStore.ComputeGeneratedEmoji( "Plain title" ) is null && ConversationStore.ComputeGeneratedEmoji( "2 bugs 🐛" ) is null
+			&& ConversationStore.ComputeGeneratedEmoji( "🐎 Horse race" ) is null && ConversationStore.ComputeGeneratedEmoji( "👩🏽‍💻 Pair session" ) is null,
+			"A title answer's emoji is the emoji it starts with, past Markdown; none when a word comes first, or when Loom cannot draw it." );
+		Check( store.SetAutomaticTitle( loose.Id, "🔐 Login fixes", isGenerated: true ) && store.Get( loose.Id ) is { Title: "Login fixes", Emoji: "🔐" }
+			&& store.SetAutomaticTitle( loose.Id, "Login fix", isGenerated: true ) && store.Get( loose.Id ) is { Title: "Login fix", Emoji: "🔐" },
+			"A generated title's emoji is kept apart from the title, and a later title without one keeps it." );
 		store.SetPinned( chat.Id, true );
 		store.Flush();
 		File.WriteAllText( path, File.ReadAllText( path ).Replace( "\"Login fix\"", "\"\\uD83D\\uDCAC FEED: Login fix for portal users\"" ) );
@@ -494,9 +501,9 @@ internal static class ConversationChecks
 		var material = ConversationsModule.BuildTidyMaterial( store.ProjectStore.Get( projectId ), [store.Get( recent )], prompts );
 		Check( material.Contains( "1. Current title: fix the login page" ) && material.Contains( "- now add a dark mode toggle" ),
 			"The title question numbers each chat and keeps each prompt on one line." );
-		var titles = ConversationsModule.ReadTidyTitles( "Here are the titles:\n1: Dark mode toggle.\n**2.** \"Release notes\"\n2: Duplicate\n7: Out of range", 2 );
-		Check( titles.Count == 2 && titles[1] == "Dark mode toggle" && titles[2] == "Release notes",
-			"The answer's numbered lines become cleaned titles; other lines, repeats and unknown numbers are ignored." );
+		var titles = ConversationsModule.ReadTidyTitles( "Here are the titles:\n1: 🌙 Dark mode toggle.\n**2.** \"Release notes\"\n2: Duplicate\n7: Out of range", 2 );
+		Check( titles.Count == 2 && titles[1] == "🌙 Dark mode toggle" && titles[2] == "Release notes",
+			"The answer's numbered lines become cleaned titles that keep their emoji; other lines, repeats and unknown numbers are ignored." );
 
 		var otherEmpty = store.CreateConversation( SettingsProfile.Personal, otherId );
 		var otherPlan = module.ComputeTidy( app, otherId, now );
