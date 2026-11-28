@@ -186,8 +186,12 @@ public sealed class OmpToolBridge : IDisposable
 		parameters = tool.Parameters,
 	};
 
-	/// <summary>Keeps the shell's panel tools and worktree entry available without loading a feature group.</summary>
-	private static bool IsBaseline( AgentToolInfo tool ) => tool.ModuleId == "shell" || tool.Name == "worktrees_enter";
+	/// <summary>Names the tools economy mode never hides, besides the shell's panel tools: the ones that replace what an agent would otherwise do with an
+	/// outside window (a browser, a console) or a raw git command, so an agent never has to know a group exists to use Lokn's own way.</summary>
+	internal static readonly HashSet<string> DefaultTools = new( StringComparer.Ordinal ) { "worktrees_enter", "browser_show", "browser_navigate", "terminal_open" };
+
+	/// <summary>Keeps the shell's panel tools and the <see cref="DefaultTools"/> available without loading a feature group.</summary>
+	private static bool IsBaseline( AgentToolInfo tool ) => tool.ModuleId == "shell" || DefaultTools.Contains( tool.Name );
 
 	/// <summary>Reports whether a group has been revealed for this chat.</summary>
 	private bool IsLoaded( string group )
