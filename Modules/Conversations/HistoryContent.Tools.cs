@@ -175,28 +175,43 @@ internal sealed partial class HistoryContent
 			more.Height = ToolSize;
 			children.Add( more );
 		}
+		// The buttons overflow the column, which takes no width, toward the row: its end aligns them with the row's end. Anchored instead by a right inset
+		// as an absolute child of this zero-width column, Goo drew them past the row's end, clipped by the sidebar.
 		var overlay = new Row
 		{
 			Key = "buttons",
-			Position = PositionType.Absolute,
-			Right = 0,
-			Top = 0,
 			Height = ToolSize,
+			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
 			Gap = ToolGap,
 			Padding = new Edges( 0, 0, 0, FadeWidth ),
 			BackgroundGradient = isRevealed && children.Count > 0 ? new LinearGradient( 90, [theme.Hover.WithAlpha( 0 ), theme.Hover, theme.Hover, theme.Hover] ) : null,
 			Children = children,
 		};
+		Blob? atRest = mark is not null && !(isRevealed && children.Count > 0)
+			? new Container
+			{
+				Key = "mark",
+				Position = PositionType.Absolute,
+				Left = 0,
+				Top = 0,
+				Width = StateWidth,
+				Height = ToolSize,
+				AlignItems = AlignItems.Center,
+				JustifyContent = JustifyContent.Center,
+				Children = [mark],
+			}
+			: null;
 		return new Container
 		{
 			Key = "state",
+			FlexDirection = FlexDirection.Row,
 			Width = mark is not null ? StateWidth : 0,
 			Height = ToolSize,
 			FlexShrink = 0,
 			AlignItems = AlignItems.Center,
-			JustifyContent = JustifyContent.Center,
-			Children = mark is not null && !(isRevealed && children.Count > 0) ? [mark, overlay] : [overlay],
+			JustifyContent = JustifyContent.FlexEnd,
+			Children = atRest is null ? [overlay] : [atRest, overlay],
 		};
 	}
 
