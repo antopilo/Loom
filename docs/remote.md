@@ -950,3 +950,10 @@ While an agent acts, Loom on this PC shows the **control bar** (`ControlBar`): a
 the screen of the window the agent uses, reading "Loom is using *window*", with **Stop · Esc**. It never takes the
 focus, is left out of screen captures and streams, and holds the Esc hot key only while it shows. Stop or Esc stops
 the turn of the chat whose agent acted; the bar leaves when that turn ends, or after a minute without an action.
+
+Around the window it draws Loom's **frame** (`ControlFrame`), the light of the prompt's working glow (`glow.slang`): a
+thin accent line on the window's rounded edge with a bright head that travels clockwise every 3.2 s, a fading tail and a
+soft halo outside. It is four layered, click-through, top-most strips left out of captures, following the window as it
+moves and hiding while it is minimized. Captures ask Windows not to draw its yellow capture border
+(`IsBorderRequired = false`, Windows 11); Windows honors that only after the user allowed it once, which the first
+capture of each process asks for (`GraphicsCaptureAccess.RequestAccessAsync( Borderless )`).

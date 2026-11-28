@@ -88,6 +88,7 @@ public sealed class GraphicsCapture : IWindowCapturer
 		_session = _pool.CreateCaptureSession( item );
 		// A screen is used as a whole desktop, so its pointer shows; a window's stream draws no pointer of its own.
 		_session.IsCursorCaptureEnabled = screen != 0;
+		HideBorder( _session );
 		_session.StartCapture();
 	}
 
@@ -242,6 +243,63 @@ public sealed class GraphicsCapture : IWindowCapturer
 		finally
 		{
 			Marshal.Release( result );
+		}
+	}
+
+	/// <summary>Asks Windows not to draw its yellow border around the captured window or screen, which would show the user an outline around every window
+	/// an agent looks at, since Loom draws its own frame there: <c>IGraphicsCaptureSession3.IsBorderRequired</c>, from Windows 11, which the SDK this
+	/// module builds against predates. Windows honors it only once the user allowed this app to capture without the border (<see cref="RequestBorderless"/>);
+	/// older Windows, or one the user said no on, keeps the border.</summary>
+	private static unsafe void HideBorder( GraphicsCaptureSession session )
+	{
+		RequestBorderless();
+		var sessionId = new Guid( "F2CDD966-22AE-5EA1-9596-3A289344C3BE" );
+		var unknown = MarshalInspectable<object>.FromManaged( session );
+		try
+		{
+			if ( Marshal.QueryInterface( unknown, in sessionId, out var third ) != 0 )
+				return;
+
+			try
+			{
+				// IInspectable's six methods, then get_IsBorderRequired and put_IsBorderRequired.
+				var put = (delegate* unmanaged[Stdcall]<nint, byte, int>)( *(nint**)third )[7];
+				_ = put( third, 0 );
+			}
+			finally
+			{
+				Marshal.Release( third );
+			}
+		}
+		finally
+		{
+			Marshal.Release( unknown );
+		}
+	}
+
+	/// <summary>Tracks whether this process asked the user for borderless capture already.</summary>
+	private static int s_isBorderlessAsked;
+
+	/// <summary>Asks the user, once per process, to let Loom capture without Windows' border: <c>GraphicsCaptureAccess.RequestAccessAsync(Borderless)</c>,
+	/// from Windows 11. Windows asks only the first time and remembers the answer; until the user answers, captures keep the border. Nothing happens
+	/// on Windows without it.</summary>
+	private static unsafe void RequestBorderless()
+	{
+		if ( Interlocked.Exchange( ref s_isBorderlessAsked, 1 ) != 0 )
+			return;
+
+		try
+		{
+			using var access = ActivationFactory.Get( "Windows.Graphics.Capture.GraphicsCaptureAccess", new Guid( "743ED370-06EC-5040-A58A-901F0F757095" ) );
+			// IGraphicsCaptureAccessStatics: IInspectable's six methods, then RequestAccessAsync( GraphicsCaptureAccessKind.Borderless = 0 ).
+			var request = (delegate* unmanaged[Stdcall]<nint, int, nint*, int>)( *(nint**)access.ThisPtr )[6];
+			nint operation;
+			if ( request( access.ThisPtr, 0, &operation ) == 0 )
+				Marshal.Release( operation );
+		}
+		catch ( Exception error ) when ( error is COMException or TypeLoadException or EntryPointNotFoundException )
+		{
+			// This Windows has no borderless capture.
 		}
 	}
 

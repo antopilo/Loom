@@ -4,7 +4,8 @@ using System.Runtime.Versioning;
 namespace Lokn.Modules.Remote;
 
 /// <summary>Shows a bar at the top of the screen while an agent uses this PC's windows, like the bars of other agents that control a computer: which
-/// window it uses, and a Stop button. Esc stops too, for as long as the bar shows.</summary>
+/// window it uses, and a Stop button, with Loom's glowing frame around that window (<see cref="ControlFrame"/>). Esc stops too, for as long as the bar
+/// shows.</summary>
 /// <remarks>
 /// The bar is a native top-most window on a thread of its own, so it shows over every app, on the screen of the window the agent uses, without taking
 /// the focus, and is left out of screen captures and streams. <see cref="Show"/> and <see cref="Hide"/> may be called from any thread; the stop
@@ -55,6 +56,15 @@ internal sealed unsafe partial class ControlBar : IDisposable
 	/// <summary>Stores whether the bar holds the Esc hot key.</summary>
 	private bool _hasEscape;
 
+	/// <summary>Defines the id of the timer that moves the frame's light, and its period in milliseconds.</summary>
+	private const int FrameTimer = 2, FramePeriod = 33;
+
+	/// <summary>Stores the frame around the agent's window, or null before the bar's window exists.</summary>
+	private ControlFrame? _frame;
+
+	/// <summary>Measures the time the frame's light has been moving since the bar showed.</summary>
+	private readonly System.Diagnostics.Stopwatch _clock = new();
+
 	/// <summary>Creates the bar, hidden, on its own thread.</summary>
 	/// <param name="stop">Runs when the user stops the agent; on the bar's thread.</param>
 	internal ControlBar( Action stop )
@@ -100,6 +110,8 @@ internal sealed unsafe partial class ControlBar : IDisposable
 	/// <summary>Creates the window and pumps its messages until it closes.</summary>
 	private void Run()
 	{
+		// Screen pixels everywhere, so the bar and the frame line up with the window on any screen's scale.
+		SetThreadDpiAwarenessContext( -4 /* DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 */ );
 		const string name = "LoknControlBar";
 		fixed ( char* className = name )
 		{
@@ -113,6 +125,8 @@ internal sealed unsafe partial class ControlBar : IDisposable
 			RegisterClassExW( &windowClass );
 			// Top-most, not in the taskbar or Alt+Tab, and never activated, so the app the agent uses keeps the focus.
 			_window = CreateWindowExW( 0x00000008 | 0x00000080 | 0x08000000, className, className, 0x80000000, 0, 0, BarWidth, BarHeight, 0, 0, windowClass.Instance, 0 );
+			if ( _window != 0 )
+				_frame = new ControlFrame( className, windowClass.Instance, Accent );
 		}
 		if ( _window != 0 )
 			SetWindowDisplayAffinity( _window, 0x11 /* WDA_EXCLUDEFROMCAPTURE */ );
@@ -165,9 +179,13 @@ internal sealed unsafe partial class ControlBar : IDisposable
 			case 0x000F /* WM_PAINT */:
 				bar.Paint();
 				return 0;
+			case 0x0113 /* WM_TIMER */ when wParam == FrameTimer:
+				bar.Animate();
+				return 0;
 			case 0x0002 /* WM_DESTROY */:
 				if ( bar._hasEscape )
 					UnregisterHotKey( window, EscapeKey );
+				bar._frame?.Dispose();
 				PostQuitMessage( 0 );
 				return 0;
 		}
@@ -195,12 +213,30 @@ internal sealed unsafe partial class ControlBar : IDisposable
 		InvalidateRect( _window, null, 0 );
 		if ( !_hasEscape )
 			_hasEscape = RegisterHotKey( _window, EscapeKey, 0x4000 /* MOD_NOREPEAT */, 0x1B /* VK_ESCAPE */ ) != 0;
+		if ( !_clock.IsRunning )
+		{
+			_clock.Restart();
+			SetTimer( _window, FrameTimer, FramePeriod, 0 );
+		}
+		Animate();
 	}
 
-	/// <summary>Hides the bar and gives Esc back to the apps.</summary>
+	/// <summary>Moves the frame's light and keeps the frame on the agent's window, which may have moved.</summary>
+	private void Animate()
+	{
+		nint target;
+		lock ( _lock )
+			target = _target;
+		_frame?.Update( target, _scale, _clock.Elapsed.TotalSeconds );
+	}
+
+	/// <summary>Hides the bar and the frame, and gives Esc back to the apps.</summary>
 	private void Conceal()
 	{
 		ShowWindow( _window, 0 /* SW_HIDE */ );
+		KillTimer( _window, FrameTimer );
+		_clock.Reset();
+		_frame?.Hide();
 		if ( _hasEscape )
 		{
 			UnregisterHotKey( _window, EscapeKey );
@@ -466,6 +502,18 @@ internal sealed unsafe partial class ControlBar : IDisposable
 	/// <summary>Frees a hot key.</summary>
 	[LibraryImport( "user32.dll" )]
 	private static partial int UnregisterHotKey( nint window, int id );
+
+	/// <summary>Starts a timer that posts WM_TIMER to a window.</summary>
+	[LibraryImport( "user32.dll" )]
+	private static partial nuint SetTimer( nint window, nuint id, uint milliseconds, nint callback );
+
+	/// <summary>Stops a window's timer.</summary>
+	[LibraryImport( "user32.dll" )]
+	private static partial int KillTimer( nint window, nuint id );
+
+	/// <summary>Sets how the calling thread's windows see the screen's scale.</summary>
+	[LibraryImport( "user32.dll" )]
+	private static partial nint SetThreadDpiAwarenessContext( nint context );
 
 	/// <summary>Moves, sizes and orders a window.</summary>
 	[LibraryImport( "user32.dll" )]
