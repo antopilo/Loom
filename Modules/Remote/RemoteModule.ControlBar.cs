@@ -58,6 +58,8 @@ public sealed partial class RemoteModule
 		_controlAt = DateTime.UtcNow;
 		_isControlShown = true;
 		bar.Show( use.Title, use.Hwnd );
+		if ( use.Kind == AgentWindowUse.Click )
+			bar.Pulse();
 	} );
 
 	/// <summary>Hides the bar once the agent's chat no longer works, or after <see cref="ControlIdle"/> without an action.</summary>

@@ -415,6 +415,12 @@ internal sealed class AgentWindowTools : IDisposable
 		var shown = DescribeShown( context, window );
 		EnsureControllable( window );
 		var size = ReadSize( window );
+		// The pointer glides to a click or scroll, as a hand would, so the user sees where the agent goes; checks' hooks take input without a pointer.
+		if ( _hooks?.Inject is null && arguments.TryGetProperty( "x", out _ ) )
+		{
+			var (toX, toY) = ReadPoint( arguments, size );
+			await FindInjector( window ).GlideAsync( toX, toY, size.Width, size.Height, context.Cancellation );
+		}
 		var (isSent, x, y, done) = act( window, size );
 		if ( !isSent )
 			throw new InvalidOperationException( $"Windows did not let Loom send input to \"{window.Title}\": it is closed, or could not be brought to the front. Call window_capture to check it." );

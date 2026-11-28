@@ -119,29 +119,8 @@ public sealed class InputInjector( nint window )
 		if ( input.Kind == StreamInput.Key )
 			return SendKey( input.Vk, input.IsDown );
 
-		if ( frameWidth <= 0 || frameHeight <= 0 )
+		if ( !TryMapToScreen( input.X, input.Y, frameWidth, frameHeight, out var screen ) )
 			return false;
-
-		StreamNative.NativePoint screen;
-		if ( isScreen )
-		{
-			if ( ScreenCatalog.Find( window ) is not { } found )
-				return false;
-
-			var bounds = found.Bounds;
-			var point = ComputeClientPoint( input.X, input.Y, frameWidth, frameHeight, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top );
-			screen = new StreamNative.NativePoint { X = bounds.Left + point.X, Y = bounds.Top + point.Y };
-		}
-		else
-		{
-			if ( !StreamNative.GetClientRect( window, out var client ) )
-				return false;
-
-			var point = ComputeClientPoint( input.X, input.Y, frameWidth, frameHeight, client.Right - client.Left, client.Bottom - client.Top );
-			screen = new StreamNative.NativePoint { X = point.X, Y = point.Y };
-			if ( !StreamNative.ClientToScreen( window, ref screen ) )
-				return false;
-		}
 
 		var desktop = (Left: StreamNative.GetSystemMetrics( StreamNative.VirtualScreenLeft ), Top: StreamNative.GetSystemMetrics( StreamNative.VirtualScreenTop ),
 			Width: StreamNative.GetSystemMetrics( StreamNative.VirtualScreenWidth ), Height: StreamNative.GetSystemMetrics( StreamNative.VirtualScreenHeight ));
@@ -174,6 +153,74 @@ public sealed class InputInjector( nint window )
 		};
 		return StreamNative.SendInput( 1, [mouse], Marshal.SizeOf<StreamNative.Input>() ) == 1;
 	}
+
+	/// <summary>Maps a point in frame pixels to a screen point in physical pixels, clamped inside the window's client area or the screen.</summary>
+	/// <returns>False when the frame size is unknown or the window or screen is gone.</returns>
+	private bool TryMapToScreen( double x, double y, int frameWidth, int frameHeight, out StreamNative.NativePoint screen )
+	{
+		screen = default;
+		if ( frameWidth <= 0 || frameHeight <= 0 )
+			return false;
+
+		if ( ScreenCatalog.IsScreen( window ) )
+		{
+			if ( ScreenCatalog.Find( window ) is not { } found )
+				return false;
+
+			var bounds = found.Bounds;
+			var point = ComputeClientPoint( x, y, frameWidth, frameHeight, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top );
+			screen = new StreamNative.NativePoint { X = bounds.Left + point.X, Y = bounds.Top + point.Y };
+			return true;
+		}
+
+		if ( !StreamNative.GetClientRect( window, out var client ) )
+			return false;
+
+		var inClient = ComputeClientPoint( x, y, frameWidth, frameHeight, client.Right - client.Left, client.Bottom - client.Top );
+		screen = new StreamNative.NativePoint { X = inClient.X, Y = inClient.Y };
+		return StreamNative.ClientToScreen( window, ref screen );
+	}
+
+	/// <summary>Moves the real pointer to a point in frame pixels along a smooth eased path, as a person's hand would, so the user can follow where an
+	/// agent goes; the input that follows lands where it ends. Short hops take less time than long ones.</summary>
+	/// <returns>False when the point cannot be mapped to the screen.</returns>
+	public async Task<bool> GlideAsync( double x, double y, int frameWidth, int frameHeight, CancellationToken cancellation )
+	{
+		StreamNative.NativePoint target, start;
+		using ( StreamNative.EnterPhysicalPixels() )
+		{
+			if ( !ScreenCatalog.Exists( window ) || !TryMapToScreen( x, y, frameWidth, frameHeight, out target ) || !GetPhysicalCursorPos( out start ) )
+				return false;
+		}
+
+		var distance = Math.Sqrt( Math.Pow( target.X - start.X, 2 ) + Math.Pow( target.Y - start.Y, 2 ) );
+		if ( distance < 2 )
+			return true;
+
+		var duration = Math.Clamp( 180 + distance * 0.35, 180, 520 );
+		var clock = System.Diagnostics.Stopwatch.StartNew();
+		// A slight bow, as a hand moves, rather than a ruler-straight line.
+		double nx = -(target.Y - start.Y) / distance, ny = (target.X - start.X) / distance, bow = Math.Min( 40, distance * 0.08 );
+		while ( true )
+		{
+			var t = Math.Min( 1, clock.Elapsed.TotalMilliseconds / duration );
+			var eased = t < 0.5 ? 4 * t * t * t : 1 - Math.Pow( -2 * t + 2, 3 ) / 2;
+			var arc = Math.Sin( Math.PI * eased ) * bow;
+			SetPhysicalCursorPos( (int)Math.Round( start.X + (target.X - start.X) * eased + nx * arc ), (int)Math.Round( start.Y + (target.Y - start.Y) * eased + ny * arc ) );
+			if ( t >= 1 )
+				return true;
+
+			await Task.Delay( 8, cancellation );
+		}
+	}
+
+	/// <summary>Reads the pointer's position in physical pixels.</summary>
+	[DllImport( "user32.dll" )]
+	private static extern bool GetPhysicalCursorPos( out StreamNative.NativePoint point );
+
+	/// <summary>Moves the pointer to a position in physical pixels.</summary>
+	[DllImport( "user32.dll" )]
+	private static extern bool SetPhysicalCursorPos( int x, int y );
 
 	/// <summary>Determines whether the foreground window is the streamed window or one it owns, such as its menu or dialog.</summary>
 	private bool IsForeground()

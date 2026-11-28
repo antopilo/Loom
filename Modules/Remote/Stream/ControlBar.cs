@@ -21,7 +21,7 @@ internal sealed unsafe partial class ControlBar : IDisposable
 	private const int ButtonWidth = 92;
 
 	/// <summary>Defines the messages the bar's thread takes from other threads.</summary>
-	private const uint ShowMessage = 0x8001, HideMessage = 0x8002;
+	private const uint ShowMessage = 0x8001, HideMessage = 0x8002, PulseMessage = 0x8003;
 
 	/// <summary>Defines the id of the Esc hot key.</summary>
 	private const int EscapeKey = 1;
@@ -57,10 +57,13 @@ internal sealed unsafe partial class ControlBar : IDisposable
 	private bool _hasEscape;
 
 	/// <summary>Defines the id of the timer that moves the frame's light, and its period in milliseconds.</summary>
-	private const int FrameTimer = 2, FramePeriod = 33;
+	private const int FrameTimer = 2, FramePeriod = 16;
 
 	/// <summary>Stores the frame around the agent's window, or null before the bar's window exists.</summary>
 	private ControlFrame? _frame;
+
+	/// <summary>Stores the mark around the pointer, or null before the bar's window exists.</summary>
+	private ControlPointer? _pointer;
 
 	/// <summary>Measures the time the frame's light has been moving since the bar showed.</summary>
 	private readonly System.Diagnostics.Stopwatch _clock = new();
@@ -98,6 +101,13 @@ internal sealed unsafe partial class ControlBar : IDisposable
 			PostMessageW( _window, HideMessage, 0, 0 );
 	}
 
+	/// <summary>Starts a ripple at the pointer, for a click the agent made.</summary>
+	internal void Pulse()
+	{
+		if ( _window != 0 )
+			PostMessageW( _window, PulseMessage, 0, 0 );
+	}
+
 	/// <summary>Closes the bar's window and ends its thread.</summary>
 	public void Dispose()
 	{
@@ -128,7 +138,10 @@ internal sealed unsafe partial class ControlBar : IDisposable
 			// Top-most, not in the taskbar or Alt+Tab, and never activated, so the app the agent uses keeps the focus.
 			_window = CreateWindowExW( 0x00000008 | 0x00000080 | 0x08000000, className, className, 0x80000000, 0, 0, BarWidth, BarHeight, 0, 0, windowClass.Instance, 0 );
 			if ( _window != 0 )
+			{
 				_frame = new ControlFrame( className, windowClass.Instance, Accent );
+				_pointer = new ControlPointer( className, windowClass.Instance, Accent );
+			}
 		}
 		if ( _window != 0 )
 			SetWindowDisplayAffinity( _window, 0x11 /* WDA_EXCLUDEFROMCAPTURE */ );
@@ -153,6 +166,9 @@ internal sealed unsafe partial class ControlBar : IDisposable
 
 		switch ( message )
 		{
+			case PulseMessage:
+				bar._pointer?.Pulse();
+				return 0;
 			case ShowMessage:
 				bar.Place();
 				return 0;
@@ -188,6 +204,7 @@ internal sealed unsafe partial class ControlBar : IDisposable
 				if ( bar._hasEscape )
 					UnregisterHotKey( window, EscapeKey );
 				bar._frame?.Dispose();
+				bar._pointer?.Dispose();
 				PostQuitMessage( 0 );
 				return 0;
 		}
@@ -230,6 +247,7 @@ internal sealed unsafe partial class ControlBar : IDisposable
 		lock ( _lock )
 			target = _target;
 		_frame?.Update( target, _scale, _clock.Elapsed.TotalSeconds );
+		_pointer?.Update( _scale );
 	}
 
 	/// <summary>Hides the bar and the frame, and gives Esc back to the apps.</summary>
@@ -239,6 +257,7 @@ internal sealed unsafe partial class ControlBar : IDisposable
 		KillTimer( _window, FrameTimer );
 		_clock.Reset();
 		_frame?.Hide();
+		_pointer?.Hide();
 		if ( _hasEscape )
 		{
 			UnregisterHotKey( _window, EscapeKey );
