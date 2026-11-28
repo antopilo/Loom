@@ -674,10 +674,98 @@
 				return;
 			}
 			const figure = event.target.closest?.( figures );
-			if ( figure && !event.target.closest( "a, .cite" ) )
+			// Using an interactive piece, such as dragging a compare handle or picking a tab, is not a comment.
+			if ( figure && !event.target.closest( "a, .cite, .compare, .tab-bar" ) )
 				open( { about: describe( figure ), element: figure }, figure.getBoundingClientRect() );
 		} );
 		body.append( card, tray, chip );
 	}
 	body.append( panel, cog );
+
+	// Compare: <div class="compare" data-a="Before" data-b="After"><img src="a"><img src="b"></div>. Dragging, clicking or the arrow keys move the
+	// split; the second image shows right of it.
+	for ( const compare of document.querySelectorAll( ".compare" ) )
+	{
+		const handle = document.createElement( "div" );
+		handle.className = "compare-handle";
+		compare.append( handle );
+		for ( const side of ["a", "b"] )
+		{
+			if ( !compare.dataset[side] )
+				continue;
+			const label = document.createElement( "span" );
+			label.className = "compare-label " + side;
+			label.textContent = compare.dataset[side];
+			compare.append( label );
+		}
+		compare.tabIndex = 0;
+		compare.setAttribute( "role", "slider" );
+		compare.setAttribute( "aria-label", "Compare " + ( compare.dataset.a || "first" ) + " and " + ( compare.dataset.b || "second" ) );
+		const set = share => {
+			share = Math.min( 1, Math.max( 0, share ) );
+			compare.style.setProperty( "--split", share * 100 + "%" );
+			compare.setAttribute( "aria-valuenow", Math.round( share * 100 ) );
+			compare.dataset.split = share;
+		};
+		set( parseFloat( compare.dataset.start ?? "0.5" ) );
+		const follow = event => {
+			const box = compare.getBoundingClientRect();
+			set( ( event.clientX - box.left ) / box.width );
+		};
+		compare.addEventListener( "pointerdown", event => {
+			compare.setPointerCapture( event.pointerId );
+			follow( event );
+		} );
+		compare.addEventListener( "pointermove", event => {
+			if ( compare.hasPointerCapture( event.pointerId ) )
+				follow( event );
+		} );
+		compare.addEventListener( "keydown", event => {
+			const step = event.key === "ArrowLeft" ? -0.05 : event.key === "ArrowRight" ? 0.05 : 0;
+			if ( step )
+			{
+				set( parseFloat( compare.dataset.split ) + step );
+				event.preventDefault();
+			}
+		} );
+	}
+
+	// Tabs: <div class="tabs"><section data-tab="Before">…</section><section data-tab="After">…</section></div>. Flip: <div class="flip"><img
+	// data-tab="A" src="a"><img data-tab="B" src="b"></div>, the same with a compact switch, for swapping images in place. Each gets a bar of
+	// buttons; one child shows at a time.
+	for ( const group of document.querySelectorAll( ".tabs, .flip" ) )
+	{
+		const panes = [...group.children].filter( child => child.dataset.tab !== undefined );
+		if ( panes.length < 2 )
+			continue;
+		const bar = document.createElement( "div" );
+		bar.className = "tab-bar";
+		bar.setAttribute( "role", "tablist" );
+		const buttons = panes.map( ( pane, index ) => {
+			const button = document.createElement( "button" );
+			button.type = "button";
+			button.setAttribute( "role", "tab" );
+			button.textContent = pane.dataset.tab || String.fromCharCode( 65 + index );
+			button.addEventListener( "click", () => show( index ) );
+			bar.append( button );
+			return button;
+		} );
+		const show = index => panes.forEach( ( pane, at ) => {
+			pane.hidden = at !== index;
+			buttons[at].setAttribute( "aria-selected", at === index );
+			buttons[at].tabIndex = at === index ? 0 : -1;
+		} );
+		bar.addEventListener( "keydown", event => {
+			const at = buttons.indexOf( document.activeElement );
+			const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+			if ( at >= 0 && step )
+			{
+				const next = ( at + step + buttons.length ) % buttons.length;
+				show( next );
+				buttons[next].focus();
+			}
+		} );
+		group.prepend( bar );
+		show( Math.max( 0, panes.findIndex( pane => pane.hasAttribute( "data-selected" ) ) ) );
+	}
 } )();

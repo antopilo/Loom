@@ -156,8 +156,23 @@ internal sealed partial class BrowserTab
 			parameters = new { format = "png", captureBeyondViewport = true, clip };
 		}
 
-		var shot = await CallAsync( "Page.captureScreenshot", parameters );
-		return Convert.FromBase64String( shot.GetProperty( "data" ).GetString() ?? "" );
+		if ( selector is null && !isFullPage )
+		{
+			var view = await CallAsync( "Page.captureScreenshot", parameters );
+			return Convert.FromBase64String( view.GetProperty( "data" ).GetString() ?? "" );
+		}
+
+		// captureBeyondViewport resizes the page's view for the shot, and WebView2 can keep that size afterwards: the page then stops matching its
+		// panel and no longer scrolls with the wheel. Clearing the override gives the view back to the panel.
+		try
+		{
+			var shot = await CallAsync( "Page.captureScreenshot", parameters );
+			return Convert.FromBase64String( shot.GetProperty( "data" ).GetString() ?? "" );
+		}
+		finally
+		{
+			await CallAsync( "Emulation.clearDeviceMetricsOverride", new { } );
+		}
 	}
 
 	/// <summary>Describes how a navigation ended for an agent.</summary>
