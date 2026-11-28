@@ -96,8 +96,11 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 			rows.Add( new( "empty", SidebarRows.RowGap, () => SidebarRows.BuildEmpty( message ) ) );
 		}
 
-		var selected = module.GetSelected( context.App );
-		var selectedId = selected is { } active && active.HostId == host.Id ? active.ConversationId : (Guid?)null;
+		// An open project overview is the selection, like an open task: its project's heading is the selected row, and no chat is.
+		var overview = module.GetSelectedOverview( context.App );
+		var selected = overview is null ? module.GetSelected( context.App ) : null;
+		var selectedId = overview is { } page ? (page.HostId == host.Id ? page.ProjectId : (Guid?)null)
+			: selected is { } active && active.HostId == host.Id ? active.ConversationId : (Guid?)null;
 		var children = new List<Blob>
 		{
 			SidebarRows.BuildActions( actions ),

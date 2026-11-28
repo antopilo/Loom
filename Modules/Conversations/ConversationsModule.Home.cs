@@ -75,6 +75,21 @@ public sealed partial class ConversationsModule
 		return bare == ChatsKey ? Hosts.Find( hostId ) : null;
 	}
 
+	/// <summary>Reads the host and project whose overview a session key stands for: <c>overview:&lt;project&gt;</c> on This PC, with <c>@&lt;host&gt;</c> on a
+	/// paired host (the Overview module's keys); null for any other session.</summary>
+	internal static (string HostId, Guid ProjectId)? ReadOverviewSession( string? key )
+	{
+		if ( key is null || !key.StartsWith( OverviewPrefix, StringComparison.Ordinal ) )
+			return null;
+
+		var rest = key[OverviewPrefix.Length..];
+		var at = rest.IndexOf( '@' );
+		return Guid.TryParseExact( at < 0 ? rest : rest[..at], "N", out var id ) ? (at < 0 ? LoknHost.LocalId : rest[(at + 1)..], id) : null;
+	}
+
+	/// <summary>Gets the project whose overview is open, as the sidebar's selection, or null when another session is open.</summary>
+	internal (string HostId, Guid ProjectId)? GetSelectedOverview( LoknApplication app ) => ReadOverviewSession( FindWorkspaces( app )?.CurrentSession );
+
 	/// <summary>Reports whether a session key belongs to one host: a chat's, a project's or the chats outside projects; Home, the feed and other sessions belong to every host.</summary>
 	private static bool IsHostSession( string key )
 	{
