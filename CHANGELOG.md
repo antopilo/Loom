@@ -7,6 +7,11 @@ version being packed. Write for users: what changed for them, not how.
 
 - **An emoji for every chat.** Chats get an emoji that matches their subject, picked with their title, shown before the title in the
   sidebar and the tabs. **Tidy chats** gives a project's chats new ones.
+- **Splits stay put.** Chats shown side by side stay together as one row in the sidebar wherever you are, and opening one of them
+  goes to the split instead of pulling it out.
+- **Project icons after the name.** A project's icon now follows its name in the sidebar.
+- **Galleries and video in reports.** Reports lay out several images or videos as a gallery, and videos play in Loom's own player:
+  short clips loop silently, longer ones play on click, with a seek bar and full screen on double-click.
 
 ## 0.4.33
 
