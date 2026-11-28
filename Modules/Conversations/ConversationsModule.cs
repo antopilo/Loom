@@ -506,17 +506,27 @@ public sealed partial class ConversationsModule(
 			OpenConversationAt( app, dragged, pane.Id, PanelPlacement.Right );
 	}
 
-	/// <summary>Lists the chats shown on screen now, in pane order: two or more read as one split row in the sidebar.</summary>
-	internal List<(ChatRef Chat, Guid PanelId)> ComputeShownChats( LoknApplication app )
+	/// <summary>Lists the splits: the chats each workspace shows side by side, in pane order, two or more per split, whether or not that workspace is on
+	/// screen, so a split reads as one row in the sidebar wherever the user is. A chat lives in one place: the first split that shows it keeps it.</summary>
+	internal List<List<(ChatRef Chat, Guid PanelId)>> ComputeSplits( LoknApplication app )
 	{
 		var panels = FindPanels( app );
-		var shown = new List<(ChatRef Chat, Guid PanelId)>();
-		foreach ( var pane in app.Panels.Panes )
+		ChatRef? ChatOf( Guid id ) => panels.FirstOrDefault( item => item.Id == id ).Panel is { IsEmpty: false, Chat: { } chat } ? chat : null;
+		IEnumerable<IReadOnlyList<Guid>> layouts = FindWorkspaces( app ) is { } workspaces
+			? workspaces.ListShownPanels( app ).Select( session => session.Panels )
+			: [[.. app.Panels.Panes.Select( pane => pane.PanelId ).OfType<Guid>()]];
+		var splits = new List<List<(ChatRef Chat, Guid PanelId)>>();
+		var placed = new HashSet<ChatRef>();
+		foreach ( var layout in layouts )
 		{
-			if ( pane.PanelId is { } id && panels.FirstOrDefault( item => item.Id == id ).Panel is { IsEmpty: false, Chat: { } chat } )
-				shown.Add( (chat, id) );
+			var split = layout.Select( id => (Chat: ChatOf( id ), PanelId: id) ).Where( item => item.Chat is { } chat && !placed.Contains( chat ) )
+				.Select( item => (item.Chat!.Value, item.PanelId) ).ToList();
+			if ( split.Count < 2 )
+				continue;
+			placed.UnionWith( split.Select( item => item.Item1 ) );
+			splits.Add( split );
 		}
-		return shown;
+		return splits;
 	}
 
 	/// <summary>Opens a new conversation panel on a chat's host, in the active pane.</summary>

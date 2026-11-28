@@ -182,26 +182,27 @@ internal sealed partial class HistoryContent
 	}
 
 	/// <summary>Adds a list's chats inset under their project's name, its tools' tasks left out; each keeps its place among the listed ones for dragging.</summary>
-	/// <remarks>Chats shown side by side on screen merge into one row split in two, as Arc shows a split view, at the place of the first of them; their
-	/// own rows give way to it.</remarks>
+	/// <remarks>Chats a workspace shows side by side merge into one row split in two, as Arc shows a split view, at the place of the first of them, whether
+	/// or not that workspace is on screen; their own rows give way to it.</remarks>
 	/// <param name="indent">How far the rows are inset, such as <see cref="SidebarRows.ChildIndent"/>.</param>
 	private void AddChats( IEnumerable<ConversationInfo> conversations, string list, int indent, List<SidebarRow> rows )
 	{
 		var listed = conversations.Where( conversation => !IsToolTask( conversation ) ).ToList();
-		var split = module.ComputeShownChats( context.App )
-			.Where( shown => shown.Chat.HostId == Host.Id && listed.Any( conversation => conversation.Id == shown.Chat.ConversationId ) ).ToList();
-		var isSplitShown = false;
+		var splits = module.ComputeSplits( context.App )
+			.Select( split => split.Where( shown => shown.Chat.HostId == Host.Id && listed.Any( conversation => conversation.Id == shown.Chat.ConversationId ) ).ToList() )
+			.Where( split => split.Count >= 2 ).ToList();
+		var added = new HashSet<int>();
 		var index = 0;
 		foreach ( var conversation in listed )
 		{
 			var place = index++;
-			if ( split.Count >= 2 && split.Any( shown => shown.Chat.ConversationId == conversation.Id ) )
+			var at = splits.FindIndex( split => split.Any( shown => shown.Chat.ConversationId == conversation.Id ) );
+			if ( at >= 0 )
 			{
-				if ( !isSplitShown )
+				if ( added.Add( at ) )
 				{
-					isSplitShown = true;
-					var pair = split.Select( shown => (listed.First( item => item.Id == shown.Chat.ConversationId ), shown.PanelId) ).ToList();
-					rows.Add( new( "split:" + list, SidebarRows.RowGap, () => BuildSplitRow( pair, indent ) ) );
+					var pair = splits[at].Select( shown => (listed.First( item => item.Id == shown.Chat.ConversationId ), shown.PanelId) ).ToList();
+					rows.Add( new( $"split:{list}:{pair[0].Item2:N}", SidebarRows.RowGap, () => BuildSplitRow( pair, indent ) ) );
 				}
 				continue;
 			}
@@ -234,7 +235,9 @@ internal sealed partial class HistoryContent
 		{
 			if ( halves.Count > 0 )
 				halves.Add( new Container { Width = 4, FlexShrink = 0 } );
-			var half = BuildSplitTile( "half:" + panelId, conversation.Title, panelId == active, () => context.App.Panels.Activate( panelId ) );
+			// A half opens the workspace that holds the split, wherever it is, and focuses that chat in it.
+			var half = BuildSplitTile( "half:" + panelId, conversation.Title, panelId == active,
+				() => module.SelectConversation( context.App, Host.Ref( conversation.Id ) ) );
 			half.DragSource = new DragSource( _ =>
 			{
 				context.Run( () => (_draggedHalf.Value, _isHalfInside.Value) = (panelId, true) );
@@ -248,7 +251,7 @@ internal sealed partial class HistoryContent
 			} ) );
 			halves.Add( half );
 		}
-		return BuildSplitFrame( "split", indent, chats.Any( item => item.PanelId == active ), halves, new DropTarget(
+		return BuildSplitFrame( "split:" + chats[0].PanelId.ToString( "N" ), indent, chats.Any( item => item.PanelId == active ), halves, new DropTarget(
 			drop => drop.Data.Value is SplitHalfDrag ? DragEffect.Move : DragEffect.None,
 			drop => context.Run( () =>
 			{

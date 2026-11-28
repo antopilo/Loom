@@ -142,6 +142,23 @@ public sealed partial class ConversationsModule
 			return conversation.HasChat ? OpenConversation( app, chat ) : Guid.Empty;
 
 		Select( conversation.Profile, chat );
+		// A chat lives in one place: one on screen, or held in another task's workspace (as half of a split), is shown there, not pulled into its own.
+		var holder = conversation.HasChat ? FindPanels( app ).FirstOrDefault( item => item.Panel.Chat == chat ).Id : Guid.Empty;
+		if ( holder != Guid.Empty && app.Panels.IsShown( holder ) )
+		{
+			app.Panels.Activate( holder );
+			return holder;
+		}
+		if ( holder != Guid.Empty && workspaces.FindSession( app, holder ) is { } held && held != ConversationSession( chat )
+			&& workspaces.Sessions.FirstOrDefault( session => session.Key == held ) is { } elsewhere )
+		{
+			workspaces.OpenSession( app, held, elsewhere.Title, () => app.Panels.HideAll() );
+			FollowSessionHost( app );
+			workspaces.ShowWorkspaceOf( app, holder );
+			app.Panels.Activate( holder );
+			return holder;
+		}
+
 		workspaces.OpenSession( app, ConversationSession( chat ), conversation.Title, () =>
 		{
 			if ( conversation.HasChat )

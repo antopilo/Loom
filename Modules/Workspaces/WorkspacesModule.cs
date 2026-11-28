@@ -175,6 +175,10 @@ public sealed partial class WorkspacesModule : ILoknModule, IPanelPlaces
 	/// <summary>Finds the session a hidden panel belongs to: the most recently opened one whose saved workspaces hold it, or null.</summary>
 	public string? FindSession( LoknApplication app, Guid panelId ) => Store.FindSession( app.Panels, panelId );
 
+	/// <summary>Lists the panels each session shows in its current workspace, in layout order, the live layout for the session on screen; reading it during
+	/// a build rebuilds the reader when a layout changes.</summary>
+	public IReadOnlyList<(string Session, IReadOnlyList<Guid> Panels)> ListShownPanels( LoknApplication app ) => Store.ListShownPanels( app.Panels );
+
 	/// <summary>Switches to the workspace of the current session whose saved layout holds a hidden panel, so it shows where the user left it.</summary>
 	/// <returns>Whether the panel is on screen now.</returns>
 	public bool ShowWorkspaceOf( LoknApplication app, Guid panelId )

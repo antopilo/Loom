@@ -389,6 +389,33 @@ internal sealed class WorkspaceStore( string path )
 		_sessions.Any( pair => pair.Value.Items.Any( item => (pair.Key != _session || item.Id != pair.Value.Current)
 			&& Holds( panels, item, first ) && Holds( panels, item, second ) ) );
 
+	/// <summary>Lists the panels each session shows in its current workspace, in layout order: the live layout for the current session, the saved one for
+	/// the others. Reading it during a build rebuilds the reader when a layout is saved or switched.</summary>
+	internal IReadOnlyList<(string Session, IReadOnlyList<Guid> Panels)> ListShownPanels( PanelWorkspace panels )
+	{
+		_ = _version.Value;
+		static IEnumerable<Guid> ListPanels( DockNode node ) => node switch
+		{
+			DockPane { PanelId: { } id } => [id],
+			DockSplit split => ListPanels( split.First ).Concat( ListPanels( split.Second ) ),
+			_ => [],
+		};
+
+		var result = new List<(string, IReadOnlyList<Guid>)>();
+		foreach ( var (key, session) in _sessions )
+		{
+			if ( key == _session )
+			{
+				result.Add( (key, [.. ListPanels( panels.Root )]) );
+				continue;
+			}
+
+			if ( session.Items.FirstOrDefault( item => item.Id == session.Current ) is { Layout: { } layout } && PanelWorkspace.ReadLayoutTree( layout ) is { } tree )
+				result.Add( (key, [.. ListPanels( tree ).Select( panels.ResolvePanelId )]) );
+		}
+		return result;
+	}
+
 	/// <summary>Reports whether a saved workspace's layout holds a panel, following reload renames.</summary>
 	private static bool Holds( PanelWorkspace panels, SavedWorkspace workspace, Guid panelId )
 	{
