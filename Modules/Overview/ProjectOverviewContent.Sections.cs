@@ -7,7 +7,7 @@ using Lokn.Modules.Workspaces;
 
 namespace Lokn.Modules.Overview;
 
-/// <summary>Lays out the body of a project's brief as Dia's Morning Brief does: Top to-dos, each with a check circle; New updates, numbered; and Your
+/// <summary>Lays out the body of a project's brief: Top to-dos, each with a check circle; New updates, numbered; and Your
 /// day, a timeline of the day's chats beside the one picked, with a sticker that opens it.</summary>
 /// <remarks>Every source is mixed in: the project's chats, designs and reports, and the items other modules add (<see cref="BriefSection"/>), each
 /// item with its source in its line.</remarks>
@@ -22,7 +22,7 @@ internal sealed partial class ProjectOverviewContent
 	/// <summary>Defines the most characters of a chat's last message a description shows.</summary>
 	private const int DescriptionLength = 170;
 
-	/// <summary>Gets the sticker's fill: the theme's accent, as Dia's yellow is its own.</summary>
+	/// <summary>Gets the sticker's fill: the theme's accent.</summary>
 	private static Color StickerColor => BriefPaper.Current.Accent;
 
 	/// <summary>Gets the sticker's ink, readable on the accent under every theme.</summary>
@@ -359,7 +359,7 @@ internal sealed partial class ProjectOverviewContent
 		};
 	}
 
-	/// <summary>Builds Dia's yellow sticker: a sixteen-point burst made of four turned squares, with an italic label, which runs an action.</summary>
+	/// <summary>Builds the sticker: a sixteen-point burst in the accent, made of four turned squares, with an italic label, which runs an action.</summary>
 	private Button BuildSticker( string label, Action action )
 	{
 		const double size = 82;

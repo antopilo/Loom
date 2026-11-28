@@ -71,8 +71,8 @@ its own session, like a chat's: it fills the window, and the layout you leave it
 next time. The palette's **Project overview** opens the page of the project you are in, or a
 list of projects to choose from.
 
-The page reads like Dia's morning brief, printed in the paper and ink of Loom's report kit
-(dark paper under a dark theme, white under a light one):
+The page reads like a morning paper, printed in the paper and ink of your theme, with its accent
+for the title and the sticker:
 
 - **Top**: the project's name, folder and branch, then the day's painting under **The
   &lt;day&gt; Brief**, with the date and the time along the side margins when the window is wide.
@@ -85,7 +85,7 @@ The page reads like Dia's morning brief, printed in the paper and ink of Loom's 
 - **Prompt bar**: type and press Enter to start a chat in the project with what you typed, or
   Ctrl+Enter to make a task named after it.
 
-Under them, as in Dia's Morning Brief, each section has its title in italic on the left. Items
+Under them, each section has its title in italic on the left. Items
 from every source mix: the project's chats, designs and reports, and what other modules add, such
 as **Pull requests** from GitHub when the project's `origin` remote is on GitHub. Each item shows a
 bold headline, its source's icon, its source and state in italic, and a line under it (a chat's

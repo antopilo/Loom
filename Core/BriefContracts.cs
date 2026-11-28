@@ -5,7 +5,7 @@ namespace Lokn.Core;
 /// <remarks>
 /// <para>The page calls <see cref="Read"/> on the UI thread every time it builds, so it must return at once with what the module already holds; fetch
 /// anything else in the background and keep it in a Goo <c>State</c> that <see cref="Read"/> reads, so the page builds again when it changes.</para>
-/// <para>The brief mixes the items of every source, as Dia's Morning Brief does: items that need the user go under Top to-dos, the others under New
+/// <para>The brief mixes the items of every source: items that need the user go under Top to-dos, the others under New
 /// updates by their <see cref="BriefItem.Time"/>, each with the section's title in its source line. Items also reach the small model that writes the
 /// line under the painting. A section's <see cref="BriefContent.Empty"/> note and its links show under New updates; an exception from
 /// <see cref="Read"/> shows there as a note.</para>

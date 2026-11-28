@@ -299,7 +299,7 @@ A project's brief (the Overview module's page) takes items from other modules: c
 `BriefProject` (the project's id, name, folder, host, profile, branch, `origin` remote, and the
 brief's panel) and returns a `BriefContent` with `BriefItem`s (headline, short state, `Description`,
 `Time`, icon, an `Open` action, and `NeedsYou`), an `Empty` note and `BriefLink`s, or null to add
-nothing. The brief mixes every source as Dia's Morning Brief does: items that need the user go under
+nothing. The brief mixes every source: items that need the user go under
 **Top to-dos**, the others under **New updates** by `Time` (an item with no time and no need shows
 nowhere), each with the section's `Title` and the item's state as its source line; notes and links
 follow New updates. The page calls `Read` on the UI thread on every build, so return what the module

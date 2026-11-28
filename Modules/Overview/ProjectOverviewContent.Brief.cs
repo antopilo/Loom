@@ -6,7 +6,7 @@ using Lokn.Modules.Projects;
 
 namespace Lokn.Modules.Overview;
 
-/// <summary>Draws the top of a project's brief, after Dia's morning brief: the day's painting under "The &lt;day&gt; Brief", the date and time set
+/// <summary>Draws the top of a project's brief: the day's painting under "The &lt;day&gt; Brief", the date and time set
 /// along the margins, and one line on what matters in the project, written by the profile's small model.</summary>
 /// <remarks>The clock ticks on the minute; each tick also changes the painting at midnight and asks for a new line once the last one is
 /// <see cref="BriefLifetime"/> old, or <see cref="BriefRewrite"/> old when what waits or works in the project changed. Until a line comes, or
@@ -19,8 +19,8 @@ internal sealed partial class ProjectOverviewContent
 	/// <summary>Defines how soon a line is asked for again when the project's waiting or working chats changed.</summary>
 	private static readonly TimeSpan BriefRewrite = TimeSpan.FromMinutes( 10 );
 
-	/// <summary>Defines the hero title's color, the yellow of Dia's brief, which the shade behind it keeps readable on every painting.</summary>
-	private static readonly Color TitleColor = Color.Parse( "#ffec00" );
+	/// <summary>Gets the hero title's color, the theme's accent, which the shade behind it keeps readable on every painting.</summary>
+	private static Color TitleColor => BriefPaper.Current.Accent;
 
 	/// <summary>Defines how dark the shade behind the hero title is at its middle, as black's opacity.</summary>
 	private const double TitleShade = 0.32;

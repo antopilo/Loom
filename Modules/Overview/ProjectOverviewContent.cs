@@ -9,7 +9,7 @@ using Lokn.Modules.Workspaces;
 
 namespace Lokn.Modules.Overview;
 
-/// <summary>Shows one project's brief, after Dia's morning brief: the day's painting and a line on what matters, a prompt bar, then cards with its
+/// <summary>Shows one project's brief: the day's painting and a line on what matters, a prompt bar, then cards with its
 /// chats and tasks by what they are doing, its designs and reports, and the sections other modules add (<see cref="BriefSection"/>), such as pull requests.</summary>
 /// <remarks>
 /// The lists follow the stores live: reading chats, working state, questions, notifications and reports during the build rebuilds the page when they change.
@@ -589,8 +589,8 @@ internal sealed partial class ProjectOverviewContent : PanelContent
 		TextWrap = TextWrap.Wrap,
 	};
 
-	/// <summary>Builds one item row of a section on the paper: wide, a left column with the section's title on the first row, or the item's number,
-	/// beside the item, unless the item takes the full width; narrow, the number before the item.</summary>
+	/// <summary>Builds one item row of a section on the paper: wide, a left column with the section's title on the first row, or the item's number set
+	/// against the column's right edge so it sits beside the item, unless the item takes the full width; narrow, the number before the item.</summary>
 	private static Container BuildSectionRow( string? title, bool isTop, string? number, SectionStyle style, Blob content, PageLayout layout )
 	{
 		var body = new Container { Key = "body", FlexGrow = 1, MinWidth = 0, Children = [content] };
@@ -598,7 +598,8 @@ internal sealed partial class ProjectOverviewContent : PanelContent
 			: number is not null ? new Text { Key = "number", Content = number, FontFamily = ViewStyle.CodeFontFamily, FontSize = 10, Color = BriefPaper.Current.Ink3, Padding = new Edges( 5, 0, 0, 0 ) }
 			: null;
 		Blob[] children = style == SectionStyle.Full ? [body]
-			: layout.IsWide ? [new Container { Key = "aside", Width = AsideWidth, FlexShrink = 0, Children = aside is null ? [] : [aside] }, body]
+			: layout.IsWide ? [new Container { Key = "aside", Width = AsideWidth, FlexShrink = 0, AlignItems = title is null ? AlignItems.FlexEnd : AlignItems.Stretch,
+				Padding = new Edges( 0, title is null ? 16 : 0, 0, 0 ), Children = aside is null ? [] : [aside] }, body]
 			: aside is null ? [body]
 			: [new Container { Key = "aside", Width = 30, FlexShrink = 0, Children = [aside] }, body];
 		return new Container
