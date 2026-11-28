@@ -112,6 +112,7 @@ internal sealed partial class HistoryContent( PanelContext context, Conversation
 		ReleaseWorktreeWatches();
 		return new Container
 		{
+			OnPointerMove = UpdateStrayHalfDrag,
 			AccessibilityRole = AccessibilityRole.Group,
 			AccessibilityName = "Conversation history",
 			FlexGrow = 1,

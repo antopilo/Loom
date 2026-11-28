@@ -223,6 +223,16 @@ internal sealed partial class HistoryContent
 	/// <param name="PanelId">The half's panel.</param>
 	private sealed record SplitHalfDrag( Guid PanelId );
 
+	/// <summary>Ends a split half's drag: the row shows both halves again and the ghost goes.</summary>
+	private void EndHalfDrag() => (_draggedHalf.Value, _isHalfInside.Value, _halfPointer.Value) = (Guid.Empty, true, null);
+
+	/// <summary>Ends a split half's drag that Goo never reported ending, once the pointer moves over the sidebar with no button held: a drag holds one.</summary>
+	private void UpdateStrayHalfDrag( PointerEvent pointer )
+	{
+		if ( _draggedHalf.Value != Guid.Empty && pointer.Buttons == default )
+			context.Run( EndHalfDrag );
+	}
+
 	/// <summary>Builds one row split into a half per chat shown side by side; clicking a half focuses its chat, and dragging a half out of the row takes
 	/// its chat out of the split, the row showing it gone while the pointer is outside and back while it returns.</summary>
 	private Blob BuildSplitRow( IReadOnlyList<(ConversationInfo Conversation, Guid PanelId)> chats, int indent )
@@ -244,8 +254,11 @@ internal sealed partial class HistoryContent
 				return new DragData( new SplitHalfDrag( panelId ), DragEffect.Move );
 			}, _ => context.Run( () =>
 			{
+				// The drag's look ends first, so a failing close cannot leave the row showing one half in its frame.
+				var isOut = !_isHalfInside.Value && _draggedHalf.Value == panelId;
+				EndHalfDrag();
 				// Let go outside the row, the chat leaves the split: its panel closes and the other chat fills the space; the chat stays in the list.
-				if ( !_isHalfInside.Value && _draggedHalf.Value == panelId )
+				if ( isOut )
 					context.App.Panels.Close( panelId );
 				(_draggedHalf.Value, _isHalfInside.Value) = (Guid.Empty, true);
 			} ) );

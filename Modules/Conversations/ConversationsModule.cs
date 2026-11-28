@@ -519,8 +519,9 @@ public sealed partial class ConversationsModule(
 		var placed = new HashSet<ChatRef>();
 		foreach ( var layout in layouts )
 		{
+			// A chat two panels of one layout show counts once, so it never reads as a split with itself.
 			var split = layout.Select( id => (Chat: ChatOf( id ), PanelId: id) ).Where( item => item.Chat is { } chat && !placed.Contains( chat ) )
-				.Select( item => (item.Chat!.Value, item.PanelId) ).ToList();
+				.Select( item => (item.Chat!.Value, item.PanelId) ).DistinctBy( item => item.Item1 ).ToList();
 			if ( split.Count < 2 )
 				continue;
 			placed.UnionWith( split.Select( item => item.Item1 ) );
