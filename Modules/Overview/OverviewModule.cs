@@ -51,9 +51,10 @@ public sealed class OverviewModule : ILoknModule
 		Open( app, project, at < 0 ? LoknHost.LocalId : path[(at + 1)..] );
 	}
 
-	/// <summary>Opens a project's overview as its own page: the overview session of the project, which shows the overview alone, full window, the
-	/// first time, then as the user left it. Without a project it opens the open session's project, else a page that lists the projects.</summary>
-	/// <remarks>Without the Workspaces module there are no sessions, so the overview opens as a panel in the current layout.</remarks>
+	/// <summary>Opens a project's overview as its own page: the overview session of the project, which always shows the overview alone, full window.
+	/// Without a project it opens the open session's project, else a page that lists the projects.</summary>
+	/// <remarks>Without the Workspaces module there are no sessions, so the overview opens as a panel in the current layout. Anything the page's layout
+	/// picked up, such as a chat opened beside it, is hidden, not closed, so it stays where else it lives.</remarks>
 	/// <param name="app">The application.</param>
 	/// <param name="projectId">The project, or null for the open session's.</param>
 	/// <param name="hostId">The host the project is on, or null for the open session's host.</param>
@@ -62,27 +63,33 @@ public sealed class OverviewModule : ILoknModule
 		if ( projectId is null && ComputeSessionProject( app ) is { } current )
 			(projectId, hostId) = current;
 		hostId ??= app.Hosts.Current.Id;
+		_panels.RemoveAll( panel => panel.IsClosed );
 		if ( projectId is { } id && FindWorkspaces( app ) is { } workspaces )
 		{
 			var name = app.GetModule<ConversationsModule>().Hosts.Find( hostId )?.Projects.Find( id )?.Name ?? "Project";
 			// The host is current before the layout opens, so panels the page opens without a host of their own open on it.
 			app.Hosts.SetCurrent( hostId );
-			workspaces.OpenSession( app, SessionKey( id, hostId ), $"{name} overview", () =>
+			workspaces.OpenSession( app, SessionKey( id, hostId ), $"{name} overview", () => { } );
+			var page = _panels.FirstOrDefault( panel => panel.ProjectId == projectId && panel.ProjectHostId == hostId && app.Panels.IsShown( panel.Id ) );
+			if ( page is not null && app.Panels.Panels.Count( panel => app.Panels.IsShown( panel.Id ) ) == 1 )
 			{
-				app.Panels.HideAll();
+				app.Panels.Activate( page.Id );
+				return;
+			}
+			// The page shows its overview alone: everything else on it is hidden, and its own overview, open or hidden, fills the window.
+			var own = page ?? _panels.FirstOrDefault( panel => panel.ProjectId == projectId && panel.ProjectHostId == hostId );
+			app.Panels.HideAll();
+			if ( own is null || !app.Panels.Show( own.Id, app.Panels.ActivePaneId ) )
 				app.Panels.Open( PanelType, input: projectId, hostId: hostId );
-			} );
+			return;
 		}
 
-		// The page's own overview is the one its layout shows; an overview hidden in another session, such as one opened before pages existed,
-		// stays there rather than joining this page beside it.
-		_panels.RemoveAll( panel => panel.IsClosed );
 		if ( _panels.FirstOrDefault( panel => panel.ProjectId == projectId && panel.ProjectHostId == hostId && app.Panels.IsShown( panel.Id ) ) is { } open )
 		{
 			app.Panels.Activate( open.Id );
 			return;
 		}
-		// The user closed the overview on its page, or there are no sessions: it opens in the current layout.
+		// There are no sessions: it opens in the current layout.
 		app.Panels.Open( PanelType, input: projectId, hostId: hostId );
 	}
 
