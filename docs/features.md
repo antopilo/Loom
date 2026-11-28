@@ -659,7 +659,9 @@ feed; module updates show **Apply now**, which reloads those modules. If you do 
 update applies the next time Loom starts. A module update that does not match your version of
 Loom is never loaded: the previous version keeps running.
 
-**Updates: check for updates** in the palette checks at once and says what it found. Under
-Settings › Updates, **Check for updates automatically** turns the background checks off, and
-**Update source** picks where updates come from: a GitHub repository, a web address or a
-folder. A Loom run from a build takes no updates.
+**Updates: check for updates** in the palette checks at once and says what it found. The
+**Check for updates** button on Settings › Updates does the same and shows the result in
+that tab. A ready update also posts its notice with the chime, so you can update from the
+notification feed instead. **Check for updates automatically** turns the background checks
+off, and **Update source** picks where updates come from: a GitHub repository, a web address
+or a folder. A Loom run from a build takes no updates.

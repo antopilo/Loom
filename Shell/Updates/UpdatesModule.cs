@@ -61,6 +61,30 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	/// <summary>Defines how often a waiting update checks whether the agents finished.</summary>
 	private static readonly TimeSpan _waitInterval = TimeSpan.FromSeconds( 2 );
 
+	/// <summary>Says where an update check started, which decides what its outcome shows.</summary>
+	internal enum CheckOrigin
+	{
+		/// <summary>The background timer, which announces a new version once.</summary>
+		Background,
+
+		/// <summary>The Updates: check for updates command, which always announces its outcome and reports a failure.</summary>
+		Command,
+
+		/// <summary>The Check for updates button on the Settings page, which shows its outcome there and posts a ready update's notice with its chime.</summary>
+		Settings,
+	}
+
+	/// <summary>Holds what the last update check found, for the Settings page.</summary>
+	/// <param name="CheckedAt">When the last check finished, or null before one finished.</param>
+	/// <param name="IsChecking">Whether a check runs now.</param>
+	/// <param name="AppVersion">The Loom version downloaded and waiting for a restart, or null.</param>
+	/// <param name="Modules">The module updates staged and waiting to apply.</param>
+	/// <param name="Error">Why the last check could not start or failed, or null.</param>
+	internal sealed record UpdateStatus( DateTimeOffset? CheckedAt, bool IsChecking, string? AppVersion, IReadOnlyList<ModuleRelease> Modules, string? Error );
+
+	/// <summary>Stores what the last check found; the Settings page reads it while it builds, so the page rebuilds when a check ends.</summary>
+	private readonly Goo.State<UpdateStatus> _status = new( new UpdateStatus( null, false, null, [], null ) );
+
 	/// <summary>Gets the module identifier.</summary>
 	public string Id => "updates";
 
@@ -68,7 +92,7 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	public string Title => "Updates";
 
 	/// <summary>Gets the running Loom version, such as 0.2.0.</summary>
-	private static string CurrentVersion => typeof( UpdatesModule ).Assembly.GetName().Version?.ToString( 3 ) ?? "?";
+	internal static string CurrentVersion => typeof( UpdatesModule ).Assembly.GetName().Version?.ToString( 3 ) ?? "?";
 
 	/// <summary>Registers the settings, the check command, routes for notification buttons, and the What's new panel type.</summary>
 	public void Register( ModuleBuilder builder )
@@ -77,7 +101,7 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 			.Setting( Automatic )
 			.Setting( Source )
 			.PanelOnly( "whats-new", "What's new", WhatsNewPanel.Create )
-			.Command( "check", "Updates: check for updates", _ => StartCheck( isManual: true ) )
+			.Command( "check", "Updates: check for updates", _ => StartCheck( CheckOrigin.Command ) )
 			.Route( "restart", request => RequestRestart( request.App, isForced: false ) )
 			.Route( "restart-when-idle", request => WaitForAgents( request.App ) )
 			.Route( "restart-now", request => RequestRestart( request.App, isForced: true ) )
@@ -91,7 +115,7 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 		_gate = new UpdateGate( () => CountWorking( context.App ), () => Restart( context.App ) );
 		host.Refused += ReportRefused;
 		if ( Installation.IsInstalled )
-			_timer = new( _ => context.Post( () => StartCheck( isManual: false ) ), null, _firstCheck, _interval );
+			_timer = new( _ => context.Post( () => StartCheck( CheckOrigin.Background ) ), null, _firstCheck, _interval );
 		// Show the What's new panel on startup if this is an upgrade.
 		context.Post( () => WhatsNewPanel.TryOpenOnStartup( context.App ) );
 	}
@@ -108,54 +132,73 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 		host.Refused -= ReportRefused;
 	}
 
-	/// <summary>Reads the settings on the UI thread and starts a check in the background; a manual check always reports its outcome.</summary>
-	private void StartCheck( bool isManual )
+	/// <summary>Gets what the last update check found, for the Settings page.</summary>
+	internal UpdateStatus Status => _status.Value;
+
+	/// <summary>Runs a check for the Settings page's Check for updates button; its outcome shows there, and a ready update also posts its notice with the chime.</summary>
+	internal void Check() => StartCheck( CheckOrigin.Settings );
+
+	/// <summary>Restarts into the downloaded Loom for the Settings page, asking first when agents work on This PC.</summary>
+	internal void RestartLoom( LoknApplication app ) => RequestRestart( app, isForced: false );
+
+	/// <summary>Moves the staged module updates into use for the Settings page.</summary>
+	internal void ApplyModuleUpdates( LoknApplication app ) => ApplyModules( app );
+
+	/// <summary>Reads the settings on the UI thread and starts a check in the background; the origin decides what its outcome shows.</summary>
+	private void StartCheck( CheckOrigin origin )
 	{
 		if ( _context is not { Lifetime.IsCancellationRequested: false } context )
 			return;
 
 		var app = context.App;
-		if ( !isManual && !app.Settings.Get( Automatic ) )
+		if ( origin == CheckOrigin.Background && !app.Settings.Get( Automatic ) )
 			return;
 
 		if ( !Installation.IsInstalled )
 		{
-			if ( isManual )
-				Post( app, "Updates work only in an installed Loom. This one runs from a build." );
+			Refuse( app, origin, "Updates work only in an installed Loom. This one runs from a build." );
 			return;
 		}
 
 		if ( UpdateFeed.Parse( app.Settings.Get( Source ) ) is not { } feed )
 		{
-			if ( isManual )
-				Post( app, "No update source is set. Set one under Settings › Updates." );
+			Refuse( app, origin, "No update source is set. Set one under Settings › Updates." );
 			return;
 		}
 
 		if ( Interlocked.Exchange( ref _isChecking, 1 ) == 1 )
 			return;
 
-		_ = Task.Run( () => CheckAsync( feed, context, isManual ) );
+		_status.Value = _status.Value with { IsChecking = true, Error = null };
+		_ = Task.Run( () => CheckAsync( feed, context, origin ) );
 	}
 
-	/// <summary>Downloads a new Loom, or else the module updates that fit, and announces what waits.</summary>
-	private async Task CheckAsync( UpdateFeed feed, ModuleContext context, bool isManual )
+	/// <summary>Shows why a check did not start: a notice for the command, the Settings status for its button, and nothing for a background check.</summary>
+	private void Refuse( LoknApplication app, CheckOrigin origin, string message )
+	{
+		if ( origin == CheckOrigin.Command )
+			Post( app, message );
+		else if ( origin == CheckOrigin.Settings )
+			_status.Value = _status.Value with { Error = message };
+	}
+
+	/// <summary>Downloads a new Loom, or else the module updates that fit, and reports what waits or why the check failed.</summary>
+	private async Task CheckAsync( UpdateFeed feed, ModuleContext context, CheckOrigin origin )
 	{
 		try
 		{
 			var version = await _appUpdater.DownloadAsync( feed, context.Lifetime ).ConfigureAwait( false );
 			var modules = version is null ? await _moduleUpdater.StageAsync( feed, context, context.Lifetime ).ConfigureAwait( false ) : [];
-			context.Post( () => Announce( context.App, version, modules, isManual ) );
+			context.Post( () => Announce( context.App, version, modules, origin ) );
 		}
 		catch ( OperationCanceledException ) when ( context.Lifetime.IsCancellationRequested )
 		{
 		}
 		catch ( Exception error )
 		{
-			// A background check fails quietly, such as when offline; a manual one shows why.
+			// A background check fails quietly, such as when offline; a command or the Settings page shows why.
 			UpdateLog( $"FAILED check: {error.Message}" );
-			if ( isManual )
-				context.Post( () => context.App.ReportError( "Updates", error ) );
+			context.Post( () => Fail( context.App, error, origin ) );
 		}
 		finally
 		{
@@ -163,28 +206,53 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 		}
 	}
 
-	/// <summary>Posts what waits to the notification feed, once per version unless the user asked.</summary>
-	private void Announce( LoknApplication app, string? version, IReadOnlyList<ModuleRelease> modules, bool isManual )
+	/// <summary>Says which Loom version waits for a restart; the notice and the Settings page both show it.</summary>
+	internal static string AppReadyMessage( string version ) => $"Loom {version} is ready. Restart Loom to use it.";
+
+	/// <summary>Says which module updates wait to apply; the notice and the Settings page both show it.</summary>
+	internal static string ModulesReadyMessage( IReadOnlyList<ModuleRelease> modules )
 	{
+		var names = string.Join( ", ", modules.Select( module => $"{ReadTitle( module.Name )} {module.Version}" ) );
+		return $"Module updates are ready: {names}. They apply the next time Loom starts.";
+	}
+
+	/// <summary>Says that Loom and its modules are current; the notice and the Settings page both show it.</summary>
+	internal static string UpToDateMessage => $"Loom {CurrentVersion} and its modules are up to date.";
+
+	/// <summary>Records what the check found for the Settings page, then posts what waits as ShouldNotify allows.</summary>
+	private void Announce( LoknApplication app, string? version, IReadOnlyList<ModuleRelease> modules, CheckOrigin origin )
+	{
+		_status.Value = new UpdateStatus( DateTimeOffset.Now, false, version, modules, null );
 		if ( version is not null )
 		{
-			if ( isManual || version != _announcedApp )
-				Post( app, $"Loom {version} is ready. Restart Loom to use it.", new NotificationAction( "Restart now", LoknLinks.Create( Id, "restart" ) ) );
+			if ( ShouldNotify( origin, version != _announcedApp ) )
+				Post( app, AppReadyMessage( version ), new NotificationAction( "Restart now", LoknLinks.Create( Id, "restart" ) ) );
 			_announcedApp = version;
 			return;
 		}
 
 		if ( modules.Count > 0 )
 		{
-			var names = string.Join( ", ", modules.Select( module => $"{ReadTitle( module.Name )} {module.Version}" ) );
-			if ( isManual || names != _announcedModules )
-				Post( app, $"Module updates are ready: {names}. They apply the next time Loom starts.", new NotificationAction( "Apply now", LoknLinks.Create( Id, "apply-modules" ) ) );
-			_announcedModules = names;
+			var message = ModulesReadyMessage( modules );
+			if ( ShouldNotify( origin, message != _announcedModules ) )
+				Post( app, message, new NotificationAction( "Apply now", LoknLinks.Create( Id, "apply-modules" ) ) );
+			_announcedModules = message;
 			return;
 		}
 
-		if ( isManual )
-			Post( app, $"Loom {CurrentVersion} and its modules are up to date." );
+		if ( origin == CheckOrigin.Command )
+			Post( app, UpToDateMessage );
+	}
+
+	/// <summary>Tells whether a check's result is posted: a command and the Settings button always, a background check when it changed.</summary>
+	private static bool ShouldNotify( CheckOrigin origin, bool isChanged ) => origin != CheckOrigin.Background || isChanged;
+
+	/// <summary>Records a failed check for the Settings page; a command also reports it as an error.</summary>
+	private void Fail( LoknApplication app, Exception error, CheckOrigin origin )
+	{
+		_status.Value = _status.Value with { IsChecking = false, Error = $"Could not check for updates: {error.Message}" };
+		if ( origin == CheckOrigin.Command )
+			app.ReportError( "Updates", error );
 	}
 
 	/// <summary>Restarts into the downloaded version when no agent works on This PC, or when <paramref name="isForced"/>; otherwise asks whether to update
@@ -254,6 +322,7 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	private void ApplyModules( LoknApplication app )
 	{
 		_announcedModules = "";
+		_status.Value = _status.Value with { Modules = [] };
 		if ( host.ApplyStaged() == 0 )
 			Post( app, "No module updates are waiting." );
 	}
@@ -276,7 +345,7 @@ internal sealed class UpdatesModule( ModuleHost host ) : ILoknModule
 	}
 
 	/// <summary>Reads a module's name from its assembly name, such as Git from <c>Lokn.Modules.Git</c>.</summary>
-	private static string ReadTitle( string assemblyName ) => assemblyName.StartsWith( "Lokn.Modules.", StringComparison.Ordinal ) ? assemblyName["Lokn.Modules.".Length..] : assemblyName;
+	internal static string ReadTitle( string assemblyName ) => assemblyName.StartsWith( "Lokn.Modules.", StringComparison.Ordinal ) ? assemblyName["Lokn.Modules.".Length..] : assemblyName;
 
 	/// <summary>Appends one timestamped line to the updates log; a logging failure is ignored.</summary>
 	private static void UpdateLog( string line )
