@@ -287,6 +287,9 @@ public static partial class MarkdownView
 	/// </remarks>
 	private static List<InlineRun> ParseInlineRuns( string text )
 	{
+		// Every inline run comes from here, so this is where emoji Goo cannot draw are replaced.
+		text = EmojiGuard.Guard( text );
+
 		var pieces = new List<MaskedPiece>();
 		var masked = MaskInline( text, pieces );
 		var runs = new List<InlineRun>();

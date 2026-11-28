@@ -3,6 +3,14 @@
 Each release's section becomes its release notes: `scripts/installer.ps1` passes the section whose heading is the
 version being packed. Write for users: what changed for them, not how.
 
+## 0.4.33
+
+- **No more crashes on some emoji.** A few emoji with very detailed artwork, such as the horse, the knot and family emoji, closed Loom
+  when a chat, a project icon or a label showed them. Loom now shows a plain stand-in for those instead.
+- **Agents use Loom's own windows.** Agents open terminals and pages in Loom's panels instead of outside windows, and always see the
+  report, browser and terminal tools.
+- **Notifications stay in reach.** The bell's list scrolls inside its popover again, so Clear read is always visible.
+
 ## 0.4.32
 
 - **Drag anything from the sidebar.** Drag a chat, a task, a project's Files, Git or Terminal icon, or the Files and Notifications

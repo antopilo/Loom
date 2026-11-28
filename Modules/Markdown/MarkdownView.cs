@@ -778,6 +778,8 @@ public static partial class MarkdownView
 	/// <summary>Builds the colored spans of one code line, cut like <see cref="ViewStyle.CutCodeLine"/> when it is too long to lay out.</summary>
 	private static TextSpan[] BuildHighlightedLine( string line, CodeHighlighter.Grammar grammar, ref bool isInComment )
 	{
+		line = EmojiGuard.Guard( line );
+
 		var length = ViewStyle.ComputeCodeLineLength( line );
 		var spans = CodeHighlighter.BuildSpans( line[..length], grammar, ref isInComment );
 		if ( length < line.Length )

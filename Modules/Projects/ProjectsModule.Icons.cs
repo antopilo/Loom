@@ -263,7 +263,7 @@ internal static class ProjectIcons
 		[
 			new Text
 			{
-				Content = emoji,
+				Content = EmojiGuard.Guard( emoji ),
 				FontFamily = ViewStyle.FontFamily,
 				FontSize = size * EmojiScale,
 				TextWrap = TextWrap.NoWrap,

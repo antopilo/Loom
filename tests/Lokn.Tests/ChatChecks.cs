@@ -42,6 +42,15 @@ internal static class ChatChecks
 		CoreChecks.Check( ChatContent.ReadFailure( failed ) == $"The model provider did not answer: Rate limit reached. Try again after {failed.CreatedAt.AddMinutes( 30 ).ToLocalTime():t}.", "A reply the provider failed says why and when to try again." );
 		CoreChecks.Check( ChatContent.DescribeProviderError( "connection reset", failedAt ) == "The model provider did not answer: connection reset", "A provider error without a JSON body shows as it is." );
 		CoreChecks.Check( ChatContent.ReadFailure( ChatContent.BuildStoredMessage( Guid.NewGuid(), Parse( """{"role":"assistant","content":[],"stopReason":"aborted","errorMessage":"Interrupted by user"}""" ) ) ) is null, "A reply the user stopped is not a provider failure." );
+		var knot = char.ConvertFromUtf32( 0x1FAA2 );
+		var family = char.ConvertFromUtf32( 0x1F468 ) + "‍" + char.ConvertFromUtf32( 0x1F469 ) + "‍" + char.ConvertFromUtf32( 0x1F467 );
+		var wave = char.ConvertFromUtf32( 0x1F44B );
+		CoreChecks.Check( EmojiGuard.Guard( $"a {knot} b" ) == "a □ b", "An emoji whose color glyph Goo cannot draw is replaced by a box." );
+		CoreChecks.Check( EmojiGuard.Guard( family ) == char.ConvertFromUtf32( 0x1F468 ) + char.ConvertFromUtf32( 0x1F469 ) + char.ConvertFromUtf32( 0x1F467 ), "A joined emoji sequence draws as its parts." );
+		CoreChecks.Check( EmojiGuard.Guard( wave + char.ConvertFromUtf32( 0x1F3FD ) ) == wave, "A skin tone modifier is dropped." );
+		var drawable = "Plain text " + wave + " ⚠️";
+		CoreChecks.Check( EmojiGuard.Guard( drawable ) == drawable, "Emoji Goo can draw pass through unchanged." );
+		CoreChecks.Check( string.Concat( MarkdownView.ParseInline( $"see {knot}" ).Select( span => span.Text ) ) == "see □", "Markdown text is guarded before it is drawn." );
 		var inline = MarkdownView.ParseInline( "Plain **bold** and *italic* with `code` and [link](https://example.com)." );
 		CoreChecks.Check( string.Concat( inline.Select( span => span.Text ) ) == "Plain bold and italic with code and link.", "Inline rendering removes syntax without losing visible text." );
 		CoreChecks.Check( ChatContent.ComposePrompt( "Review #1 ", [@"C:\My Files\shot.png", @"C:\src\a.cs", @"C:\b.JPG"] ) == "Review #1\n\n#1 @\"C:\\My Files\\shot.png\" @\"C:\\src\\a.cs\" #2 @\"C:\\b.JPG\"",

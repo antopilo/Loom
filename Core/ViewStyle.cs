@@ -143,6 +143,8 @@ public static class ViewStyle
 	/// <summary>Cuts a line that is too long to lay out and says how much was left out.</summary>
 	public static string CutCodeLine( string line )
 	{
+		line = EmojiGuard.Guard( line );
+
 		var length = ComputeCodeLineLength( line );
 		return length == line.Length ? line : $"{line[..length]} … {line.Length - length:N0} more characters not shown";
 	}
