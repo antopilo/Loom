@@ -22,11 +22,11 @@ internal sealed partial class ProjectOverviewContent
 	/// <summary>Defines the most characters of a chat's last message a description shows.</summary>
 	private const int DescriptionLength = 170;
 
-	/// <summary>Defines the sticker's yellow, Dia's.</summary>
-	private static readonly Color StickerColor = Color.Parse( "#f4d03f" );
+	/// <summary>Gets the sticker's fill: the theme's accent, as Dia's yellow is its own.</summary>
+	private static Color StickerColor => BriefPaper.Current.Accent;
 
-	/// <summary>Defines the sticker's ink, dark on its yellow under every theme.</summary>
-	private static readonly Color StickerInk = Color.Parse( "#2b2620" );
+	/// <summary>Gets the sticker's ink, readable on the accent under every theme.</summary>
+	private static Color StickerInk => BriefPaper.Current.AccentInk;
 
 	/// <summary>Stores the chat picked in Your day, or null for the default: the one at work, else the latest.</summary>
 	private readonly State<string?> _dayPick = new( null );

@@ -87,25 +87,23 @@ internal sealed record Painting( string Resource, string Title, string Artist, s
 /// <param name="Rule">Hairlines and outlines.</param>
 /// <param name="Card">The tint of a section's card on the page.</param>
 /// <param name="Hover">The fill of a row under the pointer.</param>
-internal sealed record BriefPaper( Color Paper, Color Ink, Color Ink2, Color Ink3, Color Rule, Color Card, Color Hover )
+/// <param name="Accent">The theme's accent, for the few marks that stand out, such as the sticker.</param>
+/// <param name="AccentInk">Text on <paramref name="Accent"/>: the darker or lighter of the paper and the ink, whichever reads better on it.</param>
+internal sealed record BriefPaper( Color Paper, Color Ink, Color Ink2, Color Ink3, Color Rule, Color Card, Color Hover, Color Accent, Color AccentInk )
 {
-	/// <summary>Defines the report kit's dark paper.</summary>
-	private static readonly BriefPaper Dark = Create( Color.Parse( "#1f1d1a" ), Color.Parse( "#efe8dc" ), Color.Parse( "#b3a99b" ), Color.Parse( "#7d7468" ) );
-
-	/// <summary>Defines the report kit's white paper.</summary>
-	private static readonly BriefPaper Light = Create( Color.Parse( "#f8f7f4" ), Color.Parse( "#222222" ), Color.Parse( "#666665" ), Color.Parse( "#9e9e9c" ) );
-
-	/// <summary>Gets the paper that fits the applied theme, and subscribes the building view to theme changes.</summary>
+	/// <summary>Gets the paper of the applied theme: its canvas as the page, its text, muted and inactive colors as the three inks, and its accent;
+	/// hairlines, cards and hover derive from the ink. Building views read it, so they follow theme changes.</summary>
 	public static BriefPaper Current
 	{
 		get
 		{
-			var panel = Theme.Current.Panel;
-			return 0.2126 * panel.R + 0.7152 * panel.G + 0.0722 * panel.B > 0.5 ? Light : Dark;
+			var theme = Theme.Current;
+			var ink = theme.Text;
+			var accentInk = Luminance( theme.Accent ) > 0.5 == Luminance( theme.Canvas ) > 0.5 ? ink : theme.Canvas;
+			return new( theme.Canvas, ink, theme.Muted, theme.Inactive, ink.WithAlpha( 0.22 ), ink.WithAlpha( 0.045 ), ink.WithAlpha( 0.08 ), theme.Accent, accentInk );
 		}
 	}
 
-	/// <summary>Derives the hairline, card and hover tints from the ink.</summary>
-	private static BriefPaper Create( Color paper, Color ink, Color ink2, Color ink3 ) =>
-		new( paper, ink, ink2, ink3, ink.WithAlpha( 0.22 ), ink.WithAlpha( 0.045 ), ink.WithAlpha( 0.08 ) );
+	/// <summary>Gets a color's relative brightness, 0 for black to 1 for white.</summary>
+	private static double Luminance( Color color ) => 0.2126 * color.R + 0.7152 * color.G + 0.0722 * color.B;
 }
