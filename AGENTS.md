@@ -87,6 +87,24 @@ The daemon, its clients and the protocol are in [docs/remote.md](docs/remote.md)
 runs an isolated daemon for checks; never start a daemon on the user's own data without asking. The daemon follows
 Settings › Modules (`modules.json`) and reloads rebuilt modules itself, but only once none of its chats' agents works.
 
+### Running your build: always `--bare`
+
+The user's own Loom (installed, `%LOCALAPPDATA%\Loom\current`) is usually open, and **you may be running inside it**. Only one Loom
+runs per data folder, so a plain `Loom.exe` you start just hands its arguments to the user's window and exits. Do not work around
+that: never kill, stop or restart the user's Loom to try your build, never wait for or poll its PID, and never point your build at
+`%LOCALAPPDATA%\Lokn`.
+
+To see or test your changes in a real window, start your build as a **bare instance** with its own data folder:
+
+1. Build: `pwsh scripts/build.ps1`.
+2. Start it in a Lokn terminal (`terminal_open`), not an outside window:
+   `& .\bin\Release\net10.0\Loom.exe --bare $env:TEMP\loom-dev` (Debug when `build.ps1` picked Debug).
+3. Its window title is **Loom (bare)**. It has its own chats, settings, logs, daemon and single-instance ID, never updates, and
+   changes nothing of the user's Loom. It starts empty: add a project or chat there to test.
+4. Several bare folders run side by side. Close the bare window when done; delete the folder to start fresh.
+
+`scripts/run.ps1 -Restart` and `reload-module.ps1` act on the **user's** Loom: they still need the go-ahead below.
+
 Three things need the user's go-ahead first, because they take over their desktop,
 their running app, or their users' copies of Loom:
 
