@@ -372,6 +372,19 @@ public sealed partial class ConversationsModule(
 		return chat;
 	}
 
+	/// <summary>Starts a chat in a new task of a project, in that task's own workspace, and sends <paramref name="prompt"/>; for places that are not a
+	/// task's workspace, such as a project's overview, where a chat opened in place would land beside it.</summary>
+	/// <returns>The chat.</returns>
+	public ChatRef StartConversationInNewTask( LoknApplication app, ChatHost host, string prompt, Guid? projectId )
+	{
+		var task = NewTask( app, host, projectId, "New chat" );
+		// Named like any new chat, so its first prompt names it; the task's workspace is current now, so the chat opens there.
+		host.Store.SetAutomaticTitle( task.ConversationId, "New chat", isGenerated: false );
+		host.Store.AddChat( task.ConversationId );
+		UpdateStart( app, task, prompt, null );
+		return task;
+	}
+
 	/// <summary>Opens a new conversation and sends its first prompt once its chat is in place.</summary>
 	/// <remarks>The prompt is also its draft, so it stays with the chat if it never reaches the agent; the chat gets the prompt itself rather than reading the draft back.</remarks>
 	private void UpdateStart( LoknApplication app, ChatRef chat, string prompt, Guid? panelId )

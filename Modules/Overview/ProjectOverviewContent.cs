@@ -305,7 +305,7 @@ internal sealed partial class ProjectOverviewContent : PanelContent
 		if ( isTask )
 			_conversations.NewTask( _context.App, host, project.Id, text.Split( '\n' )[0] );
 		else
-			_conversations.StartConversation( _context.App, host, text, project.Id );
+			_conversations.StartConversationInNewTask( _context.App, host, text, project.Id );
 	}
 
 	/// <summary>Reads the project's branch and <c>origin</c> remote with git on its host; a folder that is no repository leaves both empty.</summary>
