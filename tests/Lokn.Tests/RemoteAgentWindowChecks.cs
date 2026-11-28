@@ -45,7 +45,8 @@ internal static class RemoteAgentWindowChecks
 		CheckDaemonAndClient();
 		CheckLocalRole();
 		Console.WriteLine( "PASS remote agent windows: window_* tools follow remote.agent-windows and the role, match windows by id, title or process and refuse ambiguous ones, map clicks, keys and text to input in capture pixels, "
-			+ "window.show reaches the connection attached to the agent's chat and opens one stream panel beside the chat without taking the focus, reused on the next call, a local-role Loom opens it in process, "
+			+ "window.show reaches only paired connections attached to the agent's chat, Loom on this PC opens no stream panel in either role since its user sees the window and the control bar, "
+			+ "Loom on this PC learns which chat used which window, "
 			+ "and cap.agent reaches the connections that stream the window and Loom on this PC." );
 	}
 
@@ -211,13 +212,13 @@ internal static class RemoteAgentWindowChecks
 			CoreChecks.Check( ambiguous.IsError && ambiguous.Text.Contains( "101", StringComparison.Ordinal ) && ambiguous.Text.Contains( "202", StringComparison.Ordinal ),
 				"window_show refuses a window that matches several, listing their ids." );
 
+			var uses = new System.Collections.Concurrent.ConcurrentQueue<AgentWindowUse>();
+			void Record( AgentWindowUse use ) => uses.Enqueue( use );
+			AgentWindowActivity.Used += Record;
 			var shown = Call( "window_show", new { window = "Notes" }, chat.Id );
-			StreamContent? FindStream() => client.Panels.FindContent<StreamContent>()?.Content;
-			CoreChecks.Check( !shown.IsError && PumpUntil( () => FindStream()?.Window == Editor ), "window_show sends window.show to the Loom that shows the chat, which streams the window at once." );
-			var streamId = client.Panels.FindContent<StreamContent>()!.Value.Id;
-			CoreChecks.Check( client.Panels.IsShown( streamId ) && client.Panels.GetHostId( streamId ) == LoknHost.LocalId && client.Panels.ActivePaneId == chatPane
-				&& client.Panels.Panes.Count == 2,
-				"The stream panel opens beside the chat's panel on This PC, and the chat's pane keeps the focus." );
+			Settle();
+			CoreChecks.Check( !shown.IsError && client.Panels.FindContent<StreamContent>() is null && client.Panels.ActivePaneId == chatPane,
+				"window_show opens no stream panel in Loom on this PC, whose user sees the window on their own screen, under the control bar." );
 			CoreChecks.Check( Volatile.Read( ref deviceShows ) == 0, "window.show goes only to the connections attached to the chat." );
 
 			var captured = Call( "window_capture", new { window = Editor }, chat.Id );
@@ -226,8 +227,9 @@ internal static class RemoteAgentWindowChecks
 				&& captured.Text.Contains( $"{FakeCapturer.Width}×{FakeCapturer.Height}", StringComparison.Ordinal ),
 				"window_capture saves the capture in the daemon's screenshots folder and says its size." );
 			Settle();
-			CoreChecks.Check( PumpUntil( () => client.Panels.Panels.Count( panel => panel.TypeId == StreamPanel.TypeId ) == 1 ) && FindStream()?.Window == Editor,
-				"A second call for the same window reuses its stream panel." );
+			AgentWindowActivity.Used -= Record;
+			CoreChecks.Check( uses.Any( use => use is { Hwnd: Editor, Kind: AgentWindowUse.Capture } && use.Chat == chat.Id && use.Title.Length > 0 ),
+				"Loom on this PC learns which chat's agent used which window, by title, so its control bar names the window and stops that chat." );
 
 			// Input maps to the window in pixels of its last capture; a window never captured uses the size a capture would have.
 			var clicked = Call( "window_click", new { window = Editor, x = 10, y = 20, @double = true }, chat.Id );
@@ -257,11 +259,11 @@ internal static class RemoteAgentWindowChecks
 			var scrolled = Call( "window_scroll", new { window = Editor, x = 1, y = 1, delta = -2 }, chat.Id );
 			CoreChecks.Check( !scrolled.IsError && inputs.Any( item => item.Input is { Kind: StreamInput.Wheel, Delta: -240 } ), "window_scroll turns the wheel by 120 per notch." );
 
-			// With the chat not shown anywhere, window.show goes to Loom on this PC.
+			// With the chat not shown anywhere, Loom on this PC still opens no stream panel.
 			client.Panels.Close( chatPanel );
 			Settle();
-			CoreChecks.Check( !Call( "window_show", new { window = 303 }, Guid.NewGuid() ).IsError && PumpUntil( () => client.Panels.Panels.Count( panel => panel.TypeId == StreamPanel.TypeId ) == 2 ),
-				"window.show for a chat no Loom shows goes to Loom on this PC." );
+			CoreChecks.Check( !Call( "window_show", new { window = 303 }, Guid.NewGuid() ).IsError && client.Panels.Panels.All( panel => panel.TypeId != StreamPanel.TypeId ),
+				"window.show for a chat no Loom shows opens no stream panel on this PC either." );
 			_ = device.DisposeAsync();
 		}
 		finally
@@ -293,12 +295,8 @@ internal static class RemoteAgentWindowChecks
 			var pane = app.Panels.ActivePaneId;
 			var task = app.Tools.InvokeAsync( "window_show", JsonSerializer.SerializeToElement( new { window = Editor } ), chatPanel, CancellationToken.None );
 			Pump( queue );
-			CoreChecks.Check( task.IsCompletedSuccessfully && !task.Result.IsError && app.Panels.FindContent<StreamContent>() is { } found && found.Content.Window == Editor
-				&& app.Panels.IsShown( found.Id ) && app.Panels.ActivePaneId == pane,
-				"window_show in a local-role Loom opens the stream panel beside the calling panel in process, without taking the focus." );
-			_ = app.Tools.InvokeAsync( "window_show", JsonSerializer.SerializeToElement( new { window = Editor } ), chatPanel, CancellationToken.None );
-			Pump( queue );
-			CoreChecks.Check( app.Panels.Panels.Count( panel => panel.TypeId == StreamPanel.TypeId ) == 1, "Showing the same window again reuses its panel." );
+			CoreChecks.Check( task.IsCompletedSuccessfully && !task.Result.IsError && app.Panels.FindContent<StreamContent>() is null && app.Panels.ActivePaneId == pane,
+				"window_show in a local-role Loom opens no stream panel: the user sees the window on their own screen, under the control bar." );
 		}
 		finally
 		{

@@ -613,10 +613,11 @@ public sealed class RemoteClient
 	private const int MaxAddresses = 8;
 
 	/// <summary>Follows <c>window.show</c>: an agent of the host works with one of its windows, so a stream panel of it on this host opens beside the
-	/// chat's panel, or the one already open comes forward, without taking the focus.</summary>
+	/// chat's panel, or the one already open comes forward, without taking the focus. The daemon on this PC asks too, but the user sees those windows on
+	/// their own screen, with the control bar over them, so none opens.</summary>
 	private void ApplyWindowShow( JsonObject frame )
 	{
-		if ( IsStopped || Frame.ReadLong( frame, "hwnd" ) is not { } window )
+		if ( IsStopped || Kind == HostLinkKind.Daemon || Frame.ReadLong( frame, "hwnd" ) is not { } window )
 			return;
 
 		Guid? beside = Frame.ReadString( frame, "panel" ) is { } text && Guid.TryParseExact( text, "N", out var panel ) ? panel : null;
@@ -632,7 +633,8 @@ public sealed class RemoteClient
 			return;
 
 		double Read( string name ) => frame[name] is JsonValue value && value.TryGetValue<double>( out var number ) ? number : -1;
-		AgentWindowActivity.Raise( new( window, Frame.ReadString( frame, "kind" ) ?? "", Read( "x" ), Read( "y" ) ) );
+		Guid? chat = Frame.ReadString( frame, "chat" ) is { } text && Guid.TryParseExact( text, "N", out var id ) ? id : null;
+		AgentWindowActivity.Raise( new( window, Frame.ReadString( frame, "kind" ) ?? "", Read( "x" ), Read( "y" ), chat, Frame.ReadString( frame, "title" ) ?? "" ) );
 	}
 
 	/// <summary>Follows <c>host.addrs</c>, which the host pushes when its addresses change while this PC stays connected.</summary>

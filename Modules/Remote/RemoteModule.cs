@@ -356,6 +356,7 @@ public sealed partial class RemoteModule : ILoknModule
 		FollowLoginItem();
 		FollowRole();
 		StartWindowTools( app, dataFolder );
+		StartControlBar();
 		if ( _hooks is null && PairingProtocol.CanInstall && OperatingSystem.IsWindows() )
 			PairingProtocol.Install( app );
 	}
@@ -382,6 +383,7 @@ public sealed partial class RemoteModule : ILoknModule
 		_context?.App.Settings.Changed -= UpdateRole;
 		_context?.App.Settings.Changed -= UpdateWindowTools;
 		_windowTools?.Dispose();
+		StopControlBar();
 		_windowTools = null;
 		_context = null;
 	}
@@ -987,14 +989,12 @@ public sealed partial class RemoteModule : ILoknModule
 		tools.Publish( context.App.Settings.Get( AgentWindows, SettingsScope.Global ) && RunningRole is LocalRole or HostRole );
 	}
 
-	/// <summary>Shows a window an agent works with to the user: in the daemon, by <c>window.show</c> to the Loom that shows the agent's chat; in a
-	/// <c>local</c>-role Loom, in a stream panel beside the agent's panel. Answers whether a Loom window shows it.</summary>
+	/// <summary>Shows a window an agent works with to a paired device that watches the agent's chat: in the daemon, by <c>window.show</c>, which only
+	/// paired devices follow. The user of this PC sees the window on their own screen, under the control bar, so no stream panel opens here. Answers
+	/// whether the user sees it: always on this PC, else when a device shows the chat.</summary>
 	private bool ShowAgentWindow( AgentToolContext context, CaptureWindow window )
 	{
-		if ( Gateway is { } gateway )
-			return gateway.Chats?.ShowWindow( context.Conversation, window.Hwnd, window.Title ) > 0;
-
-		StreamPanel.Show( context.App, LoknHost.LocalId, context.Caller, window.Hwnd, window.Title );
+		Gateway?.Chats?.ShowWindow( context.Conversation, window.Hwnd, window.Title );
 		return true;
 	}
 

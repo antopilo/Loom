@@ -630,9 +630,9 @@ saved `workspace.*` settings to `shell.*` at startup. Workspaces (saved layouts)
 feature module and is always on.
 
 The Remote module's window tools (`window_list`, `window_show`, `window_capture`, `window_click`,
-`window_type`, `window_key`, `window_scroll`) let agents see and drive other desktop windows, which
-the user watches in a Window stream panel beside the chat; they are offered with `app.Tools.Offer`
-while `remote.agent-windows` is on ([Window tools](remote.md#window-tools)).
+`window_type`, `window_key`, `window_scroll`) let agents see and drive other desktop windows. The user of
+this PC sees them on screen under a control bar that stops the agent with Stop or Esc, and paired devices
+stream them; they are offered with `app.Tools.Offer` while `remote.agent-windows` is on ([Window tools](remote.md#window-tools)).
 
 ### Tool cards
 

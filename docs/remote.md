@@ -926,7 +926,7 @@ windows** in Remote access) is on, and only on Windows.
 | Tool | Arguments | Does |
 |---|---|---|
 | `window_list` | `{}` | The visible windows (`WindowCatalog`): `id` (the hwnd), `title`, `process`, `width`, `height` (client pixels). |
-| `window_show` | `{ window }` | Shows the window to the user live (below). |
+| `window_show` | `{ window }` | Shows the window to paired devices that watch the chat (below). |
 | `window_capture` | `{ window }` | Captures the window at most 1280 pixels wide as JPEG under `screenshots` in the host's data folder and answers the path and size; the agent reads the file to see it, as with `browser_screenshot`. It captures as streams do (Windows.Graphics.Capture, else `PrintWindow`), waiting up to 1 s for the first frame. |
 | `window_click` | `{ window, x, y, button?: left\|right\|middle, double? }` | Moves the pointer to the point and clicks. |
 | `window_type` | `{ window, text }` | Types the text as Unicode key input where the window's focus is; a line break presses Enter. |
@@ -940,6 +940,12 @@ capture would have now. Input goes through `InputInjector`, which brings the win
 closed, runs elevated while Loom does not, or could not be brought to the front is refused with an error. Each input
 tool waits 150 ms and answers a fresh capture.
 
-Every tool but `window_list` shows the window: in the daemon by `window.show` to the Loom that shows the agent's chat
-(Stream frames), in a `local`-role Loom by opening the stream panel in process (`LocalStreamSource`) beside the calling
-panel. Each action also goes to the window's viewers as `cap.agent`.
+Every tool but `window_list` shows the window to paired devices: in the daemon by `window.show` to the controlling
+connections attached to the agent's chat (Stream frames). Loom on this PC opens no stream panel, in either role: its
+user sees the window on their own screen. Each action also goes to the window's viewers as `cap.agent`; the one to Loom
+on this PC also carries `chat` and `title`.
+
+While an agent acts, Loom on this PC shows the **control bar** (`ControlBar`): a native top-most bar at the top middle of
+the screen of the window the agent uses, reading "Loom is using *window*", with **Stop · Esc**. It never takes the
+focus, is left out of screen captures and streams, and holds the Esc hot key only while it shows. Stop or Esc stops
+the turn of the chat whose agent acted; the bar leaves when that turn ends, or after a minute without an action.

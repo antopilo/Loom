@@ -233,7 +233,7 @@ internal sealed class AgentWindowTools : IDisposable
 			"Lists the visible windows of the PC your chat runs on: id, title, process and client size in pixels. Pass an id, or part of a title, as window to the other window_ tools.",
 			"""{ "type": "object", "properties": {}, "additionalProperties": false }""" ),
 		BuildInfo( ShowTool,
-			"Shows a window of this PC to the user live, in a Window stream panel beside your conversation, without taking their focus. The other window_ tools show it too.",
+			"Brings a window of this PC to the user's attention without taking their focus: the user of this PC sees it on their own screen, with a bar to stop you, and paired devices that watch your chat stream it. The other window_ tools do this too.",
 			$$"""{ "type": "object", "properties": { {{WindowArgument}} }, "required": ["window"], "additionalProperties": false }""" ),
 		BuildInfo( CaptureTool,
 			$"Captures a window of this PC as an image at most {CaptureWidth} pixels wide, saves it and returns its path; read that file to see the window. window_click and window_scroll take x and y in pixels of the window's last capture. Also shows the window to the user.",
@@ -327,7 +327,7 @@ internal sealed class AgentWindowTools : IDisposable
 	{
 		var window = Resolve( arguments );
 		var shown = DescribeShown( context, window );
-		_notify( new( window.Hwnd, AgentWindowUse.Capture ) );
+		_notify( new( window.Hwnd, AgentWindowUse.Capture, Chat: context.Conversation, Title: window.Title ) );
 		var (path, width, height) = await SaveCaptureAsync( window, context.Cancellation );
 		return new( $"Saved a {width}×{height} capture of \"{window.Title}\" (id {window.Hwnd}) to {path}. Read that file to see it; window_click and window_scroll take x and y in its pixels. {shown}" );
 	}
@@ -419,7 +419,8 @@ internal sealed class AgentWindowTools : IDisposable
 		if ( !isSent )
 			throw new InvalidOperationException( $"Windows did not let Loom send input to \"{window.Title}\": it is closed, or could not be brought to the front. Call window_capture to check it." );
 
-		_notify( x >= 0 ? new( window.Hwnd, kind, x / Math.Max( 1, size.Width ), y / Math.Max( 1, size.Height ) ) : new( window.Hwnd, kind ) );
+		_notify( x >= 0 ? new( window.Hwnd, kind, x / Math.Max( 1, size.Width ), y / Math.Max( 1, size.Height ), context.Conversation, window.Title )
+			: new( window.Hwnd, kind, Chat: context.Conversation, Title: window.Title ) );
 		await Task.Delay( SettleDelay, context.Cancellation );
 		var (path, width, height) = await SaveCaptureAsync( window, context.Cancellation );
 		return new( $"{done} in \"{window.Title}\". Saved a {width}×{height} capture of the result to {path}; read it to see the window now. {shown}" );
@@ -427,7 +428,7 @@ internal sealed class AgentWindowTools : IDisposable
 
 	/// <summary>Shows a window to the user and says whether they see it.</summary>
 	private string DescribeShown( AgentToolContext context, CaptureWindow window ) => _show( context, window )
-		? "The user sees the window live in a Window stream panel."
+		? "The user sees the window, on their own screen or live in a Window stream panel, and can stop you with Esc."
 		: "No Loom window shows your conversation now, so the user does not see the window.";
 
 	/// <summary>Refuses input into a window that is gone or that Windows protects from this process.</summary>

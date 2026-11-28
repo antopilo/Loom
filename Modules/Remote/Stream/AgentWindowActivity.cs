@@ -5,7 +5,9 @@ namespace Lokn.Modules.Remote;
 /// <param name="Kind">What the agent did: <see cref="Capture"/>, <see cref="Click"/>, <see cref="Type"/>, <see cref="Key"/> or <see cref="Scroll"/>.</param>
 /// <param name="X">Where, as a fraction of the window's width from its left edge, 0 to 1; negative when the action has no point.</param>
 /// <param name="Y">Where, as a fraction of the window's height from its top edge, 0 to 1; negative when the action has no point.</param>
-public sealed record AgentWindowUse( long Hwnd, string Kind, double X = -1, double Y = -1 )
+/// <param name="Chat">The chat whose agent acted, or null when no chat's agent did.</param>
+/// <param name="Title">The window's title.</param>
+public sealed record AgentWindowUse( long Hwnd, string Kind, double X = -1, double Y = -1, Guid? Chat = null, string Title = "" )
 {
 	/// <summary>Defines the kind of a capture the agent took.</summary>
 	public const string Capture = "capture";

@@ -206,6 +206,13 @@ public sealed class StreamService : IHostService, IDisposable
 				continue;
 
 			var push = new JsonObject { ["t"] = "cap.agent", ["hwnd"] = use.Hwnd, ["kind"] = use.Kind };
+			// Loom on this PC shows the control bar, which names the window and stops the chat; paired devices only mark the stream.
+			if ( connection.DeviceId == HostGateway.LocalDevice )
+			{
+				push["title"] = use.Title;
+				if ( use.Chat is { } chat )
+					push["chat"] = chat.ToString( "N" );
+			}
 			if ( use.HasPoint )
 			{
 				push["x"] = use.X;
