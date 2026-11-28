@@ -340,8 +340,9 @@ internal sealed partial class HistoryContent
 			drop => context.Run( () => UpdateHalfPointer( drop, isOverRow: true ) ) ) );
 	}
 
-	/// <summary>Builds the split row's frame, as Arc draws it: always lit, and set around its tiles rather than inside a plain row's box, so each title
-	/// keeps a plain row's height and starts where other titles do.</summary>
+	/// <summary>Builds the split row's frame, as Arc draws it, set around its tiles rather than inside a plain row's box, so each title keeps a plain
+	/// row's height and starts where other titles do. Focused it is lit; otherwise only a hairline outlines it, so its two tiles read as a pair and not
+	/// as one lit row like the selected chat.</summary>
 	private static Row BuildSplitFrame( string key, int indent, bool isFocused, List<Blob> halves, DropTarget? drop = null ) => new()
 	{
 		Key = key,
@@ -352,13 +353,16 @@ internal sealed partial class HistoryContent
 		Margin = new Edges( -SplitInset, -SplitInset, -SplitInset, indent - SplitInset ),
 		Padding = SplitInset,
 		BorderRadius = Theme.Current.Radius + SplitInset,
-		BackgroundColor = Theme.Current.Hover,
+		BackgroundColor = isFocused ? Theme.Current.Hover : Color.Transparent,
+		BorderWidth = isFocused ? 0 : Theme.Current.BorderWidth,
+		BorderColor = Theme.Current.Border,
 		AlignItems = AlignItems.Stretch,
 		DropTarget = drop,
 		Children = halves,
 	};
 
-	/// <summary>Builds one half of a split row: the chat's title on a tile, lighter for the focused chat, as Arc draws it.</summary>
+	/// <summary>Builds one half of a split row: the chat's title on its own tile, as Arc draws it. The focused chat's tile is lit; the other halves keep a
+	/// faint tile and muted title, so even an unfocused split shows its two halves.</summary>
 	private Button BuildSplitTile( string key, string title, bool isActive, Action click )
 	{
 		var theme = Theme.Current;
@@ -371,9 +375,8 @@ internal sealed partial class HistoryContent
 			Padding = new Edges( 0, theme.Spacing ),
 			// Nested in the row's padding, so the tile's corners follow the row's.
 			BorderRadius = theme.Radius,
-			// The focused chat's tile is lighter; the other stays on the frame's color.
-			BackgroundColor = isActive ? theme.Text.WithAlpha( 0.1 ) : Color.Transparent,
-			HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( 0.07 ) },
+			BackgroundColor = theme.Text.WithAlpha( isActive ? 0.1 : 0.045 ),
+			HoverStyle = new Style { BackgroundColor = theme.Text.WithAlpha( isActive ? 0.12 : 0.08 ) },
 			Cursor = Cursor.Pointer,
 			AccessibilityName = isActive ? $"{title}, active in split" : $"{title}, in split",
 			OnClick = () => context.Run( click ),
@@ -381,7 +384,7 @@ internal sealed partial class HistoryContent
 			AlignItems = AlignItems.Center,
 			Children =
 			[
-				SidebarFade.Apply( new Text { Content = title, Color = theme.Text, MinWidth = 0, FlexShrink = 1, TextWrap = TextWrap.NoWrap } ),
+				SidebarFade.Apply( new Text { Content = title, Color = isActive ? theme.Text : theme.Muted, MinWidth = 0, FlexShrink = 1, TextWrap = TextWrap.NoWrap } ),
 			],
 		};
 	}
