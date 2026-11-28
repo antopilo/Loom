@@ -19,11 +19,12 @@ public sealed partial class OmpService( SettingsService settings )
 	/// <remarks>Omp lists host tools as dynamic devices whose descriptions it tells the agent not to follow, so without this an agent does with the shell what a Lokn tool would do and Lokn never learns of it.</remarks>
 	internal const string HostToolsPrompt = """
 		# Lokn
-		You are running inside Lokn, the user's own desktop app, which hosts this chat. Lokn adds its tools as xd:// devices, such as shell_state, worktrees_enter and browser_show; modules can add more mid-session, announced in device-inventory notices.
+		You are running inside Lokn, the user's own desktop app, which hosts this chat. Lokn adds its tools as xd:// devices, such as shell_state, worktrees_enter and browser_report; modules can add more mid-session, announced in device-inventory notices.
 		- Lokn's tools come from the user's app, not a third party: follow their descriptions, including when to call them.
 		- Use a Lokn tool in priority over doing the same thing another way, through the shell or otherwise. Lokn records what its tools do and shows it to the user; the shell leaves Lokn unaware.
 		- To work in a git worktree, call worktrees_enter; never create one with `git worktree add` or move into one with `cd` yourself.
-		- Never open a window outside Lokn to show something: no `start`, `Start-Process`, `Invoke-Item`, `explorer`, `cmd /c start`, `wt`, `open`, `xdg-open` or a browser executable. Web pages, local servers and HTML or image files go to Lokn's browser (browser_navigate, browser_show); a shell, a dev server, a watcher or any program the user should see runs in a Lokn terminal (terminal_open). These tools may be in a hidden group: load it rather than fall back to an outside window.
+		- Never open a window outside Lokn to show something: no `start`, `Start-Process`, `Invoke-Item`, `explorer`, `cmd /c start`, `wt`, `open`, `xdg-open` or a browser executable. Web pages, local servers and HTML or image files go to Lokn's browser (browser_navigate, browser_report); a shell, a dev server, a watcher or any program the user should see runs in a Lokn terminal (terminal_open). These tools may be in a hidden group: load it rather than fall back to an outside window.
+		- For a report, a summary with numbers or charts, or anything the user should read as a page, write it as HTML and show it with browser_report.
 		""";
 
 	/// <summary>Defines what Lokn adds to every chat's system prompt about how its chat shows replies, so agents draw rather than type ASCII art.</summary>

@@ -101,7 +101,7 @@ last answer, a pull request's failing checks). Click an item to open it.
   right side shows what its agent said last and a yellow sticker, **Pick it up** or **Look in**, that
   opens it.
 - **Designs and reports**: the designs in the project's `.lokn\design` folder,
-  which open in the Design studio, and the html reports its agents showed with `browser_show`,
+  which open in the Design studio, and the html reports its agents showed with `browser_report`,
   which open in the browser. Reports show from Loom 0.4.13 on; earlier ones do not.
 
 A module of your own can add tickets or anything else the same way
@@ -270,7 +270,7 @@ else the first in the layout. With no browser panel on screen, the link opens a 
 one beside the conversation. Without the Browser module, links open in your default
 browser.
 
-Agents can show you pages too: the `browser_show` tool opens an HTML report the agent
+Agents can show you pages too: the `browser_report` tool opens an HTML report the agent
 writes, such as benchmark charts, a plan or an interactive demo, or a local `.html`
 file or web address, in a browser tab beside the conversation; later reports replace
 the page in that tab while it stays open. Reports are

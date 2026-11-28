@@ -86,7 +86,7 @@ public sealed partial class BrowserModule
 			return "Chats are not running.";
 
 		var message = new System.Text.StringBuilder();
-		message.AppendLine( $"I commented on your report \"{shown.Title}\" ({shown.Path}). Revise the report with these comments, then show it again with browser_show:" );
+		message.AppendLine( $"I commented on your report \"{shown.Title}\" ({shown.Path}). Revise the report with these comments, then show it again with browser_report:" );
 		message.AppendLine();
 		for ( var index = 0; index < comments.Count; index++ )
 			message.AppendLine( $"{index + 1}. On \u201C{comments[index].About}\u201D: {comments[index].Comment}" );
@@ -118,7 +118,7 @@ public sealed partial class BrowserModule
 	}
 }
 
-/// <summary>Describes an html report an agent showed with <c>browser_show</c>.</summary>
+/// <summary>Describes an html report an agent showed with <c>browser_report</c>.</summary>
 /// <param name="Path">The saved report file.</param>
 /// <param name="Title">The title the agent gave it, else its file name.</param>
 /// <param name="Created">When it was saved.</param>

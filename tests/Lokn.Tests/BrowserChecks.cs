@@ -89,8 +89,8 @@ internal static class BrowserChecks
 
 			string Refusal( string tool, string json ) =>
 				app.Tools.InvokeAsync( tool, JsonDocument.Parse( json ).RootElement, null, CancellationToken.None, host: desk.Id ).GetAwaiter().GetResult() is { IsError: true } result ? result.Text : "";
-			var html = Refusal( "browser_show", """{ "html": "<p>x</p>" }""" );
-			var path = Refusal( "browser_show", """{ "path": "C:\\Windows\\win.ini" }""" );
+			var html = Refusal( "browser_report", """{ "html": "<p>x</p>" }""" );
+			var path = Refusal( "browser_report", """{ "path": "C:\\Windows\\win.ini" }""" );
 			var file = Refusal( "browser_navigate", """{ "url": "file:///C:/Windows/win.ini" }""" );
 			var drive = Refusal( "browser_navigate", """{ "url": "C:\\Windows\\win.ini" }""" );
 			var unc = Refusal( "browser_navigate", """{ "url": "\\\\server\\share\\a.html" }""" );
@@ -310,7 +310,7 @@ internal static class BrowserChecks
 		// An agent's html report is saved and shown in a new tab of the browser panel beside its conversation.
 		var side = own;
 		var arguments = JsonDocument.Parse( """{ "html": "<h1>Bench</h1>", "title": "Bench: Results v2!" }""" ).RootElement;
-		var result = app.Tools.InvokeAsync( "browser_show", arguments, source, CancellationToken.None ).GetAwaiter().GetResult();
+		var result = app.Tools.InvokeAsync( "browser_report", arguments, source, CancellationToken.None ).GetAwaiter().GetResult();
 		var report = Directory.GetFiles( module.ReportsPath, "*-bench-results-v2.html" ).OrderBy( file => file ).LastOrDefault();
 		var savedReport = report is null ? "" : File.ReadAllText( report );
 		CoreChecks.Check( !result.IsError && report is not null && savedReport.EndsWith( "<h1>Bench</h1>", StringComparison.Ordinal ) && result.Text.Contains( report ), $"An html report is saved under a readable name ({result.Text})." );
@@ -320,14 +320,14 @@ internal static class BrowserChecks
 		var state = Capture( app, side );
 		CoreChecks.Check( state.GetProperty( "Address" ).GetString() == new Uri( report! ).AbsoluteUri && ReadTabs( state ).Length == 3 && app.Panels.Panels.Count( panel => panel.TypeId == "browser.page" ) == 1, "The report loads in a new tab of the existing browser panel." );
 		var again = JsonDocument.Parse( """{ "url": "https://example.com/v3" }""" ).RootElement;
-		CoreChecks.Check( !app.Tools.InvokeAsync( "browser_show", again, source, CancellationToken.None ).GetAwaiter().GetResult().IsError, "A second page shows." );
+		CoreChecks.Check( !app.Tools.InvokeAsync( "browser_report", again, source, CancellationToken.None ).GetAwaiter().GetResult().IsError, "A second page shows." );
 		var replaced = Capture( app, side );
 		CoreChecks.Check( replaced.GetProperty( "Address" ).GetString() == "https://example.com/v3" && ReadTabs( replaced ).Length == 3, "The next report replaces the previous report's tab." );
 
 		var both = JsonDocument.Parse( """{ "html": "<p>x</p>", "url": "https://example.com" }""" ).RootElement;
 		var missing = JsonDocument.Parse( """{ "path": "C:\\no\\such\\report.html" }""" ).RootElement;
-		CoreChecks.Check( app.Tools.InvokeAsync( "browser_show", both, source, CancellationToken.None ).GetAwaiter().GetResult().IsError
-			&& app.Tools.InvokeAsync( "browser_show", missing, source, CancellationToken.None ).GetAwaiter().GetResult().IsError, "Ambiguous arguments and missing files are refused." );
+		CoreChecks.Check( app.Tools.InvokeAsync( "browser_report", both, source, CancellationToken.None ).GetAwaiter().GetResult().IsError
+			&& app.Tools.InvokeAsync( "browser_report", missing, source, CancellationToken.None ).GetAwaiter().GetResult().IsError, "Ambiguous arguments and missing files are refused." );
 
 		// Tabs no panel here shows, such as another window's: the most recent are listed, the rest counted.
 		var loose = Enumerable.Range( 0, 25 ).Select( index => app.BrowserTabs.Open( $"https://loose.example/{index}", SettingsProfile.Personal ).Id ).ToArray();
@@ -351,7 +351,7 @@ internal static class BrowserChecks
 		var before = app.Panels.CaptureLayout().GetRawText();
 		Guid[] earlier = [.. app.Panels.Panels.Where( panel => panel.TypeId == "browser.page" ).Select( panel => panel.Id )];
 		var html = JsonDocument.Parse( """{ "html": "<p>work</p>", "title": "work report" }""" ).RootElement;
-		var result = app.Tools.InvokeAsync( "browser_show", html, chat, CancellationToken.None ).GetAwaiter().GetResult();
+		var result = app.Tools.InvokeAsync( "browser_report", html, chat, CancellationToken.None ).GetAwaiter().GetResult();
 		var opened = app.Panels.Panels.Where( panel => panel.TypeId == "browser.page" ).Select( panel => panel.Id ).Except( earlier ).ToArray();
 		CoreChecks.Check( !result.IsError && opened is [var hidden] && !app.Panels.IsShown( hidden ) && app.Panels.GetWaitingBeside( hidden ) == chat
 			&& app.Panels.CaptureLayout().GetRawText() == before && ReadTabs( Capture( app, personal ) ).Length == 1,

@@ -156,7 +156,7 @@ internal static class AgentToolChecks
 			( context, arguments ) => new( $"{arguments.GetProperty( "text" ).GetString()} from {context.Caller}" ) ) ) );
 		// A group holding a default tool: economy keeps that tool published and hides the rest of the group behind the loader.
 		app.Load( new FixtureModule( "browser", builder => builder
-			.Tool( "show", "Shows a page.", """{ "type": "object" }""", ( _, _ ) => new( "shown" ) )
+			.Tool( "report", "Shows a page.", """{ "type": "object" }""", ( _, _ ) => new( "shown" ) )
 			.Tool( "act", "Clicks in a page.", """{ "type": "object" }""", ( _, _ ) => new( "acted" ) ) ) );
 		var caller = Guid.NewGuid();
 		var frames = new BlockingCollection<JsonElement>();
@@ -191,8 +191,8 @@ internal static class AgentToolChecks
 			var initialNames = initial.GetProperty( "names" ).EnumerateArray().Select( name => name.GetString() ).ToArray();
 			CoreChecks.Check( initialNames.Contains( "lokn_load_tools" ) && !initialNames.Contains( "fixture_echo" ),
 				"Economy mode initially offers a loader instead of an unrelated feature group's schemas." );
-			CoreChecks.Check( initialNames.Contains( "browser_show" ) && !initialNames.Contains( "browser_act" ),
-				"Economy mode always publishes the default tools, such as browser_show, and hides the rest of their group." );
+			CoreChecks.Check( initialNames.Contains( "browser_report" ) && !initialNames.Contains( "browser_act" ),
+				"Economy mode always publishes the default tools, such as browser_report, and hides the rest of their group." );
 			CoreChecks.Check( published.GetProperty( "names" ).EnumerateArray().Any( name => name.GetString() == "fixture_echo" ),
 				"The loader publishes a requested Lokn feature group for this chat." );
 			CoreChecks.Check( result.GetProperty( "text" ).GetString() == $"hi from {caller}" && !result.GetProperty( "isError" ).GetBoolean(),

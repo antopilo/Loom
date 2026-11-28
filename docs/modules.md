@@ -491,7 +491,7 @@ to the modules that registered `builder.LinkHandler( request => … )`, asked in
 a handler returns true when it opened the link. The Browser
 module takes http and https links and opens each in a new tab of the browser panel on
 screen, or in a new browser panel beside the panel id given when none is shown. Pages an
-agent opens (`browser_show`, `browser_navigate`) go to the browser beside its chat, in
+agent opens (`browser_report`, `browser_navigate`) go to the browser beside its chat, in
 the chat's profile; a chat the user is not looking at gets its browser hidden beside it,
 and its tools never drive the browser on screen. A link no handler takes goes to the
 default browser when it is http or https.

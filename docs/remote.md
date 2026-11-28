@@ -895,7 +895,7 @@ cancellation (sent as `tool.cancel`) or the connection closing (an error result)
 connection closes the daemon removes the offer; `AgentToolRegistry.Changed` makes each
 `OmpToolBridge` republish.
 
-Browser tools need a window's web view. The daemon loads the Browser module, whose tools (`browser_show`,
+Browser tools need a window's web view. The daemon loads the Browser module, whose tools (`browser_report`,
 `browser_tabs`, `browser_navigate`, `browser_read`, `browser_act`, `browser_eval`, `browser_screenshot`) act on the
 session's tabs; in the daemon each call goes to `BrowserTabs.Windows`, which the gateway's `ToolService` is, and runs as
 a `tool.call` in a window that lends its browser: one that offered tools of module `browser`. The window that shows the
@@ -913,7 +913,7 @@ empty list, which stops the lending, and a `tool.call` for any other tool, or wh
 error. Its other tools would act on its own PC rather than the host's. Its browser tools never show the host's agents
 this PC: they load only `http` and `https` pages, through the proxy that sends loopback to the host (Localhost
 forwarding), so `browser_navigate` refuses files, drive and UNC paths and other schemes, every page tool refuses a tab at
-such an address, and `browser_show` refuses `html` and `path`, whose files are on the host: the agent serves the page
+such an address, and `browser_report` refuses `html` and `path`, whose files are on the host: the agent serves the page
 on the host's localhost instead and passes its `url`. `browser_screenshot` uploads its PNG to the host (`upload`,
 `BrowserTabs.ShareFile`) and answers the host's path, which the agent can read.
 

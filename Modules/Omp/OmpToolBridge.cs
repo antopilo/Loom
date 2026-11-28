@@ -123,7 +123,7 @@ public sealed class OmpToolBridge : IDisposable
 			{
 				name = LoaderName,
 				label = "Load Lokn tools",
-				// Each group names its tools and what they are for, so an agent asked for, say, a report finds browser_show among the hidden ones.
+				// Each group names its tools and what they are for, so an agent finds a tool by what it does among the hidden ones.
 				description = "Loads hidden Lokn tool groups for this chat. Load a group before its feature is needed. Groups and their tools:\n"
 					+ string.Join( "\n", hiddenGroups.Select( group => $"- {group}: " + string.Join( "; ", registered.Where( tool => tool.ModuleId == group )
 						.Select( tool => $"{tool.Name} ({ComputeSummary( tool.Description )})" ) ) ) ),
@@ -188,7 +188,7 @@ public sealed class OmpToolBridge : IDisposable
 
 	/// <summary>Names the tools economy mode never hides, besides the shell's panel tools: the ones that replace what an agent would otherwise do with an
 	/// outside window (a browser, a console) or a raw git command, so an agent never has to know a group exists to use Lokn's own way.</summary>
-	internal static readonly HashSet<string> DefaultTools = new( StringComparer.Ordinal ) { "worktrees_enter", "browser_show", "browser_navigate", "terminal_open" };
+	internal static readonly HashSet<string> DefaultTools = new( StringComparer.Ordinal ) { "worktrees_enter", "browser_report", "browser_navigate", "terminal_open" };
 
 	/// <summary>Keeps the shell's panel tools and the <see cref="DefaultTools"/> available without loading a feature group.</summary>
 	private static bool IsBaseline( AgentToolInfo tool ) => tool.ModuleId == "shell" || DefaultTools.Contains( tool.Name );

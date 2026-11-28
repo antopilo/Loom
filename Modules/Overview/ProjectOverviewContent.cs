@@ -359,7 +359,7 @@ internal sealed partial class ProjectOverviewContent : PanelContent
 		if ( cards.Count == 0 )
 		{
 			return [new( "none", () => BuildNote( "none", host.IsLocal
-				? "No designs or reports yet. Agents add them with the design tools and browser_show."
+				? "No designs or reports yet. Agents add them with the design tools and browser_report."
 				: $"No designs yet. Reports of {host.Name}'s chats show on that PC." ) )];
 		}
 
